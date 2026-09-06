@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, MapPin, Save, ListChecks, Settings2, Terminal, Wifi, WifiOff, X } from "lucide-react";
+import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, MapPin, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
 import {
   Area,
   AreaChart,
