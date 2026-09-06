@@ -233,21 +233,43 @@ def update_config_sync_config(patch: dict) -> dict:
 
 def get_agent_config(server_id: str) -> dict:
     """Effective agent runtime config for a server (global defaults + overrides)."""
+    from app.database.connection import parse_id
     sync_cfg = get_config_sync_config()
-    override = db.server_configs().find_one({"server_id": server_id}) or {}
+    sid = parse_id(server_id) or server_id
+    override = (
+        db.server_configs().find_one({"$or": [{"server_id": sid}, {"server_id": server_id}]})
+        or {}
+    )
 
-    col_overrides: dict[str, list[str]] | None = override.get("config_collections")
-    if col_overrides is not None:
-        collections = list(col_overrides.items())
+    col_raw = override.get("config_collections")
+    formatted_collections: list[dict] = []
+
+    if isinstance(col_raw, dict):
+        formatted_collections = [
+            {"database": str(d), "collections": [str(x) for x in c]}
+            for d, c in col_raw.items()
+        ]
+    elif isinstance(col_raw, list):
+        for item in col_raw:
+            if isinstance(item, dict) and item.get("database"):
+                cols = item.get("collections", [])
+                cols_list = [str(x) for x in cols] if isinstance(cols, (list, tuple)) else []
+                formatted_collections.append({
+                    "database": str(item["database"]),
+                    "collections": cols_list,
+                })
     else:
-        collections = list(_AGENT_DEFAULT_COLLECTIONS.items())
+        formatted_collections = [
+            {"database": d, "collections": list(c)}
+            for d, c in _AGENT_DEFAULT_COLLECTIONS.items()
+        ]
 
     monitored_services = override.get("monitored_services")
-    if monitored_services is None:
+    if not isinstance(monitored_services, list):
         monitored_services = list(_AGENT_DEFAULT_SERVICES)
 
     targets = override.get("connectivity_targets")
-    if targets is None:
+    if not isinstance(targets, list):
         targets = _AGENT_DEFAULT_TARGETS
 
     enabled = override.get("config_sync_enabled", sync_cfg["config_sync_enabled"])
@@ -261,9 +283,7 @@ def get_agent_config(server_id: str) -> dict:
         "config_sync_enabled": bool(enabled),
         "config_sync_hour": max(0, min(23, hour)),
         "monitored_services": [str(s) for s in monitored_services],
-        "config_collections": [
-            {"database": d, "collections": list(c)} for d, c in collections
-        ],
+        "config_collections": formatted_collections,
         "connectivity_targets": [
             {"name": str(t.get("name", "")), "ip": str(t.get("ip", ""))}
             for t in targets
@@ -271,6 +291,7 @@ def get_agent_config(server_id: str) -> dict:
         ],
         **scalars,
     }
+
 
 
 def _coerce_clamped_int(raw, key: str, lo: float, hi: float) -> int:
