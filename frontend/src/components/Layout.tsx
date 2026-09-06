@@ -150,7 +150,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {wide && (
             <>
               <span className="flex-1 truncate whitespace-nowrap font-semibold tracking-tight">
-                Octyn <span className="text-emerald-400">Watcher</span>
+                OcTyn <span className="text-emerald-400">DevOps</span>
               </span>
               {!isMobile && (
                 <Button

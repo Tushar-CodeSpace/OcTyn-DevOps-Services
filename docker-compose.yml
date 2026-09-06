@@ -1,4 +1,4 @@
-# Octyn Watcher - Docker Compose
+# OcTyn DevOps Services - Docker Compose
 # Full stack: mongodb, backend (FastAPI), frontend (React + nginx), agent.
 # Copy .env.example to .env and fill in real values before `docker compose up`.
 name: central-monitoring

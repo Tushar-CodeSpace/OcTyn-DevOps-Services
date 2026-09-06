@@ -824,7 +824,7 @@ SERVER_ID=${registered.serverId}
 API_URL=${window.location.origin}/api/v1
 API_KEY=${registered.key}
 MONITORING_INTERVAL=60
-MONITORED_SERVICES=${form.monitored_services.trim() || "nginx,postgresql"}`}</pre>
+MONITORED_SERVICES=${form.monitored_services.trim()}`}</pre>
                 <Button
                   onClick={() => {
                     setShowAdd(false);

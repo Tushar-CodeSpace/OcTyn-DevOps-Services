@@ -25,7 +25,7 @@ def create_admin():
             "email": email,
             "password_hash": password_hash,
             "name": "Demo Admin",
-            "role": "admin",
+            "role": "super_admin",
             "created_at": datetime.now(timezone.utc),
         }
         db.users.insert_one(doc)

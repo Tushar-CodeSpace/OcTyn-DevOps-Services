@@ -176,7 +176,6 @@ async def ingest_connectivity(
     emit(
         "connectivity",
         {"server_id": server_id, "targets": _emit_ready(results)},
-        room=f"server:{server_id}",
     )
     return {"success": True, "targets": _emit_ready(results)}
 

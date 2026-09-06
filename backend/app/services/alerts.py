@@ -188,6 +188,7 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
         cfg = app_settings.get_alert_config()
 
     offline_timeout = int(cfg.get("offline_threshold_seconds", settings.health_warning_max_seconds))
+    last_seen = server.get("last_seen_at")
     status = compute_status(last_seen, warning_max_seconds=offline_timeout)
     server_id = server["_id"]
     hostname = server.get("hostname")

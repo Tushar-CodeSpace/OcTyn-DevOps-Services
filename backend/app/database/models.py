@@ -50,4 +50,8 @@ def connectivity() -> Collection:
 
 
 def audit_logs() -> Collection:
-    return get_db()["audit_logs"]
+    return get_db()["audit_logs"]
+
+
+def terminal_commands() -> Collection:
+    return get_db()["terminal_commands"]

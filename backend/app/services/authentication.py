@@ -84,3 +84,10 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if effective_role(user) not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return user
+
+
+def require_super_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Dependency for platform-wide controls reserved for super admins."""
+    if effective_role(user) != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin role required")
+    return user

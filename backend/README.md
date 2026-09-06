@@ -1,12 +1,12 @@
-# Octyn Watcher - Backend (FastAPI)
+# OcTyn DevOps Services - Backend (FastAPI)
 
-FastAPI API for the Octyn Watcher platform.
+FastAPI API for the OcTyn DevOps Services platform.
 
 ## Run locally (dev)
 
 ```bash
 cp .env.example .env   # fill real values
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:socket_app --reload --port 8000
 ```
 
 Open http://localhost:8000/docs for the interactive API docs.

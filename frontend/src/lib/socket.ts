@@ -11,7 +11,7 @@ export function getSocket(): Socket {
   if (!socket || socketToken !== token) {
     socket?.disconnect();
     socketToken = token;
-    socket = io({ auth: { token }, transports: ["websocket"] });
+    socket = io({ auth: { token }, transports: ["polling", "websocket"] });
   }
   return socket;
 }

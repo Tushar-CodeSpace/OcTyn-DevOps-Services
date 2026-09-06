@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
+from app.realtime import emit
 from app.schemas.configs import ConfigIngest, ConfigSnapshotFull, ConfigSnapshotMeta
 from app.services import authentication as auth
 from app.services.monitoring import authenticate_agent
@@ -54,19 +55,33 @@ async def ingest_config_snapshot(
         return {"success": True, "stored": False, "reason": "unchanged"}
 
     now = datetime.now(timezone.utc)
-    db.site_configs().insert_one(
+    snapshot = {
+        "_id": new_id(),
+        "server_id": server["_id"],
+        "database": payload.database,
+        "collection": payload.collection,
+        "captured_at": payload.captured_at,
+        "received_at": now,
+        "count": len(documents),
+        "content_hash": payload.content_hash,
+        "truncated": truncated,
+        "documents": documents,
+    }
+    db.site_configs().insert_one(snapshot)
+    emit(
+        "config_snapshot",
         {
-            "_id": new_id(),
-            "server_id": server["_id"],
-            "database": payload.database,
-            "collection": payload.collection,
-            "captured_at": payload.captured_at,
-            "received_at": now,
-            "count": len(documents),
-            "content_hash": payload.content_hash,
-            "truncated": truncated,
-            "documents": documents,
-        }
+            "id": str(snapshot["_id"]),
+            "server_id": str(server["_id"]),
+            "database": snapshot["database"],
+            "collection": snapshot["collection"],
+            "captured_at": snapshot["captured_at"].isoformat(),
+            "received_at": snapshot["received_at"].isoformat(),
+            "count": snapshot["count"],
+            "content_hash": snapshot["content_hash"],
+            "truncated": snapshot["truncated"],
+        },
+        room=f"server:{server['_id']}",
     )
     return {"success": True, "stored": True}
 

@@ -1,4 +1,4 @@
-"""Seed the Octyn Watcher database with demo data.
+"""Seed the OcTyn DevOps Services database with demo data.
 
 Usage (from repo root):
     uv run --project backend scripts/seed.py
@@ -115,7 +115,7 @@ def main() -> None:
                         DEMO_USER_PASSWORD.encode(), bcrypt.gensalt()
                     ).decode(),
                     "name": "Demo Admin",
-                    "role": "admin",
+                    "role": "super_admin",
                     "created_at": now(),
                 }
             )

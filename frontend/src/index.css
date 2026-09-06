@@ -283,6 +283,21 @@ body.tui-theme select:focus {
   box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important;
 }
 
+/* Terminal page: the inline command prompt must have NO chrome (overrides tui-theme input borders) */
+#terminal-input {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+}
+#terminal-input:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
 /* Terminal Tables */
 body.tui-theme table {
   border: 1px solid #334155 !important;
@@ -343,4 +358,13 @@ body.tui-theme ::-webkit-scrollbar-thumb {
   background: #334155;
   border: 1px solid #475569;
   border-radius: 0px;
+}
+
+/* Blinking terminal cursor */
+@keyframes terminal-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.animate-terminal-blink {
+  animation: terminal-blink 1s steps(2, jump-none) infinite;
 }

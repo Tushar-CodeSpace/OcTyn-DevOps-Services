@@ -126,6 +126,26 @@ async def ingest_metric(
         },
     )
     server_id = str(server["_id"])
+    updated_server = db.servers().find_one({"_id": server["_id"]})
+    if updated_server is not None:
+        server_payload = {
+            "id": str(updated_server["_id"]),
+            "site_id": str(updated_server["site_id"]),
+            "name": updated_server["name"],
+            "hostname": updated_server["hostname"],
+            "ip_address": updated_server.get("ip_address"),
+            "status": updated_server.get("status", "unknown"),
+            "last_seen_at": updated_server.get("last_seen_at").isoformat()
+            if updated_server.get("last_seen_at")
+            else None,
+            "created_at": updated_server["created_at"].isoformat(),
+            "updated_at": updated_server["updated_at"].isoformat(),
+        }
+        emit("server_updated", server_payload, room=f"server:{server_id}")
+        emit(
+            "server_status",
+            {"server_id": server_id, "status": server_payload["status"]},
+        )
     agent_cfg = app_settings.get_agent_config(server_id)
     return MetricIngestResponse(
         success=True,

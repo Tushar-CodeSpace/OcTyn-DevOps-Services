@@ -2,10 +2,14 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir psutil httpx pydantic-settings pymongo
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uv/bin/uv
 
+COPY pyproject.toml .
 COPY agent ./agent
+COPY main.py .
+
+RUN /uv/bin/uv pip install --system --no-cache .
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "agent/app.py"]
+CMD ["python", "-m", "agent.app"]

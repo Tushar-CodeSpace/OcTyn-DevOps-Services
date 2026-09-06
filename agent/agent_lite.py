@@ -17,8 +17,10 @@ import hashlib
 import json
 import os
 import platform
+import py_compile
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -36,9 +38,9 @@ from datetime import datetime, timezone
 # config) on boot and whenever it changes in the dashboard.
 CONFIG = {
     # --- required ---
-    "SERVER_ID": "",            # UUID shown in the dashboard / add-agent dialog
-    "API_URL": "",              # e.g. http://central-host:8000/api/v1
-    "API_KEY": "",              # per-agent key, starts with "cm-"
+    "SERVER_ID": "cfb1bdd4-3fcc-4c8c-8c81-ff2328b415da",            # UUID shown in the dashboard / add-agent dialog
+    "API_URL": "http://172.23.160.1:8000/api/v1",              # e.g. http://central-host:8000/api/v1
+    "API_KEY": "cm-a3xXbl2-M5bRgjL9jSAWixPB1CEHLWQ_yIwkQoVeHwk",              # per-agent key, starts with "cm-"
     # --- optional bootstrap defaults (overridden by the pulled agent config) ---
     "MONITORING_INTERVAL": 10,          # seconds between pushes
     "MONITORED_SERVICES": "",           # comma list name[:port], e.g. nginx:80,postgresql:5432
@@ -249,6 +251,204 @@ def start_connectivity_poller():
     threading.Thread(target=_poll, name="connectivity-poller", daemon=True).start()
 
 
+def _kill_process_group(process):
+    """SIGKILL the whole process group so child processes (e.g. ping) are reaped."""
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+    try:
+        process.wait()
+    except Exception:
+        pass
+
+
+def _interrupt_process(process):
+    """Send Ctrl+C (SIGINT) to the process group, then SIGKILL if it won't die."""
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGINT)
+    except Exception:
+        try:
+            process.send_signal(signal.SIGINT)
+        except Exception:
+            pass
+    try:
+        process.wait(timeout=2)
+    except Exception:
+        _kill_process_group(process)
+
+
+def _is_cancelled(command_id):
+    """Ask the hub whether a command was cancelled (Ctrl+C requested)."""
+    req = urllib.request.Request(
+        "%s/terminal/commands/%s/status" % (API_URL, command_id),
+        headers={"X-API-Key": API_KEY},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=min(http_timeout(), 5)) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read(4000) or b"{}")
+                return isinstance(data, dict) and data.get("status") == "cancelling"
+    except Exception:
+        pass
+    return False
+
+
+_TERMINAL_CWD = os.path.expanduser("~")
+
+
+def poll_terminal_command():
+    """Claim and execute one super-admin terminal command, if queued."""
+    global _TERMINAL_CWD
+    import selectors
+    import tempfile
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    req = Request(
+        "%s/terminal/poll" % API_URL,
+        headers={"X-API-Key": API_KEY},
+    )
+    try:
+        with urlopen(req, timeout=min(http_timeout(), 5)) as resp:
+            payload = json.loads(resp.read(5000) or b"{}")
+    except (URLError, OSError, ValueError):
+        return
+
+    command = payload.get("command") if isinstance(payload, dict) else None
+    if not isinstance(command, dict):
+        return
+    command_id = str(command.get("id", ""))
+    text = str(command.get("command", ""))
+    try:
+        timeout = max(1, min(600, int(command.get("timeout_seconds", 300))))
+    except (TypeError, ValueError):
+        timeout = 30
+    if not command_id or not text:
+        return
+
+    if not _TERMINAL_CWD or not os.path.isdir(_TERMINAL_CWD):
+        _TERMINAL_CWD = os.path.expanduser("~")
+
+    cwd_file = os.path.join(tempfile.gettempdir(), "term_cwd_%s.txt" % command_id)
+    cmd_to_run = "%s\n__RET=$?\npwd > %s 2>/dev/null\nexit $__RET" % (text, cwd_file)
+
+    process = None
+    selector = None
+    try:
+        process = subprocess.Popen(
+            cmd_to_run,
+            cwd=_TERMINAL_CWD,
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + timeout
+        last_cancel_check = 0.0
+        while process.poll() is None:
+            now_mono = time.monotonic()
+            if now_mono >= deadline:
+                _kill_process_group(process)
+                push("/terminal/result", {
+                    "command_id": command_id,
+                    "output": "\nCommand timed out.\n",
+                    "exit_code": None,
+                    "timed_out": True,
+                    "complete": True,
+                })
+                if os.path.exists(cwd_file):
+                    try:
+                        os.remove(cwd_file)
+                    except Exception:
+                        pass
+                return
+            if now_mono - last_cancel_check >= 1.0:
+                last_cancel_check = now_mono
+                if _is_cancelled(command_id):
+                    _interrupt_process(process)
+                    push("/terminal/result", {
+                        "command_id": command_id,
+                        "output": "\nCommand interrupted (Ctrl+C).\n",
+                        "exit_code": None,
+                        "timed_out": False,
+                        "cancelled": True,
+                        "complete": True,
+                    })
+                    if os.path.exists(cwd_file):
+                        try:
+                            os.remove(cwd_file)
+                        except Exception:
+                            pass
+                    return
+            for key, _ in selector.select(timeout=0.25):
+                chunk = key.fileobj.readline()
+                if chunk:
+                    push("/terminal/result", {
+                        "command_id": command_id,
+                        "output": chunk[-65536:],
+                        "complete": False,
+                    })
+        remaining = process.stdout.read() or ""
+        if remaining:
+            push("/terminal/result", {
+                "command_id": command_id,
+                "output": remaining[-65536:],
+                "complete": False,
+            })
+
+        if os.path.exists(cwd_file):
+            try:
+                with open(cwd_file, "r") as f:
+                    new_cwd = f.read().strip()
+                    if new_cwd and os.path.isdir(new_cwd):
+                        _TERMINAL_CWD = new_cwd
+                os.remove(cwd_file)
+            except Exception:
+                pass
+
+        push("/terminal/result", {
+            "command_id": command_id,
+            "output": "",
+            "exit_code": process.returncode,
+            "timed_out": False,
+            "complete": True,
+        })
+    except Exception as exc:
+        if process is not None and process.poll() is None:
+            _kill_process_group(process)
+        push("/terminal/result", {
+            "command_id": command_id,
+            "output": "Command execution failed: %s\n" % exc,
+            "exit_code": None,
+            "timed_out": False,
+            "complete": True,
+        })
+    finally:
+        if selector is not None:
+            selector.close()
+
+def start_terminal_poller():
+    """Poll for one queued terminal command at a time."""
+
+    def _poll():
+        while True:
+            try:
+                poll_terminal_command()
+            except Exception as exc:
+                log("terminal poll error: %r" % (exc,))
+            time.sleep(1)
+
+    threading.Thread(target=_poll, name="terminal-poller", daemon=True).start()
+
 def fetch_agent_config():
     """GET the effective agent config from the hub (None on failure)."""
     retries = retry_count()
@@ -311,7 +511,7 @@ def config_collections():
 
 def config_services():
     services = _CONFIG.get("monitored_services")
-    if isinstance(services, list) and services:
+    if isinstance(services, list):
         return list(services)
     return SERVICES
 
@@ -782,6 +982,51 @@ def sync_configs():
     log("config sync done: pushed=%d unchanged=%d missing=%d" % (sent, skipped, missing))
 
 
+def check_and_apply_update():
+    """Fetch release info from central hub. If checksum differs or force_update flag is set, auto-update self."""
+    from urllib.request import Request, urlopen
+    try:
+        req = Request(
+            "%s/agent/release" % API_URL,
+            headers={"X-API-Key": API_KEY},
+            method="GET",
+        )
+        with urlopen(req, timeout=http_timeout()) as resp:
+            if resp.status in (200, 201):
+                data = json.loads(resp.read().decode("utf-8"))
+                remote_sha = data.get("sha256")
+                download_path = data.get("download_lite_url", "/agent/download/lite")
+
+                script_path = os.path.abspath(sys.argv[0])
+                if not os.path.exists(script_path):
+                    return
+                with open(script_path, "rb") as f:
+                    local_sha = hashlib.sha256(f.read()).hexdigest()[:12]
+
+                force_upd = bool(_CONFIG.get("force_update", False))
+                if force_upd or (remote_sha and remote_sha != local_sha):
+                    log("[AUTO-UPDATE] Agent release mismatch (remote sha: %s, local sha: %s). Downloading update..." % (remote_sha, local_sha))
+                    down_req = Request(
+                        "%s/%s" % (API_URL, download_path.lstrip("/")),
+                        headers={"X-API-Key": API_KEY},
+                        method="GET",
+                    )
+                    tmp_path = script_path + ".tmp"
+                    with urlopen(down_req, timeout=30) as down_resp:
+                        if down_resp.status in (200, 201):
+                            content = down_resp.read()
+                            with open(tmp_path, "wb") as tf:
+                                tf.write(content)
+                            py_compile.compile(tmp_path, doraise=True)
+                            os.replace(tmp_path, script_path)
+                            log("[AUTO-UPDATE] Successfully updated agent. Exiting cleanly for systemd auto-restart.")
+                            sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        log("[AUTO-UPDATE] Agent update check error: %r" % (exc,))
+
+
 def main():
     if not (SERVER_ID and API_URL and API_KEY):
         sys.exit(
@@ -795,15 +1040,23 @@ def main():
 
     start_config_poller()
     start_connectivity_poller()
+    start_terminal_poller()
 
     # Config backup runs once daily at the centrally-configured hour
     # (default 12:00 AM local time of this host).
     last_config_sync_day = None
+    update_check_counter = 0
     while True:
         try:
             cycle()
         except Exception as exc:  # never die mid-cycle
             log("cycle error: %r" % exc)
+
+        # Check for updates every 6 cycles or when force_update flag is set
+        update_check_counter += 1
+        if update_check_counter >= 6 or bool(_CONFIG.get("force_update", False)):
+            update_check_counter = 0
+            check_and_apply_update()
 
         now_local = datetime.now()
         if (

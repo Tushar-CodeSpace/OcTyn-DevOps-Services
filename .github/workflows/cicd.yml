@@ -225,3 +225,8 @@ jobs:
 
             echo "$NEW_TAG" > .last_good_sha
             echo "deployed $NEW_TAG successfully"
+
+            # Notify site agents across all remote locations of updated release
+            echo "Notifying remote site agents of new release ($NEW_TAG)..."
+            curl -s -X POST http://localhost:8000/api/v1/agent/trigger-update \
+              -H "Content-Type: application/json" || true

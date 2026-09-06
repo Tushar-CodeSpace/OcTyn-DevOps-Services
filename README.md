@@ -1,4 +1,4 @@
-# Octyn Watcher
+# OcTyn DevOps Services
 
 A centralized **continuous monitoring (CM) platform** for tracking multiple
 client sites, servers, services and alerts from one dashboard. Lightweight
@@ -59,7 +59,7 @@ evaluator derives health + raises alerts → dashboard polls and renders.
 ## Project layout
 
 ```
-central_monitoring_system/
+ocTyn_devops_services/
 ├── backend/                 # FastAPI application
 │   ├── app/
 │   │   ├── config/          # settings (pydantic-settings)
@@ -117,7 +117,7 @@ docker compose up -d mongodb
 uv run --project backend scripts/seed.py          # 2 sites, 1 server, demo user, demo API key
 
 # 3. Backend
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000   # from backend/
+uv run uvicorn app.main:socket_app --host 127.0.0.1 --port 8000   # from backend/
 
 # 4. Frontend (dev server with /api proxy)
 npm install && npm run dev                          # from frontend/
@@ -245,7 +245,7 @@ uv run --project agent agent/app.py            # test once, watch it push
 
 # run forever via systemd — create /etc/systemd/system/cm-agent.service:
 # [Unit]
-# Description=Octyn Watcher Agent
+# Description=OcTyn DevOps Services Agent
 # After=network-online.target
 # [Service]
 # WorkingDirectory=/opt/monitoring-agent/agent
@@ -434,7 +434,7 @@ Repo → Settings → Secrets and variables → Actions → *New repository secr
 
 ```bash
 # Docker + compose plugin installed, then:
-git clone https://github.com/Tushar-CodeSpace/central_monitoring_system.git /opt/central_monitoring
+git clone https://github.com/Tushar-CodeSpace/OcTyn-DevOps-Services.git /opt/central_monitoring
 cd /opt/central_monitoring
 
 # own it as the deploy user (avoids git dubious-ownership / write errors)

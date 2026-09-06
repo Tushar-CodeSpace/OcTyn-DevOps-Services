@@ -224,7 +224,7 @@ export default function UsersPage() {
                     className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
                   >
                     <option value="viewer">Viewer (Read-only)</option>
-                    <option value="admin">Admin (Full Control)</option>
+                    <option value="admin">Admin (Operational Control)</option>
                   </select>
                 </div>
               </div>
@@ -258,67 +258,67 @@ export default function UsersPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {users
-                    .filter((u) => currentUserIsSuperAdmin || (String(u.role).toLowerCase() !== "super_admin" && u.email !== "admin@monitoring.com"))
+                    .filter((u) => currentUserIsSuperAdmin || String(u.role).toLowerCase() !== "super_admin")
                     .map((u) => {
-                    const isSelf = currentUser?.id === u.id;
-                    const isSuperAdmin = String(u.role).toLowerCase() === "super_admin" || u.email === "admin@monitoring.com";
-                    const initials = (u.name || u.email).slice(0, 2).toUpperCase();
-                    return (
-                      <tr key={u.id} className="group transition-colors hover:bg-slate-800/40">
-                        <td className="py-2.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 to-sky-500/20 text-[10px] font-bold text-emerald-300 shadow-inner">
-                              {initials}
+                      const isSelf = currentUser?.id === u.id;
+                      const isSuperAdmin = String(u.role).toLowerCase() === "super_admin";
+                      const initials = (u.name || u.email).slice(0, 2).toUpperCase();
+                      return (
+                        <tr key={u.id} className="group transition-colors hover:bg-slate-800/40">
+                          <td className="py-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 to-sky-500/20 text-[10px] font-bold text-emerald-300 shadow-inner">
+                                {initials}
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-200">{u.email}</div>
+                                {u.name && <div className="text-[11px] text-slate-400">{u.name}</div>}
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-medium text-slate-200">{u.email}</div>
-                              {u.name && <div className="text-[11px] text-slate-400">{u.name}</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-2.5">
-                          {String(u.role).toLowerCase() === "super_admin" || u.email === "admin@monitoring.com" ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-gradient-to-r from-amber-500/20 to-orange-500/20 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-amber-300 ring-1 ring-amber-500/40 shadow-sm shadow-amber-500/20">
-                              <Crown className="h-3 w-3 text-amber-400 animate-pulse" />
-                              super_admin
-                            </span>
-                          ) : (
-                            <select
-                              value={u.role}
-                              disabled={isSelf}
-                              onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
-                              className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          </td>
+                          <td className="py-2.5">
+                            {String(u.role).toLowerCase() === "super_admin" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/50 bg-gradient-to-r from-amber-500/20 to-orange-500/20 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-amber-300 ring-1 ring-amber-500/40 shadow-sm shadow-amber-500/20">
+                                <Crown className="h-3 w-3 text-amber-400 animate-pulse" />
+                                super_admin
+                              </span>
+                            ) : (
+                              <select
+                                value={u.role}
+                                disabled={isSelf}
+                                onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
+                                className="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300 outline-none focus:border-emerald-500 disabled:opacity-50"
+                              >
+                                <option value="viewer">viewer</option>
+                                <option value="admin">admin</option>
+                                {currentUserIsSuperAdmin && <option value="super_admin">super_admin</option>}
+                              </select>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-right flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title={`Reset password for ${u.email}`}
+                              onClick={() => handleAdminResetPassword(u.id, u.email)}
+                              className="h-7 w-7 text-slate-500 hover:text-sky-400"
                             >
-                              <option value="viewer">viewer</option>
-                              <option value="admin">admin</option>
-                              <option value="super_admin">super_admin</option>
-                            </select>
-                          )}
-                        </td>
-                        <td className="py-2.5 text-right flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={`Reset password for ${u.email}`}
-                            onClick={() => handleAdminResetPassword(u.id, u.email)}
-                            className="h-7 w-7 text-slate-500 hover:text-sky-400"
-                          >
-                            <KeyRound className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={isSelf || isSuperAdmin}
-                            title={isSelf ? "Cannot delete your own account" : isSuperAdmin ? "Cannot delete a super admin" : "Delete user"}
-                            onClick={() => handleDeleteUser(u.id, u.email)}
-                            className="h-7 w-7 text-slate-500 hover:text-red-400 disabled:opacity-30"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              <KeyRound className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={isSelf || isSuperAdmin}
+                              title={isSelf ? "Cannot delete your own account" : isSuperAdmin ? "Cannot delete a super admin" : "Delete user"}
+                              onClick={() => handleDeleteUser(u.id, u.email)}
+                              className="h-7 w-7 text-slate-500 hover:text-red-400 disabled:opacity-30"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>

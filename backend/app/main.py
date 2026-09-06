@@ -11,6 +11,7 @@ from app.database.indexes import ensure_indexes
 from app.realtime import init_loop, sio
 from app.routes import (
     agent_config,
+    agent_update,
     alerts,
     api_keys,
     auth,
@@ -21,6 +22,7 @@ from app.routes import (
     servers,
     services,
     sites,
+    terminal,
     users,
 )
 from app.routes import configs as configs_routes
@@ -48,7 +50,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Octyn Watcher API",
+    title="OcTyn DevOps Services API",
     description="Centralized continuous monitoring platform - API",
     version="0.1.0",
     lifespan=lifespan,
@@ -75,7 +77,9 @@ app.include_router(alerts.router)
 app.include_router(settings_routes.router)
 app.include_router(dashboard.router)
 app.include_router(agent_config.router)
+app.include_router(agent_update.router)
 app.include_router(connectivity.router)
+app.include_router(terminal.router)
 
 # Entrypoint for uvicorn: app.main:socket_app
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)

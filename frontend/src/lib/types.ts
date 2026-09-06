@@ -12,7 +12,7 @@ export interface AuditLog {
   id: string;
   user_id?: string;
   email: string;
-  action: "login" | "logout" | "connectivity_lost" | "connectivity_restored";
+  action: "login" | "logout" | "connectivity_lost" | "connectivity_restored" | "terminal_command";
   ip_address?: string;
   user_agent?: string;
   details?: { target?: string; ip?: string; latency_ms?: number | null } | null;

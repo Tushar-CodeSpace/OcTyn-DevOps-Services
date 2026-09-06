@@ -48,7 +48,7 @@ export default function Login() {
           </div>
           <div>
             <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
-              Octyn <span className="text-gradient-emerald">Watcher</span>
+              OcTyn <span className="text-gradient-emerald">DevOps Services</span>
             </h1>
             <p className="mt-1 text-xs font-medium text-slate-400">
               Central Monitoring & Site Infrastructure Hub

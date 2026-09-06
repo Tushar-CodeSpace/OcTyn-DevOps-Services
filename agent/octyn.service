@@ -1,0 +1,24 @@
+[Unit]
+Description=OcTyn DevOps Services Continuous Monitoring Agent
+Documentation=https://github.com/Tushar-CodeSpace/OcTyn-DevOps-Services.git
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/octyn/agent
+EnvironmentFile=-/opt/octyn/agent/.env
+ExecStart=/root/.cargo/bin/uv run agent
+
+# Restart settings
+Restart=always
+RestartSec=5s
+KillMode=process
+
+# Log configuration
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

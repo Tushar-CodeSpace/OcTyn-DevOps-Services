@@ -52,7 +52,15 @@ async def list_users(current: dict = Depends(auth.get_current_user)) -> list[Use
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def create_user(body: UserCreate) -> UserRead:
+async def create_user(
+    body: UserCreate,
+    current: dict = Depends(auth.require_admin),
+) -> UserRead:
+    if body.role == "super_admin" and auth.effective_role(current) != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a super admin can create a super admin",
+        )
     email = body.email.lower()
     if db.users().find_one({"email": email}):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
@@ -69,8 +77,22 @@ async def create_user(body: UserCreate) -> UserRead:
 
 
 @router.patch("/{user_id}", response_model=UserRead)
-async def update_user(user_id: str, body: UserUpdate) -> UserRead:
+async def update_user(
+    user_id: str,
+    body: UserUpdate,
+    current: dict = Depends(auth.require_admin),
+) -> UserRead:
     doc = find_user_or_404(user_id)
+    current_role = auth.effective_role(current)
+    target_role = auth.effective_role(doc)
+    requested_role = body.role
+    if current_role != "super_admin" and (
+        target_role == "super_admin" or requested_role == "super_admin"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a super admin can manage super admin accounts",
+        )
     updates: dict = {}
     data = body.model_dump(exclude_unset=True)
     if "name" in data:

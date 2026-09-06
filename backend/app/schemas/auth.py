@@ -50,10 +50,10 @@ class AuditLogRead(BaseModel):
     user_id: Optional[str] = None
     email: str
     action: Literal[
-        "login", "logout", "connectivity_lost", "connectivity_restored"
+        "login", "logout", "connectivity_lost", "connectivity_restored", "terminal_command"
     ]
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     details: Optional[dict] = None
     timestamp: datetime
-
+
