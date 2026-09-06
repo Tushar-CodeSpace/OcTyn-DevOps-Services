@@ -155,6 +155,8 @@ uv run agent
 
 ## 6. Automated Agent CI/CD & Remote Update System
 
+For step-by-step agent deployment on remote site servers, see the [Remote Site Agent Deployment Guide](file:///d:/octyn_watcher/docs/AGENT_DEPLOYMENT.md).
+
 When changes are pushed to GitHub (`main`), the CI/CD pipeline ([`.github/workflows/cicd.yml`](file:///d:/octyn_watcher/.github/workflows/cicd.yml)) automatically updates both the Central Hub and remote site agents:
 
 1. **GitHub Action Deploy**: Builds and deploys the backend server, storing the new release SHA.

@@ -91,4 +91,5 @@ octyn_watcher/
 ### Documentation (`docs/`)
 - [`docs/ARCHITECTURE.md`](file:///d:/octyn_watcher/docs/ARCHITECTURE.md): System architecture, data flow diagrams, background loops.
 - [`docs/DEPLOYMENT.md`](file:///d:/octyn_watcher/docs/DEPLOYMENT.md): Production deployment guide (Docker, Nginx, Systemd).
+- [`docs/AGENT_DEPLOYMENT.md`](file:///d:/octyn_watcher/docs/AGENT_DEPLOYMENT.md): Remote site agent deployment, upgrading, & CI/CD auto-update guide.
 - [`docs/PROJECT_MAP.md`](file:///d:/octyn_watcher/docs/PROJECT_MAP.md): File registry & component breakdown (this document).
