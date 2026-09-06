@@ -151,6 +151,27 @@ async def get_snapshot(
     return ConfigSnapshotFull(**meta.model_dump(), documents=doc.get("documents", []))
 
 
+def _encode_uri_password(uri: str) -> str:
+    """Safely percent-encode username and password in MongoDB URI if they contain unescaped characters like '@'."""
+    if not uri or "://" not in uri:
+        return uri
+    try:
+        import urllib.parse
+        prefix, rest = uri.split("://", 1)
+        if "@" in rest:
+            userinfo, host_and_options = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                clean_user = urllib.parse.unquote(user)
+                clean_pass = urllib.parse.unquote(password)
+                enc_user = urllib.parse.quote(clean_user, safe="")
+                enc_pass = urllib.parse.quote(clean_pass, safe="")
+                return f"{prefix}://{enc_user}:{enc_pass}@{host_and_options}"
+    except Exception:
+        pass
+    return uri
+
+
 @router.post("/servers/{server_id}/test-backup")
 async def test_and_trigger_backup(
     server_id: str,
@@ -163,16 +184,18 @@ async def test_and_trigger_backup(
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    uri = payload.mongo_uri.strip()
-    if not uri:
+    raw_uri = payload.mongo_uri.strip()
+    if not raw_uri:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mongo URI connection string is required")
 
+    uri = _encode_uri_password(raw_uri)
     trigger_id = str(new_id())
     overrides: dict = {
         "mongo_uri": uri,
         "mongo_auth_source": payload.mongo_auth_source or "admin",
         "mongo_config_enabled": True,
         "trigger_sync_id": trigger_id,
+        "force_update": True,
         "updated_at": datetime.now(timezone.utc),
     }
     if payload.config_collections is not None:

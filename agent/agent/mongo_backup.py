@@ -40,25 +40,21 @@ def _jsonable(value: Any) -> Any:
 
 
 def _encode_uri_password(uri: str) -> str:
-    """Safely percent-encode password in MongoDB URI if needed."""
+    """Safely percent-encode username and password in MongoDB URI if they contain unescaped characters like '@'."""
     if not uri or "://" not in uri:
         return uri
-    try:
-        from pymongo.uri_parser import parse_uri
-        parse_uri(uri)
-        return uri
-    except Exception:
-        pass
-
     try:
         import urllib.parse
         prefix, rest = uri.split("://", 1)
         if "@" in rest:
-            user_info, host_info = rest.rsplit("@", 1)
-            if ":" in user_info:
-                user, password = user_info.split(":", 1)
-                encoded_pass = urllib.parse.quote(password, safe="")
-                return f"{prefix}://{user}:{encoded_pass}@{host_info}"
+            userinfo, host_and_options = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                clean_user = urllib.parse.unquote(user)
+                clean_pass = urllib.parse.unquote(password)
+                enc_user = urllib.parse.quote(clean_user, safe="")
+                enc_pass = urllib.parse.quote(clean_pass, safe="")
+                return f"{prefix}://{enc_user}:{enc_pass}@{host_and_options}"
     except Exception:
         pass
     return uri
