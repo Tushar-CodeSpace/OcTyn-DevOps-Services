@@ -289,6 +289,7 @@ def get_agent_config(server_id: str) -> dict:
             for t in targets
             if isinstance(t, dict) and t.get("name") and t.get("ip")
         ],
+        "trigger_sync_id": str(override.get("trigger_sync_id", "")),
         **scalars,
     }
 

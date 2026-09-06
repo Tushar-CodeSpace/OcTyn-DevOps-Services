@@ -108,13 +108,16 @@ _CONFIG = {
 }
 
 
+_LAST_TRIGGER_SYNC_ID = None
+
+
 def apply_agent_config(body):
     """Merge a config payload from the hub into the agent's live settings.
 
     Reassigns a fresh dict (copy-on-write) so a background config poller can
     update config while the main metrics loop reads it without locking.
     """
-    global _CONFIG
+    global _CONFIG, _LAST_TRIGGER_SYNC_ID
     if not isinstance(body, dict):
         return
     merged = dict(_CONFIG)
@@ -132,6 +135,12 @@ def apply_agent_config(body):
         if key in body:
             merged[key] = body[key]
     _CONFIG = merged
+
+    trigger_id = body.get("trigger_sync_id")
+    if trigger_id and str(trigger_id).strip() and trigger_id != _LAST_TRIGGER_SYNC_ID:
+        _LAST_TRIGGER_SYNC_ID = trigger_id
+        log("[TRIGGER] Hub requested immediate config backup (trigger_id=%s)" % trigger_id)
+        threading.Thread(target=sync_configs, daemon=True).start()
 
 
 _RUNTIME_FIELDS = (

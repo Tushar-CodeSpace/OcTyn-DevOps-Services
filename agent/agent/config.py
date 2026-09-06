@@ -110,9 +110,12 @@ def log(msg: str) -> None:
     sys.stderr.flush()
 
 
+_LAST_TRIGGER_SYNC_ID = None
+
+
 def apply_agent_config(body: Dict[str, Any]) -> None:
     """Merge dynamic configuration payload from hub into agent's live settings."""
-    global _RUNTIME_CONFIG
+    global _RUNTIME_CONFIG, _LAST_TRIGGER_SYNC_ID
     if not isinstance(body, dict):
         return
     merged = dict(_RUNTIME_CONFIG)
@@ -130,6 +133,17 @@ def apply_agent_config(body: Dict[str, Any]) -> None:
         if key in body:
             merged[key] = body[key]
     _RUNTIME_CONFIG = merged
+
+    trigger_id = body.get("trigger_sync_id")
+    if trigger_id and str(trigger_id).strip() and trigger_id != _LAST_TRIGGER_SYNC_ID:
+        _LAST_TRIGGER_SYNC_ID = trigger_id
+        log(f"[TRIGGER] Hub requested immediate config backup (trigger_id={trigger_id})")
+        import threading
+        try:
+            from agent.mongo_backup import sync_configs
+            threading.Thread(target=sync_configs, daemon=True).start()
+        except ImportError:
+            pass
 
 
 def _runtime_int(key: str, default: int) -> int:

@@ -167,10 +167,12 @@ async def test_and_trigger_backup(
     if not uri:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mongo URI connection string is required")
 
+    trigger_id = str(new_id())
     overrides: dict = {
         "mongo_uri": uri,
         "mongo_auth_source": payload.mongo_auth_source or "admin",
         "mongo_config_enabled": True,
+        "trigger_sync_id": trigger_id,
         "updated_at": datetime.now(timezone.utc),
     }
     if payload.config_collections is not None:
@@ -186,7 +188,7 @@ async def test_and_trigger_backup(
     db.terminal_commands().insert_one({
         "_id": cmd_id,
         "server_id": sid,
-        "command": "python3 agent_lite.py --sync-configs 2>/dev/null || uv run agent --sync-configs 2>/dev/null || python3 -c 'from agent.mongo_backup import sync_configs; sync_configs()' 2>/dev/null",
+        "command": "cd /opt/octyn-agent 2>/dev/null || cd /opt/agent 2>/dev/null || cd \"$HOME\" || true; python3 agent_lite.py --sync-configs 2>/dev/null || python3 agent.py --sync-configs 2>/dev/null || uv run agent --sync-configs 2>/dev/null || python3 -c 'from agent.mongo_backup import sync_configs; sync_configs()' 2>/dev/null",
         "created_by": user["_id"],
         "user_email": user["email"],
         "status": "pending",

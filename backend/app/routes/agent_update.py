@@ -143,9 +143,14 @@ async def trigger_agent_update(payload: Optional[TriggerUpdatePayload] = None):
     
     for server in servers:
         sid = server["_id"]
-        # Set agent config force_update flag
+        # Set agent config force_update flag in both settings and server_configs
         db.settings().update_one(
             {"key": f"agent_config:{sid}"},
+            {"$set": {"force_update": True, "updated_at": now_utc}},
+            upsert=True,
+        )
+        db.server_configs().update_one(
+            {"server_id": sid},
             {"$set": {"force_update": True, "updated_at": now_utc}},
             upsert=True,
         )
