@@ -7,6 +7,8 @@ central FastAPI backend, which stores everything in **MongoDB**. A React
 dashboard (shadcn/ui style, Recharts) visualizes live status, historical
 charts, services and alerts in real time.
 
+> 📖 **New to the project?** Read [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) for a simple explanation of how the Agent, Backend, and Web SSH operate.
+
 ---
 
 ## Architecture
