@@ -78,6 +78,7 @@ def poll_terminal_command() -> None:
 
     parts = text.strip().split()
     first_word = parts[0].lower() if parts else ""
+
     if first_word in ("nano", "vim", "vi", "micro", "emacs"):
         target_path = parts[1] if len(parts) > 1 else "untitled.txt"
         full_path = os.path.abspath(os.path.join(_TERMINAL_CWD, target_path)) if not os.path.isabs(target_path) else target_path
