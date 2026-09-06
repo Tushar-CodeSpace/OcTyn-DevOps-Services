@@ -359,11 +359,33 @@ def poll_terminal_command():
     if not _TERMINAL_CWD or not os.path.isdir(_TERMINAL_CWD):
         _TERMINAL_CWD = os.path.expanduser("~")
 
-    first_word = text.strip().split()[0].lower() if text.strip() else ""
-    if first_word in ("nano", "vim", "vi", "micro", "emacs", "htop", "top", "less"):
+    parts = text.strip().split()
+    first_word = parts[0].lower() if parts else ""
+    if first_word in ("nano", "vim", "vi", "micro", "emacs"):
+        target_path = parts[1] if len(parts) > 1 else "untitled.txt"
+        full_path = os.path.abspath(os.path.join(_TERMINAL_CWD, target_path)) if not os.path.isabs(target_path) else target_path
+        
+        file_content = ""
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                    file_content = f.read(500000)  # Max 500KB
+            except Exception as exc:
+                file_content = "# Error reading file: %s" % exc
+        
+        payload_data = json.dumps({"filepath": full_path, "content": file_content})
         push("/terminal/result", {
             "command_id": command_id,
-            "output": "Interactive TUI tool '%s' requires a terminal session.\nTo view or edit files in Web SSH, use standard commands:\n  • View file:   cat <file>\n  • Write file:  echo 'content' > <file>\n  • Append line: echo 'line' >> <file>\n" % first_word,
+            "output": "OCTYN_NANO_EDIT:%s\n" % payload_data,
+            "exit_code": 0,
+            "complete": True,
+        })
+        return
+
+    if first_word in ("htop", "top", "less"):
+        push("/terminal/result", {
+            "command_id": command_id,
+            "output": "Interactive tool '%s' requires full PTY session.\n" % first_word,
             "exit_code": 1,
             "complete": True,
         })

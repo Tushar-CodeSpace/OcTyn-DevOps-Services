@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { FileText, Loader2, Save, X } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
@@ -18,6 +18,11 @@ type TerminalOutput = {
     cancelled: boolean;
     finished_at: string;
 };
+
+type NanoState = {
+    filepath: string;
+    content: string;
+} | null;
 
 const HISTORY_MAX = 50;
 
@@ -99,6 +104,10 @@ export default function TerminalPage() {
     const [server, setServer] = useState<Server | null>(null);
     const [site, setSite] = useState<Site | null>(null);
 
+    // Nano Web Editor Modal state
+    const [nanoState, setNanoState] = useState<NanoState>(null);
+    const [savingNano, setSavingNano] = useState(false);
+
     const inputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const followRef = useRef(true);
@@ -141,8 +150,8 @@ export default function TerminalPage() {
     }, [output, running]);
 
     useEffect(() => {
-        if (!running) inputRef.current?.focus();
-    }, [running]);
+        if (!running && !nanoState) inputRef.current?.focus();
+    }, [running, nanoState]);
 
     useEffect(() => {
         if (!id || !isSuperAdmin) return;
@@ -150,6 +159,20 @@ export default function TerminalPage() {
         const join = () => socket.emit("join", id);
         const onOutput = (event: TerminalOutput) => {
             if (event.server_id !== id) return;
+            
+            // Check for OCTYN_NANO_EDIT payload
+            if (event.output && event.output.includes("OCTYN_NANO_EDIT:")) {
+                try {
+                    const jsonStr = event.output.split("OCTYN_NANO_EDIT:")[1].trim();
+                    const data = JSON.parse(jsonStr);
+                    setNanoState({ filepath: data.filepath, content: data.content });
+                    setRunning(false);
+                    return;
+                } catch (e) {
+                    console.error("Failed to parse NANO payload", e);
+                }
+            }
+
             setOutput((prev) => {
                 let next = prev;
                 if (event.output) next += event.output;
@@ -176,6 +199,27 @@ export default function TerminalPage() {
             socket.off("terminal_output", onOutput);
         };
     }, [id, isSuperAdmin]);
+
+    async function handleSaveNano() {
+        if (!nanoState || !id || savingNano) return;
+        setSavingNano(true);
+        const delim = "OCTYN_NANO_EOF_" + Math.random().toString(36).slice(2, 8);
+        const saveCmd = `cat << '${delim}' > ${nanoState.filepath}\n${nanoState.content}\n${delim}`;
+
+        setOutput((prev) => prev + `[Saving ${nanoState.filepath} to site server...]\n`);
+        try {
+            await apiFetch(`/terminal/${id}/commands`, {
+                method: "POST",
+                body: JSON.stringify({ command: saveCmd, timeout_seconds: 30 }),
+            });
+            setOutput((prev) => prev + `[Saved ${nanoState.filepath} (${nanoState.content.length} bytes) successfully]\n`);
+            setNanoState(null);
+        } catch (err: any) {
+            setOutput((prev) => prev + `[Save failed: ${err.message || "error"}]\n`);
+        } finally {
+            setSavingNano(false);
+        }
+    }
 
     useEffect(() => {
         if (!id) return;
@@ -419,6 +463,82 @@ export default function TerminalPage() {
                         />
                     </form>
                 </div>
+
+                {nanoState && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="flex h-[88vh] w-full max-w-5xl flex-col rounded-lg border border-emerald-800/80 bg-zinc-950 shadow-2xl shadow-emerald-950/50">
+                            {/* Nano Header */}
+                            <div className="flex h-10 shrink-0 items-center justify-between border-b border-emerald-900/60 bg-emerald-950 px-4 text-xs font-semibold text-emerald-300">
+                                <div className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4 text-emerald-400" />
+                                    <span>GNU nano 7.2</span>
+                                    <span className="text-emerald-700">|</span>
+                                    <span className="text-emerald-100">{nanoState.filepath}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-[11px] font-normal text-emerald-500">
+                                        {nanoState.content.split("\n").length} lines · {nanoState.content.length} chars
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNanoState(null)}
+                                        className="rounded p-1 text-emerald-400/60 hover:bg-emerald-900/50 hover:text-emerald-200"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Nano Editor Area */}
+                            <div className="relative flex flex-1 overflow-hidden bg-black">
+                                <textarea
+                                    value={nanoState.content}
+                                    onChange={(e) => setNanoState({ ...nanoState, content: e.target.value })}
+                                    onKeyDown={(e) => {
+                                        if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+                                            e.preventDefault();
+                                            handleSaveNano();
+                                        } else if (e.key === "Escape") {
+                                            e.preventDefault();
+                                            setNanoState(null);
+                                        }
+                                    }}
+                                    autoFocus
+                                    spellCheck={false}
+                                    className="h-full w-full border-0 bg-transparent p-4 font-mono text-sm leading-relaxed text-emerald-300 outline-none ring-0 caret-emerald-400 focus:outline-none focus:ring-0"
+                                    placeholder="Enter file contents..."
+                                />
+                            </div>
+
+                            {/* Nano Footer Toolbar */}
+                            <div className="flex h-12 shrink-0 items-center justify-between border-t border-emerald-900/60 bg-emerald-950/80 px-4 text-xs">
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveNano}
+                                        disabled={savingNano}
+                                        className="flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                                    >
+                                        {savingNano ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                        <span>^S Save & Apply to Server</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNanoState(null)}
+                                        disabled={savingNano}
+                                        className="flex items-center gap-1.5 rounded border border-slate-700 bg-slate-900 px-3 py-1.5 font-medium text-slate-300 transition hover:bg-slate-800"
+                                    >
+                                        <X className="h-3.5 w-3.5" />
+                                        <span>^X Close (Esc)</span>
+                                    </button>
+                                </div>
+                                <span className="text-[11px] text-emerald-400/60">
+                                    Press <kbd className="rounded border border-emerald-800 bg-emerald-900/50 px-1 py-0.5 text-emerald-200">Ctrl+S</kbd> to save directly to server
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );
