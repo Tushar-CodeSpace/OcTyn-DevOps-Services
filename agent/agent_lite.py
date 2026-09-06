@@ -37,10 +37,10 @@ from datetime import datetime, timezone
 # bootstrap default that is pulled from the central server (per-server Agent
 # config) on boot and whenever it changes in the dashboard.
 CONFIG = {
-    # --- required ---
-    "SERVER_ID": "cfb1bdd4-3fcc-4c8c-8c81-ff2328b415da",            # UUID shown in the dashboard / add-agent dialog
-    "API_URL": "http://172.23.160.1:8000/api/v1",              # e.g. http://central-host:8000/api/v1
-    "API_KEY": "cm-a3xXbl2-M5bRgjL9jSAWixPB1CEHLWQ_yIwkQoVeHwk",              # per-agent key, starts with "cm-"
+    # --- required (leave blank if using .env file or environment variables) ---
+    "SERVER_ID": "",            # UUID shown in the dashboard / add-agent dialog
+    "API_URL": "",              # e.g. https://your-domain.com/api/v1
+    "API_KEY": "",              # per-agent key, starts with "cm-"
     # --- optional bootstrap defaults (overridden by the pulled agent config) ---
     "MONITORING_INTERVAL": 10,          # seconds between pushes
     "MONITORED_SERVICES": "",           # comma list name[:port], e.g. nginx:80,postgresql:5432
@@ -1042,8 +1042,17 @@ def check_and_apply_update():
                 force_upd = bool(_CONFIG.get("force_update", False))
                 if force_upd or (remote_sha and remote_sha != local_sha):
                     log("[AUTO-UPDATE] Agent release mismatch (remote sha: %s, local sha: %s). Downloading update..." % (remote_sha, local_sha))
+                    
+                    if download_path.startswith(("http://", "https://")):
+                        full_download_url = download_path
+                    elif download_path.startswith("/api/v1/"):
+                        rel_path = download_path[len("/api/v1/"):]
+                        full_download_url = "%s/%s" % (API_URL, rel_path)
+                    else:
+                        full_download_url = "%s/%s" % (API_URL, download_path.lstrip("/"))
+
                     down_req = Request(
-                        "%s/%s" % (API_URL, download_path.lstrip("/")),
+                        full_download_url,
                         headers={"X-API-Key": API_KEY},
                         method="GET",
                     )
