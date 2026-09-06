@@ -29,7 +29,24 @@ def print_err(msg: str) -> None:
     print(f"\033[1;31m[X] {msg}\033[0m")
 
 
+def prompt(text: str, default: str = "") -> str:
+    """Safe input prompt that handles EOF/pipes gracefully."""
+    try:
+        val = input(text).strip()
+        return val if val else default
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default
+
+
 def main() -> None:
+    # If piped via `curl ... | sudo python3 -`, re-open sys.stdin from /dev/tty for interactive input
+    if not sys.stdin.isatty():
+        try:
+            sys.stdin = open("/dev/tty", "r")
+        except Exception:
+            pass
+
     print("\n" + "=" * 60)
     print("      OcTyn DevOps Services — Agent Installer")
     print("=" * 60 + "\n")
@@ -56,13 +73,13 @@ def main() -> None:
         server_id = default_server_id
         api_key = default_api_key
     else:
-        api_url = input(f"Enter Central API URL [{default_api_url}]: ").strip() or default_api_url
+        api_url = prompt(f"Enter Central API URL [{default_api_url}]: ", default_api_url)
         api_url = api_url.rstrip("/")
         if "/api/v1" not in api_url:
             api_url += "/api/v1"
 
-        server_id = input(f"Enter SERVER_ID (from dashboard) [{default_server_id}]: ").strip() or default_server_id
-        api_key = input(f"Enter API_KEY (starts with cm-) [{default_api_key}]: ").strip() or default_api_key
+        server_id = prompt(f"Enter SERVER_ID (from dashboard) [{default_server_id}]: ", default_server_id)
+        api_key = prompt(f"Enter API_KEY (starts with cm-) [{default_api_key}]: ", default_api_key)
 
     # 3. Write .env file
     env_file = os.path.join(INSTALL_DIR, ".env")
