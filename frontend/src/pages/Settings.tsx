@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BellOff, Key, Lock, Save } from "lucide-react";
+import { BellOff, Building2, Key, Lock, MapPin, Save } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { showToast } from "@/components/ToastHost";
 import type { AlertConfig, Server, Site } from "@/lib/types";
@@ -72,11 +72,13 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Per-site alert management state
+  // Per-client and per-site alert management state
   const [sites, setSites] = useState<Site[]>([]);
   const [servers, setServers] = useState<Server[]>([]);
+  const [disabledClients, setDisabledClients] = useState<string[]>([]);
   const [loadingSites, setLoadingSites] = useState(true);
   const [updatingSiteId, setUpdatingSiteId] = useState<string | null>(null);
+  const [updatingClientName, setUpdatingClientName] = useState<string | null>(null);
 
   // Personal Password Change State
   const [passForm, setPassForm] = useState({
@@ -95,10 +97,12 @@ export default function Settings() {
       }),
       apiFetch<Site[]>("/sites").catch(() => []),
       apiFetch<Server[]>("/servers").catch(() => []),
-    ]).then(([cfg, fetchedSites, fetchedServers]) => {
+      apiFetch<string[]>("/sites/clients/alerts").catch(() => []),
+    ]).then(([cfg, fetchedSites, fetchedServers, disabledClis]) => {
       if (cfg) setForm(cfg);
       setSites(fetchedSites || []);
       setServers(fetchedServers || []);
+      setDisabledClients(disabledClis || []);
       setLoadingSites(false);
     });
   }, []);
@@ -173,6 +177,33 @@ export default function Settings() {
     }
   }
 
+  async function toggleClientAlerts(clientName: string, newEnabledState: boolean) {
+    if (!isAdmin || updatingClientName) return;
+    setUpdatingClientName(clientName);
+    try {
+      await apiFetch(`/sites/clients/${encodeURIComponent(clientName)}/alerts`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: newEnabledState }),
+      });
+      setDisabledClients((prev) =>
+        newEnabledState ? prev.filter((c) => c !== clientName) : [...prev, clientName]
+      );
+      showToast({
+        severity: newEnabledState ? "info" : "warning",
+        title: newEnabledState ? "Client Alerts Enabled" : "Client Alerts Muted",
+        message: `Alerts are now ${newEnabledState ? "ACTIVE" : "MUTED"} for client "${clientName}" across all its sites.`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Update Failed",
+        message: err instanceof Error ? err.message : "Failed to update client alert settings",
+      });
+    } finally {
+      setUpdatingClientName(null);
+    }
+  }
+
   async function toggleSiteAlerts(site: Site, newEnabledState: boolean) {
     if (!isAdmin || updatingSiteId) return;
     setUpdatingSiteId(site.id);
@@ -184,8 +215,8 @@ export default function Settings() {
       setSites((prev) => prev.map((s) => (s.id === site.id ? updated : s)));
       showToast({
         severity: newEnabledState ? "info" : "warning",
-        title: newEnabledState ? "Alerts Enabled" : "Alerts Muted",
-        message: `Alerts are now ${newEnabledState ? "ACTIVE" : "MUTED"} for client site ${site.client} (${site.location}).`,
+        title: newEnabledState ? "Site Alerts Enabled" : "Site Alerts Muted",
+        message: `Alerts are now ${newEnabledState ? "ACTIVE" : "MUTED"} for site ${site.code} (${site.location}).`,
       });
     } catch (err) {
       showToast({
@@ -198,12 +229,14 @@ export default function Settings() {
     }
   }
 
+  const uniqueClients = Array.from(new Set(sites.map((s) => s.client))).sort();
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-slate-400">
-          Personal account security, central alert thresholds, and per-site alert controls
+          Personal account security, central alert thresholds, and client/site alert controls
         </p>
       </div>
 
@@ -338,93 +371,187 @@ export default function Settings() {
           </Card>
         </div>
 
-        {/* Right Column (5 cols): Client & Site Alert Controls */}
+        {/* Right Column (5 cols): Alert Controls with 2 Sub-Cards */}
         <div className="flex flex-col gap-6 lg:col-span-5">
           <Card className="border-amber-500/20 bg-slate-900/50 shadow-xl">
             <CardHeader className="border-b border-slate-800/80 pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                   <BellOff className="h-4 w-4 text-amber-400" />
-                  Client & Site Alert Controls
+                  Alert Controls
                 </CardTitle>
                 <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-400 border border-slate-700">
-                  {sites.length} {sites.length === 1 ? "Site" : "Sites"}
+                  {uniqueClients.length} Clients · {sites.length} Sites
                 </span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                Enable or disable automated alerts (CPU, RAM, Disk, Offline, Service stops) for specific client environments.
+                Manage automated alert permissions at both the Client level and individual Site level.
               </p>
               {!isAdmin && (
                 <div className="mt-2 rounded-md bg-amber-500/10 p-2 border border-amber-500/20 text-[11px] text-amber-300/90 flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-                  <span>Only <strong>Admin</strong> or <strong>Super Admin</strong> can toggle site alerts.</span>
+                  <span>Only <strong>Admin</strong> or <strong>Super Admin</strong> can toggle alert permissions.</span>
                 </div>
               )}
             </CardHeader>
-            <CardContent className="pt-4 flex flex-col gap-3">
-              {loadingSites ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full rounded-lg" />
-                ))
-              ) : sites.length === 0 ? (
-                <p className="text-xs text-slate-500 py-4 text-center">No client sites configured yet.</p>
-              ) : (
-                sites.map((site) => {
-                  const isEnabled = site.alerts_enabled !== false;
-                  const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
-                  const isSavingThis = updatingSiteId === site.id;
+            <CardContent className="pt-4 flex flex-col gap-6">
 
-                  return (
-                    <div
-                      key={site.id}
-                      className={`flex items-center justify-between p-3.5 rounded-lg border transition-all ${
-                        isEnabled
-                          ? "border-slate-800 bg-slate-900/90 hover:border-slate-700"
-                          : "border-amber-500/30 bg-amber-950/20 hover:border-amber-500/40"
-                      }`}
-                    >
-                      <div className="flex flex-col gap-1 pr-2 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-xs text-slate-200 truncate">
-                            {site.client}
+              {/* Sub-Card 1: Client Level Alert Controls */}
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-800/90 bg-slate-950/70 p-4 shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-sky-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      1. Clients (Client Level Controls)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    Muting a client disables alerts for all its sites
+                  </span>
+                </div>
+
+                {loadingSites ? (
+                  Array.from({ length: 2 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded-lg" />
+                  ))
+                ) : uniqueClients.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2 text-center">No clients found.</p>
+                ) : (
+                  uniqueClients.map((clientName) => {
+                    const isClientEnabled = !disabledClients.includes(clientName);
+                    const clientSites = sites.filter((s) => s.client === clientName);
+                    const isSavingClient = updatingClientName === clientName;
+
+                    return (
+                      <div
+                        key={clientName}
+                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                          isClientEnabled
+                            ? "border-sky-500/20 bg-sky-950/20 hover:border-sky-500/40"
+                            : "border-amber-500/30 bg-amber-950/25 hover:border-amber-500/40"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-0.5 min-w-0 pr-2">
+                          <span className="font-bold text-xs text-slate-100 truncate">
+                            {clientName}
                           </span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/80">
-                            {site.code}
+                          <span className="text-[11px] text-slate-400">
+                            {clientSites.length} {clientSites.length === 1 ? "site" : "sites"} under client
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                          <span>📍 {site.location}</span>
-                          <span>•</span>
-                          <span>{siteServersCount} {siteServersCount === 1 ? "server" : "servers"}</span>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                              isClientEnabled
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                            }`}
+                          >
+                            {isClientEnabled ? "Alerts Active" : "Client Muted"}
+                          </span>
+
+                          <label className={`relative inline-flex items-center ${isAdmin ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                            <input
+                              type="checkbox"
+                              disabled={!isAdmin || isSavingClient}
+                              checked={isClientEnabled}
+                              onChange={(e) => toggleClientAlerts(clientName, e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                          </label>
                         </div>
                       </div>
+                    );
+                  })
+                )}
+              </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span
-                          className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
-                            isEnabled
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                              : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                          }`}
-                        >
-                          {isEnabled ? "Alerts Active" : "Alerts Muted"}
-                        </span>
+              {/* Sub-Card 2: Site Level Alert Controls */}
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-800/90 bg-slate-950/70 p-4 shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-emerald-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      2. Sites (Site Level Controls)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    Mute alerts for specific client sites
+                  </span>
+                </div>
 
-                        <label className={`relative inline-flex items-center ${isAdmin ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
-                          <input
-                            type="checkbox"
-                            disabled={!isAdmin || isSavingThis}
-                            checked={isEnabled}
-                            onChange={(e) => toggleSiteAlerts(site, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                        </label>
+                {loadingSites ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                  ))
+                ) : sites.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2 text-center">No sites found.</p>
+                ) : (
+                  sites.map((site) => {
+                    const isClientDisabled = disabledClients.includes(site.client);
+                    const isSiteEnabled = site.alerts_enabled !== false && !isClientDisabled;
+                    const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
+                    const isSavingSite = updatingSiteId === site.id;
+
+                    return (
+                      <div
+                        key={site.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                          isClientDisabled
+                            ? "border-slate-800/60 bg-slate-900/30 opacity-70"
+                            : isSiteEnabled
+                            ? "border-slate-800 bg-slate-900/90 hover:border-slate-700"
+                            : "border-amber-500/30 bg-amber-950/20 hover:border-amber-500/40"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-1 pr-2 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-xs text-slate-200 truncate">
+                              {site.client}
+                            </span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/80">
+                              {site.code}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                            <span>📍 {site.location}</span>
+                            <span>•</span>
+                            <span>{siteServersCount} {siteServersCount === 1 ? "server" : "servers"}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span
+                            className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                              isClientDisabled
+                                ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                : isSiteEnabled
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                            }`}
+                          >
+                            {isClientDisabled ? "Muted via Client" : isSiteEnabled ? "Alerts Active" : "Site Muted"}
+                          </span>
+
+                          <label className={`relative inline-flex items-center ${isAdmin && !isClientDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                            <input
+                              type="checkbox"
+                              disabled={!isAdmin || isClientDisabled || isSavingSite}
+                              checked={isSiteEnabled}
+                              onChange={(e) => toggleSiteAlerts(site, e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
+                    );
+                  })
+                )}
+              </div>
+
             </CardContent>
           </Card>
         </div>

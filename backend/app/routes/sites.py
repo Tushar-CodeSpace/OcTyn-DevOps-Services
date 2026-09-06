@@ -97,3 +97,26 @@ async def delete_site(site_id: str) -> None:
             detail="Site has servers; delete or move them first",
         )
     db.sites().delete_one({"_id": doc["_id"]})
+
+
+from pydantic import BaseModel
+from app.services import app_settings
+
+
+class ClientAlertPatch(BaseModel):
+    enabled: bool
+
+
+@router.get("/clients/alerts", response_model=list[str])
+async def get_disabled_clients() -> list[str]:
+    """Return list of client names where alerts are disabled at the client level."""
+    return app_settings.get_disabled_clients()
+
+
+@router.patch(
+    "/clients/{client_name}/alerts",
+    dependencies=[Depends(auth.require_admin)],
+)
+async def toggle_client_alerts(client_name: str, body: ClientAlertPatch) -> dict:
+    """Enable or disable alerts for an entire client (all its sites)."""
+    return app_settings.set_client_alerts_enabled(client_name, body.enabled)

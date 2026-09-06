@@ -98,6 +98,9 @@ def notify_alert(
     if site_id:
         try:
             from app.database import models as db
+            client_name, _ = _site_details(site_id)
+            if client_name and not app_settings.is_client_alerts_enabled(client_name):
+                return
             s_doc = db.sites().find_one({"_id": site_id}, {"alerts_enabled": 1})
             if s_doc and not s_doc.get("alerts_enabled", True):
                 return

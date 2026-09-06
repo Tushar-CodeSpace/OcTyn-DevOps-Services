@@ -357,3 +357,33 @@ def _normalize_targets(raw) -> list[dict]:
             raise ValueError("connectivity_targets: name and ip are required")
         normalized.append({"name": name, "ip": ip})
     return normalized
+
+
+_CLIENT_ALERTS_DOC = "client_alerts"
+
+
+def get_disabled_clients() -> list[str]:
+    doc = db.settings().find_one({"_id": _CLIENT_ALERTS_DOC}) or {}
+    return doc.get("disabled_clients", [])
+
+
+def is_client_alerts_enabled(client_name: str) -> bool:
+    disabled = get_disabled_clients()
+    return client_name not in disabled
+
+
+def set_client_alerts_enabled(client_name: str, enabled: bool) -> dict:
+    doc = db.settings().find_one({"_id": _CLIENT_ALERTS_DOC}) or {}
+    disabled = set(doc.get("disabled_clients", []))
+    if enabled:
+        disabled.discard(client_name)
+    else:
+        disabled.add(client_name)
+    dis_list = list(disabled)
+    db.settings().update_one(
+        {"_id": _CLIENT_ALERTS_DOC},
+        {"$set": {"disabled_clients": dis_list, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"disabled_clients": dis_list}
+

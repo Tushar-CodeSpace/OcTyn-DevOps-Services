@@ -196,8 +196,12 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
     site_id = server.get("site_id")
     if site_id:
         site_doc = db.sites().find_one({"_id": site_id})
-        if site_doc and not site_doc.get("alerts_enabled", True):
-            return
+        if site_doc:
+            client_name = site_doc.get("client")
+            if client_name and not app_settings.is_client_alerts_enabled(client_name):
+                return
+            if not site_doc.get("alerts_enabled", True):
+                return
 
     if status == "offline":
         _open_alert(
