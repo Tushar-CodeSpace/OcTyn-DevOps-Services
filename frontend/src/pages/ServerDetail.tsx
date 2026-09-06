@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, MapPin, Play, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
+import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -70,6 +70,7 @@ export default function ServerDetail() {
   const [dbType, setDbType] = useState<"mongo" | "postgres">("mongo");
   const [savingBackup, setSavingBackup] = useState(false);
   const [testingBackup, setTestingBackup] = useState(false);
+  const [backupProgressText, setBackupProgressText] = useState<string | null>(null);
   const [backupCfgOpen, setBackupCfgOpen] = useState(false);
 
   function exportMetricsCsv() {
@@ -216,25 +217,106 @@ export default function ServerDetail() {
   async function testAndRunBackupNow() {
     if (!id || !agentCfg || !agentCfg.mongo_uri || testingBackup) return;
     setTestingBackup(true);
+    setBackupProgressText("Connecting & Triggering...");
+
+    const startTime = Date.now();
+    let initialSnaps: ConfigSnapshotMeta[] = [];
     try {
-      const res = await apiFetch<{ success: boolean; message: string; synced_count?: number }>(
-        `/configs/servers/${id}/test-backup`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            mongo_uri: agentCfg.mongo_uri,
-            mongo_auth_source: agentCfg.mongo_auth_source,
-            mongo_config_enabled: true,
-            config_collections: agentCfg.config_collections,
-          }),
-        }
-      );
-      showToast({
-        severity: res.success ? "info" : "critical",
-        title: res.success ? "Backup Triggered" : "Test Failed",
-        message: res.message,
+      initialSnaps = await apiFetch<ConfigSnapshotMeta[]>(`/configs/servers/${id}`);
+    } catch {
+      initialSnaps = snapMeta || [];
+    }
+
+    const beforeMap = new Map<string, string>();
+    for (const m of initialSnaps) {
+      beforeMap.set(m.id, m.received_at);
+    }
+
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        message: string;
+        synced_from_hub?: boolean;
+        synced_count?: number;
+      }>(`/configs/servers/${id}/test-backup`, {
+        method: "POST",
+        body: JSON.stringify({
+          mongo_uri: agentCfg.mongo_uri,
+          mongo_auth_source: agentCfg.mongo_auth_source,
+          mongo_config_enabled: true,
+          config_collections: agentCfg.config_collections,
+        }),
       });
-      await loadSnapshots();
+
+      if (!res.success) {
+        showToast({
+          severity: "critical",
+          title: "Test Connection Failed",
+          message: res.message,
+        });
+        setTestingBackup(false);
+        setBackupProgressText(null);
+        return;
+      }
+
+      if (res.synced_from_hub) {
+        showToast({
+          severity: "info",
+          title: "Backup Complete",
+          message: res.message,
+        });
+        await loadSnapshots();
+        setTestingBackup(false);
+        setBackupProgressText(null);
+        return;
+      }
+
+      // If remote site agent trigger was sent, poll every 2s for up to 25s
+      const timeoutMs = 25000;
+      const pollIntervalMs = 2000;
+      let backupArrived = false;
+
+      while (Date.now() - startTime < timeoutMs) {
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+        setBackupProgressText(`Waiting for site agent (${elapsedSec}s)...`);
+
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+        try {
+          const latestSnaps = await apiFetch<ConfigSnapshotMeta[]>(`/configs/servers/${id}`);
+          let hasNewOrUpdated = false;
+
+          for (const m of latestSnaps) {
+            const oldReceived = beforeMap.get(m.id);
+            if (!oldReceived || new Date(m.received_at).getTime() > new Date(oldReceived).getTime()) {
+              hasNewOrUpdated = true;
+              break;
+            }
+          }
+
+          if (hasNewOrUpdated) {
+            setSnapMeta(latestSnaps);
+            backupArrived = true;
+            showToast({
+              severity: "info",
+              title: "Backup Received Successfully!",
+              message: `Remote site agent uploaded config snapshots (${latestSnaps.length} collection(s) backed up).`,
+            });
+            break;
+          }
+        } catch {
+          // keep polling
+        }
+      }
+
+      if (!backupArrived) {
+        await loadSnapshots();
+        showToast({
+          severity: "critical",
+          title: "Backup Timed Out / Failed",
+          message: "Remote site agent did not upload config within 25 seconds. Please verify site agent service status and MongoDB URI.",
+        });
+      }
     } catch (err) {
       showToast({
         severity: "critical",
@@ -243,6 +325,7 @@ export default function ServerDetail() {
       });
     } finally {
       setTestingBackup(false);
+      setBackupProgressText(null);
     }
   }
 
@@ -1445,8 +1528,12 @@ export default function ServerDetail() {
                         className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow"
                         size="sm"
                       >
-                        <Play className="mr-1.5 h-3.5 w-3.5" />
-                        {testingBackup ? "Testing & Backing up…" : "Test Connection & Run Backup Now"}
+                        {testingBackup ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-white" />
+                        ) : (
+                          <Play className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        {testingBackup ? (backupProgressText || "Testing & Backing up…") : "Test Connection & Run Backup Now"}
                       </Button>
                       <Button onClick={() => void saveBackupCfg()} disabled={savingBackup} variant="outline" size="sm">
                         <Save className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
