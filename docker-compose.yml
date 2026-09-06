@@ -36,6 +36,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./logs:/logs
+      - ./agent:/app/agent:ro
     ports:
       # Direct backend access for local debugging only.
       - "127.0.0.1:8000:8000"

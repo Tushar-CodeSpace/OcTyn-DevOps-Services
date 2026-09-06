@@ -20,7 +20,22 @@ router = APIRouter(prefix="/api/v1/agent", tags=["agent-update"])
 
 # Root workspace path resolution
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-AGENT_LITE_PATH = BASE_DIR / "agent" / "agent_lite.py"
+
+
+def get_agent_lite_path() -> Path:
+    """Find agent_lite.py across candidate locations (local dev, static app bundle, container)."""
+    candidates = [
+        BASE_DIR / "agent" / "agent_lite.py",
+        Path("/app/agent/agent_lite.py"),
+        Path(__file__).resolve().parent.parent / "static" / "agent_lite.py",
+        Path(__file__).resolve().parent.parent / "agent_lite.py",
+        Path("/app/app/static/agent_lite.py"),
+        Path("/app/agent_lite.py"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 class AgentReleaseInfo(BaseModel):
@@ -44,7 +59,8 @@ def get_agent_file_sha256(file_path: Path) -> str:
 @router.get("/release", response_model=AgentReleaseInfo)
 async def get_agent_release():
     """Return active agent version & checksum info for auto-updating agents."""
-    sha = get_agent_file_sha256(AGENT_LITE_PATH)
+    agent_path = get_agent_lite_path()
+    sha = get_agent_file_sha256(agent_path)
     
     # Check if a custom version entry exists in app settings/database
     setting_doc = db.settings().find_one({"key": "agent_release"})
@@ -62,13 +78,14 @@ async def get_agent_release():
 @router.get("/download/lite")
 async def download_agent_lite():
     """Serve the latest single-file agent_lite.py for remote site installation & updating."""
-    if not AGENT_LITE_PATH.exists():
+    agent_path = get_agent_lite_path()
+    if not agent_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent script file not found on central server",
         )
     return FileResponse(
-        path=AGENT_LITE_PATH,
+        path=agent_path,
         filename="agent_lite.py",
         media_type="text/x-python",
     )
