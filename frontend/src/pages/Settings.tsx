@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BellOff, Building2, Key, Lock, MapPin, Save } from "lucide-react";
+import { BellOff, Building2, Key, Lock, MapPin, Save, Search, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { showToast } from "@/components/ToastHost";
 import type { AlertConfig, Server, Site } from "@/lib/types";
@@ -79,6 +79,7 @@ export default function Settings() {
   const [loadingSites, setLoadingSites] = useState(true);
   const [updatingSiteId, setUpdatingSiteId] = useState<string | null>(null);
   const [updatingClientName, setUpdatingClientName] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Personal Password Change State
   const [passForm, setPassForm] = useState({
@@ -231,6 +232,27 @@ export default function Settings() {
 
   const uniqueClients = Array.from(new Set(sites.map((s) => s.client))).sort();
 
+  const query = searchQuery.trim().toLowerCase();
+
+  const filteredClients = uniqueClients.filter((c) => {
+    if (!query) return true;
+    if (c.toLowerCase().includes(query)) return true;
+    return sites.some(
+      (s) =>
+        s.client === c &&
+        (s.code.toLowerCase().includes(query) || s.location.toLowerCase().includes(query))
+    );
+  });
+
+  const filteredSites = sites.filter((s) => {
+    if (!query) return true;
+    return (
+      s.client.toLowerCase().includes(query) ||
+      s.code.toLowerCase().includes(query) ||
+      s.location.toLowerCase().includes(query)
+    );
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -371,11 +393,11 @@ export default function Settings() {
           </Card>
         </div>
 
-        {/* Right Column (5 cols): Alert Controls with Sub-Tile Grids */}
+        {/* Right Column (5 cols): Alert Controls with Sub-Tile Grids + Search */}
         <div className="flex flex-col gap-6 lg:col-span-5">
           <Card className="border-amber-500/20 bg-slate-900/50 shadow-xl">
             <CardHeader className="border-b border-slate-800/80 pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                   <BellOff className="h-4 w-4 text-amber-400" />
                   Alert Controls
@@ -387,6 +409,28 @@ export default function Settings() {
               <p className="text-xs text-slate-400 leading-relaxed mt-1">
                 Manage automated alert permissions via sub-tiles for clients and site environments.
               </p>
+
+              {/* Search Bar Input */}
+              <div className="relative mt-2">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  type="text"
+                  placeholder="Search clients, site codes, or locations…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 pl-8 pr-7 text-xs bg-slate-950/80 border-slate-800 focus:border-amber-500/50"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-200"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
               {!isAdmin && (
                 <div className="mt-2 rounded-md bg-amber-500/10 p-2 border border-amber-500/20 text-[11px] text-amber-300/90 flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 shrink-0 text-amber-400" />
@@ -406,7 +450,7 @@ export default function Settings() {
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    Mutes all sites under client
+                    {filteredClients.length} of {uniqueClients.length} clients
                   </span>
                 </div>
 
@@ -416,11 +460,13 @@ export default function Settings() {
                       <Skeleton key={i} className="h-20 w-full rounded-xl" />
                     ))}
                   </div>
-                ) : uniqueClients.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-2 text-center">No clients found.</p>
+                ) : filteredClients.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2 text-center">
+                    {query ? "No matching clients found." : "No clients found."}
+                  </p>
                 ) : (
                   <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                    {uniqueClients.map((clientName) => {
+                    {filteredClients.map((clientName) => {
                       const isClientEnabled = !disabledClients.includes(clientName);
                       const clientSitesCount = sites.filter((s) => s.client === clientName).length;
                       const isSavingClient = updatingClientName === clientName;
@@ -484,7 +530,7 @@ export default function Settings() {
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    Mute specific site environments
+                    {filteredSites.length} of {sites.length} sites
                   </span>
                 </div>
 
@@ -494,11 +540,13 @@ export default function Settings() {
                       <Skeleton key={i} className="h-20 w-full rounded-xl" />
                     ))}
                   </div>
-                ) : sites.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-2 text-center">No sites found.</p>
+                ) : filteredSites.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2 text-center">
+                    {query ? "No matching sites found." : "No sites found."}
+                  </p>
                 ) : (
                   <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                    {sites.map((site) => {
+                    {filteredSites.map((site) => {
                       const isClientDisabled = disabledClients.includes(site.client);
                       const isSiteEnabled = site.alerts_enabled !== false && !isClientDisabled;
                       const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
