@@ -249,6 +249,8 @@ export default function TerminalPage() {
 
     useEffect(() => {
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
+            if (nanoState) return;
+
             if (!event.ctrlKey) {
                 if ((event.key === "ArrowUp" || event.key === "ArrowDown") && !running) {
                     event.preventDefault();
@@ -335,7 +337,7 @@ export default function TerminalPage() {
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [id, running, currentCommandId, history, input, promptHost]);
+    }, [id, running, currentCommandId, history, input, promptHost, nanoState]);
 
     async function submit(event: FormEvent) {
         event.preventDefault();
