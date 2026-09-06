@@ -359,6 +359,16 @@ def poll_terminal_command():
     if not _TERMINAL_CWD or not os.path.isdir(_TERMINAL_CWD):
         _TERMINAL_CWD = os.path.expanduser("~")
 
+    first_word = text.strip().split()[0].lower() if text.strip() else ""
+    if first_word in ("nano", "vim", "vi", "micro", "emacs", "htop", "top", "less"):
+        push("/terminal/result", {
+            "command_id": command_id,
+            "output": "Interactive TUI tool '%s' requires a terminal session.\nTo view or edit files in Web SSH, use standard commands:\n  • View file:   cat <file>\n  • Write file:  echo 'content' > <file>\n  • Append line: echo 'line' >> <file>\n" % first_word,
+            "exit_code": 1,
+            "complete": True,
+        })
+        return
+
     cwd_file = os.path.join(tempfile.gettempdir(), "term_cwd_%s.txt" % command_id)
     cmd_to_run = "%s\n__RET=$?\npwd > %s 2>/dev/null\nexit $__RET" % (text, cwd_file)
 
