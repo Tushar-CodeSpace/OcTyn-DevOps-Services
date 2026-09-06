@@ -55,6 +55,32 @@ CONFIG = {
 # =============================================================================
 
 
+def _load_env_file():
+    """Load key=value lines from .env file into os.environ if not already set."""
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+    ]
+    for env_path in candidates:
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'\"")
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+
+_load_env_file()
+
+
 def _cfg(key):
     """Value from the environment if set, else from the CONFIG dict above."""
     return os.environ.get(key) or str(CONFIG.get(key, ""))

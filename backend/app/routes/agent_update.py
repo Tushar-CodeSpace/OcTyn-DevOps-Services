@@ -91,6 +91,38 @@ async def download_agent_lite():
     )
 
 
+def get_installer_path() -> Path:
+    """Find agent_installer.py across candidate locations."""
+    candidates = [
+        BASE_DIR / "agent" / "agent_installer.py",
+        Path("/app/agent/agent_installer.py"),
+        Path(__file__).resolve().parent.parent / "static" / "agent_installer.py",
+        Path(__file__).resolve().parent.parent / "agent_installer.py",
+        Path("/app/app/static/agent_installer.py"),
+        Path("/app/agent_installer.py"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+@router.get("/download/installer")
+async def download_agent_installer():
+    """Serve the automated agent_installer.py script for remote site setup."""
+    installer_path = get_installer_path()
+    if not installer_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent installer script file not found on central server",
+        )
+    return FileResponse(
+        path=installer_path,
+        filename="agent_installer.py",
+        media_type="text/x-python",
+    )
+
+
 @router.post("/trigger-update", dependencies=[Depends(auth.require_admin)])
 async def trigger_agent_update(payload: Optional[TriggerUpdatePayload] = None):
     """Admin endpoint: trigger an agent update check across all sites or specified servers."""

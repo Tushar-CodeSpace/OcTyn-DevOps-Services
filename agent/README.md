@@ -34,7 +34,7 @@ sudo nano /opt/monitoring/agent_lite.py
 ```python
 CONFIG = {
     "SERVER_ID": "6961e46c-...",                 # from Add-agent dialog
-    "API_URL": "https://appstore.nidoworld.com/api/v1",
+    "API_URL": "http://<CENTRAL_SERVER_IP_OR_DOMAIN>/api/v1",
     "API_KEY": "cm-...",
     # Optional — other knobs (monitoring interval, services, mongo backup,
     # timeouts) are pulled from the central "Agent config" dashboard, so you

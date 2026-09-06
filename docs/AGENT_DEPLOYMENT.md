@@ -6,29 +6,28 @@ This guide explains how to **deploy the latest monitoring agent** on any remote 
 
 ## 1. Quick 2-Minute Remote Site Deployment
 
-### Prerequisites on Remote Site Server
-- Linux OS (Ubuntu 20.04+, Debian, RHEL, Alpine, CentOS)
-- Python 3.8+ (`python3`) installed
-- Network access to Central Hub API (`API_URL`)
+### Option A: 1-Liner Automated Installer (Recommended)
+
+Run this single command on the remote site server (it creates `/opt/octyn-agent`, downloads `agent_lite.py`, generates `.env`, and sets up `octyn.service` automatically):
+
+```bash
+curl -sSL "http://<CENTRAL_SERVER_IP_OR_DOMAIN>/api/v1/agent/download/installer" | sudo python3 -
+```
 
 ---
 
-### Step 1: Create Installation Directory
+### Option B: Manual Step-by-Step Installation
 
-On the remote site server:
+#### Step 1: Create Installation Directory
 ```bash
 sudo mkdir -p /opt/octyn-agent
 sudo chown -R $USER:$USER /opt/octyn-agent
 cd /opt/octyn-agent
 ```
 
----
-
-### Step 2: Download the Latest Agent Script
-
-Download the active agent directly from your Central Monitoring Server:
+#### Step 2: Download the Latest Agent Script
 ```bash
-curl -sSL "http://<CENTRAL_SERVER_IP_OR_DOMAIN>:8000/api/v1/agent/download/lite" -o agent_lite.py
+curl -sSL "http://<CENTRAL_SERVER_IP_OR_DOMAIN>/api/v1/agent/download/lite" -o agent_lite.py
 chmod +x agent_lite.py
 ```
 
@@ -39,7 +38,7 @@ chmod +x agent_lite.py
 Create `agent/.env` or `.env` inside `/opt/octyn-agent/.env`:
 ```env
 SERVER_ID=your_server_uuid_from_dashboard
-API_URL=http://<CENTRAL_SERVER_IP_OR_DOMAIN>:8000/api/v1
+API_URL=http://<CENTRAL_SERVER_IP_OR_DOMAIN>/api/v1
 API_KEY=cm-your_generated_agent_api_key
 ```
 

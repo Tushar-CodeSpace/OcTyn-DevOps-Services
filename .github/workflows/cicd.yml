@@ -132,6 +132,7 @@ jobs:
         run: |
           mkdir -p backend/app/static
           cp agent/agent_lite.py backend/app/static/agent_lite.py
+          cp agent/agent_installer.py backend/app/static/agent_installer.py
 
       - name: Compute image names (GHCR requires lowercase)
         id: meta
