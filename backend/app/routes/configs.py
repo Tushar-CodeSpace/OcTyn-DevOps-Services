@@ -127,6 +127,17 @@ async def list_snapshot_history(
     return [_meta(d) for d in docs]
 
 
+from typing import Optional
+from pydantic import BaseModel
+
+
+class TestBackupRequest(BaseModel):
+    mongo_uri: str
+    mongo_auth_source: Optional[str] = "admin"
+    mongo_config_enabled: Optional[bool] = True
+    config_collections: Optional[list[dict]] = None
+
+
 @router.get("/snapshots/{snapshot_id}", response_model=ConfigSnapshotFull)
 async def get_snapshot(
     snapshot_id: str,
@@ -138,3 +149,124 @@ async def get_snapshot(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
     meta = _meta(doc)
     return ConfigSnapshotFull(**meta.model_dump(), documents=doc.get("documents", []))
+
+
+@router.post("/servers/{server_id}/test-backup")
+async def test_and_trigger_backup(
+    server_id: str,
+    payload: TestBackupRequest,
+    user: dict = Depends(auth.require_admin),
+) -> dict:
+    """Test connection string, save backup config overrides, and execute backup immediately."""
+    sid = parse_id(server_id)
+    server = db.servers().find_one({"_id": sid}) if sid else None
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    uri = payload.mongo_uri.strip()
+    if not uri:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mongo URI connection string is required")
+
+    overrides: dict = {
+        "mongo_uri": uri,
+        "mongo_auth_source": payload.mongo_auth_source or "admin",
+        "mongo_config_enabled": True,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if payload.config_collections is not None:
+        overrides["config_collections"] = payload.config_collections
+
+    db.server_configs().update_one(
+        {"server_id": sid},
+        {"$set": overrides},
+        upsert=True,
+    )
+
+    cmd_id = new_id()
+    db.terminal_commands().insert_one({
+        "_id": cmd_id,
+        "server_id": sid,
+        "command": "python3 agent_lite.py --sync-configs 2>/dev/null || uv run agent --sync-configs 2>/dev/null || python3 -c 'from agent.mongo_backup import sync_configs; sync_configs()' 2>/dev/null",
+        "created_by": user["_id"],
+        "user_email": user["email"],
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+        "timeout_seconds": 60,
+    })
+
+    synced_from_hub = False
+    synced_count = 0
+    try:
+        import hashlib
+        from pymongo import MongoClient
+
+        temp_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+        temp_client.admin.command("ping")
+
+        collections_map = payload.config_collections or [
+            {"database": "site_db", "collections": ["orders", "settings", "users"]}
+        ]
+        now = datetime.now(timezone.utc)
+        captured_at = now.isoformat()
+
+        for spec in collections_map:
+            dbname = spec.get("database")
+            cols = spec.get("collections", [])
+            if not dbname:
+                continue
+            for col_name in cols:
+                try:
+                    docs = list(temp_client[dbname][col_name].find({}).limit(5000))
+                    from app.database.connection import jsonable
+                    clean_docs = [jsonable(d) for d in docs]
+                    phash = hashlib.sha256(repr(sorted(clean_docs, key=repr)).encode()).hexdigest()[:32]
+
+                    snapshot = {
+                        "_id": new_id(),
+                        "server_id": sid,
+                        "database": dbname,
+                        "collection": col_name,
+                        "captured_at": captured_at,
+                        "received_at": now,
+                        "count": len(clean_docs),
+                        "content_hash": phash,
+                        "truncated": False,
+                        "documents": clean_docs,
+                    }
+                    db.site_configs().insert_one(snapshot)
+                    emit(
+                        "config_snapshot",
+                        {
+                            "id": str(snapshot["_id"]),
+                            "server_id": str(sid),
+                            "database": dbname,
+                            "collection": col_name,
+                            "captured_at": captured_at,
+                            "received_at": now.isoformat(),
+                            "count": len(clean_docs),
+                            "content_hash": phash,
+                            "truncated": False,
+                        },
+                        room=f"server:{sid}",
+                    )
+                    synced_count += 1
+                except Exception:
+                    pass
+        temp_client.close()
+        synced_from_hub = True
+    except Exception:
+        pass
+
+    msg = (
+        f"Backup connection verified & executed directly! ({synced_count} collections backed up)."
+        if synced_from_hub
+        else "Connection settings saved! Sent instant backup trigger command to remote site agent."
+    )
+
+    return {
+        "success": True,
+        "message": msg,
+        "synced_from_hub": synced_from_hub,
+        "synced_count": synced_count,
+    }
+

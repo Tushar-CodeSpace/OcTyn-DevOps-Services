@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, MapPin, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
+import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, MapPin, Play, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -69,6 +69,7 @@ export default function ServerDetail() {
   const [newTargetIp, setNewTargetIp] = useState("");
   const [dbType, setDbType] = useState<"mongo" | "postgres">("mongo");
   const [savingBackup, setSavingBackup] = useState(false);
+  const [testingBackup, setTestingBackup] = useState(false);
   const [backupCfgOpen, setBackupCfgOpen] = useState(false);
 
   function exportMetricsCsv() {
@@ -209,6 +210,39 @@ export default function ServerDetail() {
       });
     } finally {
       setSavingBackup(false);
+    }
+  }
+
+  async function testAndRunBackupNow() {
+    if (!id || !agentCfg || !agentCfg.mongo_uri || testingBackup) return;
+    setTestingBackup(true);
+    try {
+      const res = await apiFetch<{ success: boolean; message: string; synced_count?: number }>(
+        `/configs/servers/${id}/test-backup`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            mongo_uri: agentCfg.mongo_uri,
+            mongo_auth_source: agentCfg.mongo_auth_source,
+            mongo_config_enabled: true,
+            config_collections: agentCfg.config_collections,
+          }),
+        }
+      );
+      showToast({
+        severity: res.success ? "info" : "critical",
+        title: res.success ? "Backup Triggered" : "Test Failed",
+        message: res.message,
+      });
+      await loadSnapshots();
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Test Connection Failed",
+        message: err instanceof Error ? err.message : "Failed to test backup connection",
+      });
+    } finally {
+      setTestingBackup(false);
     }
   }
 
@@ -1404,10 +1438,21 @@ export default function ServerDetail() {
                   )}
 
                   {isAdmin && (
-                    <Button onClick={() => void saveBackupCfg()} disabled={savingBackup} className="self-start" size="sm">
-                      <Save className="mr-1.5 h-3.5 w-3.5" />
-                      {savingBackup ? "Saving…" : "Save backup config"}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3 pt-2">
+                      <Button
+                        onClick={() => void testAndRunBackupNow()}
+                        disabled={testingBackup || !agentCfg?.mongo_uri}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow"
+                        size="sm"
+                      >
+                        <Play className="mr-1.5 h-3.5 w-3.5" />
+                        {testingBackup ? "Testing & Backing up…" : "Test Connection & Run Backup Now"}
+                      </Button>
+                      <Button onClick={() => void saveBackupCfg()} disabled={savingBackup} variant="outline" size="sm">
+                        <Save className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
+                        {savingBackup ? "Saving…" : "Save backup config"}
+                      </Button>
+                    </div>
                   )}
                 </>
               )}

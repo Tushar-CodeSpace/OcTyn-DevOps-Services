@@ -1105,6 +1105,9 @@ def main():
         % (socket.gethostname(), SERVER_ID, API_URL))
     if "--once" in sys.argv:
         sys.exit(0 if cycle() else 1)
+    if "--sync-configs" in sys.argv:
+        sync_configs()
+        sys.exit(0)
 
     start_config_poller()
     start_connectivity_poller()

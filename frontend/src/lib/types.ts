@@ -26,6 +26,7 @@ export interface Site {
   code: string;
   location: string;
   status: string;
+  alerts_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }

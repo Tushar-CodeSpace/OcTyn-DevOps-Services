@@ -95,6 +95,15 @@ def notify_alert(
         logger.warning("whatsapp enabled but no recipients configured")
         return
 
+    if site_id:
+        try:
+            from app.database import models as db
+            s_doc = db.sites().find_one({"_id": site_id}, {"alerts_enabled": 1})
+            if s_doc and not s_doc.get("alerts_enabled", True):
+                return
+        except Exception:
+            pass
+
     client, location = _site_details(site_id)
     text = format_alert_text(
         severity=severity,

@@ -28,6 +28,7 @@ def site_doc_to_read(doc: dict) -> SiteRead:
         code=doc["code"],
         location=doc["location"],
         status=doc["status"],
+        alerts_enabled=doc.get("alerts_enabled", True),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
