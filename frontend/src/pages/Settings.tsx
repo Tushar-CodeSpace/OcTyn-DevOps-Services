@@ -371,7 +371,7 @@ export default function Settings() {
           </Card>
         </div>
 
-        {/* Right Column (5 cols): Alert Controls with 2 Sub-Cards */}
+        {/* Right Column (5 cols): Alert Controls with Sub-Tile Grids */}
         <div className="flex flex-col gap-6 lg:col-span-5">
           <Card className="border-amber-500/20 bg-slate-900/50 shadow-xl">
             <CardHeader className="border-b border-slate-800/80 pb-3">
@@ -385,7 +385,7 @@ export default function Settings() {
                 </span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mt-1">
-                Manage automated alert permissions at both the Client level and individual Site level.
+                Manage automated alert permissions via sub-tiles for clients and site environments.
               </p>
               {!isAdmin && (
                 <div className="mt-2 rounded-md bg-amber-500/10 p-2 border border-amber-500/20 text-[11px] text-amber-300/90 flex items-center gap-1.5">
@@ -396,159 +396,165 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="pt-4 flex flex-col gap-6">
 
-              {/* Sub-Card 1: Client Level Alert Controls */}
-              <div className="flex flex-col gap-3 rounded-xl border border-slate-800/90 bg-slate-950/70 p-4 shadow-sm">
+              {/* Sub-Tile 1: Client Alert Controls */}
+              <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-sky-400" />
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                      1. Clients (Client Level Controls)
+                      Client Sub-Tiles
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    Muting a client disables alerts for all its sites
+                    Mutes all sites under client
                   </span>
                 </div>
 
                 {loadingSites ? (
-                  Array.from({ length: 2 }).map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full rounded-lg" />
-                  ))
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <Skeleton key={i} className="h-20 w-full rounded-xl" />
+                    ))}
+                  </div>
                 ) : uniqueClients.length === 0 ? (
                   <p className="text-xs text-slate-500 py-2 text-center">No clients found.</p>
                 ) : (
-                  uniqueClients.map((clientName) => {
-                    const isClientEnabled = !disabledClients.includes(clientName);
-                    const clientSites = sites.filter((s) => s.client === clientName);
-                    const isSavingClient = updatingClientName === clientName;
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {uniqueClients.map((clientName) => {
+                      const isClientEnabled = !disabledClients.includes(clientName);
+                      const clientSitesCount = sites.filter((s) => s.client === clientName).length;
+                      const isSavingClient = updatingClientName === clientName;
 
-                    return (
-                      <div
-                        key={clientName}
-                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                          isClientEnabled
-                            ? "border-sky-500/20 bg-sky-950/20 hover:border-sky-500/40"
-                            : "border-amber-500/30 bg-amber-950/25 hover:border-amber-500/40"
-                        }`}
-                      >
-                        <div className="flex flex-col gap-0.5 min-w-0 pr-2">
-                          <span className="font-bold text-xs text-slate-100 truncate">
-                            {clientName}
-                          </span>
-                          <span className="text-[11px] text-slate-400">
-                            {clientSites.length} {clientSites.length === 1 ? "site" : "sites"} under client
-                          </span>
+                      return (
+                        <div
+                          key={clientName}
+                          className={`flex flex-col justify-between p-3 rounded-xl border transition-all ${
+                            isClientEnabled
+                              ? "border-sky-500/30 bg-slate-900/90 shadow-sm hover:border-sky-500/50"
+                              : "border-amber-500/40 bg-amber-950/20 shadow-sm hover:border-amber-500/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-xs text-slate-100 truncate">
+                                {clientName}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {clientSitesCount} {clientSitesCount === 1 ? "site" : "sites"}
+                              </span>
+                            </div>
+                            <span
+                              className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                                isClientEnabled
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                  : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                              }`}
+                            >
+                              {isClientEnabled ? "ACTIVE" : "MUTED"}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-[11px]">
+                            <span className="text-slate-400 font-medium">Alert Status</span>
+                            <label className={`relative inline-flex items-center ${isAdmin ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                              <input
+                                type="checkbox"
+                                disabled={!isAdmin || isSavingClient}
+                                checked={isClientEnabled}
+                                onChange={(e) => toggleClientAlerts(clientName, e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-600"></div>
+                            </label>
+                          </div>
                         </div>
-
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                              isClientEnabled
-                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                                : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                            }`}
-                          >
-                            {isClientEnabled ? "Alerts Active" : "Client Muted"}
-                          </span>
-
-                          <label className={`relative inline-flex items-center ${isAdmin ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
-                            <input
-                              type="checkbox"
-                              disabled={!isAdmin || isSavingClient}
-                              checked={isClientEnabled}
-                              onChange={(e) => toggleClientAlerts(clientName, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                          </label>
-                        </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
-              {/* Sub-Card 2: Site Level Alert Controls */}
-              <div className="flex flex-col gap-3 rounded-xl border border-slate-800/90 bg-slate-950/70 p-4 shadow-sm">
+              {/* Sub-Tile 2: Site Alert Controls */}
+              <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-emerald-400" />
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                      2. Sites (Site Level Controls)
+                      Site Sub-Tiles
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-400">
-                    Mute alerts for specific client sites
+                    Mute specific site environments
                   </span>
                 </div>
 
                 {loadingSites ? (
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-14 w-full rounded-lg" />
-                  ))
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-20 w-full rounded-xl" />
+                    ))}
+                  </div>
                 ) : sites.length === 0 ? (
                   <p className="text-xs text-slate-500 py-2 text-center">No sites found.</p>
                 ) : (
-                  sites.map((site) => {
-                    const isClientDisabled = disabledClients.includes(site.client);
-                    const isSiteEnabled = site.alerts_enabled !== false && !isClientDisabled;
-                    const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
-                    const isSavingSite = updatingSiteId === site.id;
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    {sites.map((site) => {
+                      const isClientDisabled = disabledClients.includes(site.client);
+                      const isSiteEnabled = site.alerts_enabled !== false && !isClientDisabled;
+                      const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
+                      const isSavingSite = updatingSiteId === site.id;
 
-                    return (
-                      <div
-                        key={site.id}
-                        className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                          isClientDisabled
-                            ? "border-slate-800/60 bg-slate-900/30 opacity-70"
-                            : isSiteEnabled
-                            ? "border-slate-800 bg-slate-900/90 hover:border-slate-700"
-                            : "border-amber-500/30 bg-amber-950/20 hover:border-amber-500/40"
-                        }`}
-                      >
-                        <div className="flex flex-col gap-1 pr-2 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-xs text-slate-200 truncate">
-                              {site.client}
-                            </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/80">
-                              {site.code}
-                            </span>
+                      return (
+                        <div
+                          key={site.id}
+                          className={`flex flex-col justify-between p-3 rounded-xl border transition-all ${
+                            isClientDisabled
+                              ? "border-slate-800/60 bg-slate-900/30 opacity-60"
+                              : isSiteEnabled
+                              ? "border-slate-800 bg-slate-900/90 shadow-sm hover:border-slate-700"
+                              : "border-amber-500/30 bg-amber-950/20 shadow-sm hover:border-amber-500/40"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-1 mb-2">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/80 truncate">
+                                {site.code}
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                                  isClientDisabled
+                                    ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                    : isSiteEnabled
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                    : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                }`}
+                              >
+                                {isClientDisabled ? "CLIENT MUTED" : isSiteEnabled ? "ACTIVE" : "MUTED"}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-400">
+                              <span className="truncate">{site.client} · {site.location}</span>
+                              <span className="shrink-0 text-[10px] font-mono text-slate-500">{siteServersCount} srv</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                            <span>📍 {site.location}</span>
-                            <span>•</span>
-                            <span>{siteServersCount} {siteServersCount === 1 ? "server" : "servers"}</span>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-[11px]">
+                            <span className="text-slate-400 font-medium">Alert Status</span>
+                            <label className={`relative inline-flex items-center ${isAdmin && !isClientDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                              <input
+                                type="checkbox"
+                                disabled={!isAdmin || isClientDisabled || isSavingSite}
+                                checked={isSiteEnabled}
+                                onChange={(e) => toggleSiteAlerts(site, e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-600"></div>
+                            </label>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span
-                            className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
-                              isClientDisabled
-                                ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                                : isSiteEnabled
-                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                            }`}
-                          >
-                            {isClientDisabled ? "Muted via Client" : isSiteEnabled ? "Alerts Active" : "Site Muted"}
-                          </span>
-
-                          <label className={`relative inline-flex items-center ${isAdmin && !isClientDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
-                            <input
-                              type="checkbox"
-                              disabled={!isAdmin || isClientDisabled || isSavingSite}
-                              checked={isSiteEnabled}
-                              onChange={(e) => toggleSiteAlerts(site, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                          </label>
-                        </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
