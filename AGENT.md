@@ -150,6 +150,7 @@ uv run agent
 ### UI & Styling Standards
 - Primary styling uses Tailwind CSS 4 with custom dark mode theme (`bg-black`, `text-emerald-300`, `text-slate-200`).
 - **Device Connectivity**: Device status tiles are formatted as small, space-efficient, responsive grid cards showing glowing status indicators, host name, latency, IP, and timestamp.
+- **Alert Controls**: Settings page features responsive Sub-Tiles for Client-level and Site-level alert enable/disable toggles with real-time search filtering.
 
 ---
 
@@ -168,3 +169,31 @@ When changes are pushed to GitHub (`main`), the CI/CD pipeline ([`.github/workfl
    - Remote site agents query `GET /api/v1/agent/release` during their execution loop.
    - If a checksum mismatch is detected, the agent safely downloads the new version, verifies Python syntax (`py_compile`), replaces itself, and exits cleanly (`sys.exit(0)`).
    - Systemd ([`octyn.service`](file:///d:/octyn_watcher/agent/octyn.service) with `Restart=always`) automatically restarts the agent running the updated code.
+
+---
+
+## 7. MongoDB Config Backup Testing & Instant Triggering
+
+- **Percent-Encoding Special Characters**: Connection strings containing special characters in username/password (e.g. `@` in `nido@123`) are automatically URL percent-encoded via `_encode_uri_password()` (`mongodb://nido:nido%40123@localhost:27017`) to prevent `pymongo.errors.InvalidURI`.
+- **Instant Triggering (`trigger_sync_id`)**: Calling `POST /api/v1/configs/servers/{server_id}/test-backup` updates server config overrides with `trigger_sync_id` and sets `force_update`.
+- **Agent Execution**: The site agent receives `trigger_sync_id` via its 5s config poller, logs `[TRIGGER] Hub requested immediate config backup`, and executes `sync_configs()` in a background thread.
+- **Frontend Verification Loop**: The dashboard shows a loading spinner (`Loader2`) and actively polls `GET /api/v1/configs/servers/{server_id}` for up to 25 seconds until the snapshot arrives, displaying success or an explicit timeout notification.
+
+---
+
+## 8. 7-Day Memory & Disk Space Retention Policy
+
+- **Default Retention**: Default data retention is set to **7 days** (`metrics_retention_days = 7`).
+- **Native MongoDB TTL Auto-Expiration**:
+  - `metrics` (`recorded_at`): `expireAfterSeconds = 604800` (7 days).
+  - `site_configs` (`received_at`): `expireAfterSeconds = 604800` (7 days).
+  - `terminal_commands` (`created_at`): `expireAfterSeconds = 604800` (7 days).
+- **Background & Manual Cleanup**:
+  - `cleanup_expired_data()` in `backend/app/services/background.py` automatically prunes 7-day old metrics, config snapshots, terminal logs, and resolved alerts daily.
+  - Manual CLI reclamation command:
+    ```bash
+    uv run --project backend scripts/cleanup.py --days 7
+    ```
+    This script prunes old data and executes MongoDB collection compaction (`compact`) to immediately free up disk space on `/dev/sda4`.
+- **Dashboard UI Controls**: Admin users can modify retention days or click **"Prune Data Older Than 7 Days"** directly from the Settings page.
+

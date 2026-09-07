@@ -1,8 +1,8 @@
 # OcTyn DevOps Services — AI Agent Guidance & Project Reference (`AGENTS.md`)
 
-This file is a copy and primary reference for AI Agents (Antigravity, Cursor, Windsurf, Claude Code, Copilot, etc.) working on **OcTyn DevOps Services**.
+This file is the primary guidance document for AI Agents (Antigravity, Cursor, Windsurf, Claude Code, Copilot, etc.) working on **OcTyn DevOps Services**.
 
-For the detailed complete guide, also see [AGENT.md](file:///d:/octyn_watcher/AGENT.md) and [docs/ARCHITECTURE.md](file:///d:/octyn_watcher/docs/ARCHITECTURE.md).
+For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.md), [docs/HOW_IT_WORKS.md](file:///d:/octyn_watcher/docs/HOW_IT_WORKS.md), and [docs/ARCHITECTURE.md](file:///d:/octyn_watcher/docs/ARCHITECTURE.md).
 
 ---
 
@@ -15,7 +15,7 @@ For the detailed complete guide, also see [AGENT.md](file:///d:/octyn_watcher/AG
 
 ---
 
-## Critical Execution & Configuration Rules
+## Critical Execution & Architectural Rules
 
 1. **Agent `.env` Minimal Configuration**:
    The agent `.env` file (`agent/.env`) strictly contains only:
@@ -40,6 +40,24 @@ For the detailed complete guide, also see [AGENT.md](file:///d:/octyn_watcher/AG
 5. **Agent CI/CD Auto-Updates**:
    - Remote site agents check `GET /api/v1/agent/release` on the Central Server. When code is pushed to GitHub `main`, central deployment triggers an update notification (`POST /api/v1/agent/trigger-update`), causing remote site agents to self-download the new release, compile-check (`py_compile`), replace themselves, and exit cleanly so systemd auto-restarts them.
 
+6. **MongoDB URI Percent-Encoding**:
+   - Connection strings containing special characters in username/password (such as `@` in `nido@123`) must be percent-encoded to `nido%40123` using `_encode_uri_password()` before passing to PyMongo to prevent `pymongo.errors.InvalidURI`.
+
+7. **Instant Config Backup Triggering (`trigger_sync_id`)**:
+   - Clicking **"Test Connection & Run Backup Now"** calls `POST /api/v1/configs/servers/{server_id}/test-backup`, which sets `trigger_sync_id` and `force_update`. Site agents receive `trigger_sync_id` via their 5s config poller, log `[TRIGGER] Hub requested immediate config backup`, and execute `sync_configs()` in a background thread. Frontend polls for 25s with an animated spinner until snapshot arrival.
+
+8. **7-Day Memory & Disk Space Retention**:
+   - Memory and disk space retention default is **7 days** (`metrics_retention_days = 7`).
+   - Native 7-day TTL indexes (`expireAfterSeconds = 604800`) are active on `metrics` (`recorded_at`), `site_configs` (`received_at`), and `terminal_commands` (`created_at`).
+   - Run manual disk space reclamation on server via:
+     ```bash
+     uv run --project backend scripts/cleanup.py --days 7
+     ```
+     This prunes 7-day old records and executes MongoDB collection compaction (`compact`).
+
+9. **Per-Client & Per-Site Alert Controls**:
+   - Admin and Super Admin users can toggle alerts at Client level (`PATCH /api/v1/sites/clients/{client_name}/alerts`) or Site level (`PATCH /api/v1/sites/{site_id}`). Evaluator (`alerts.py`) and Notifier (`notifier.py`) enforce both settings.
+
 ---
 
 ## How to Run Services
@@ -59,6 +77,9 @@ cd frontend && npm run dev
 
 # 5. Start Agent (uv entrypoint)
 cd agent && uv run agent
+
+# 6. Run Disk Space Retention Cleanup & MongoDB Compaction
+uv run --project backend scripts/cleanup.py --days 7
 ```
 
-Refer to [AGENT.md](file:///d:/octyn_watcher/AGENT.md) for complete details.
+Refer to [AGENT.md](file:///d:/octyn_watcher/AGENT.md) and [docs/HOW_IT_WORKS.md](file:///d:/octyn_watcher/docs/HOW_IT_WORKS.md) for complete details.

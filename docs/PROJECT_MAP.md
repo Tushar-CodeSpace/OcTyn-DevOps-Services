@@ -85,10 +85,12 @@ octyn_watcher/
 ### Database & Scripts
 - [`database/init/mongo/001-init.js`](file:///d:/octyn_watcher/database/init/mongo/001-init.js): MongoDB initial collection schema & indexing script.
 - [`scripts/seed.py`](file:///d:/octyn_watcher/scripts/seed.py): Python seed script to initialize site, server, user, and alert collections.
+- [`scripts/cleanup.py`](file:///d:/octyn_watcher/scripts/cleanup.py): 7-day retention data cleanup & MongoDB collection compaction script (`uv run --project backend scripts/cleanup.py --days 7`).
 
 ---
 
 ### Documentation (`docs/`)
+- [`docs/HOW_IT_WORKS.md`](file:///d:/octyn_watcher/docs/HOW_IT_WORKS.md): Basic-language architecture, agent inner workings, web SSH, retention, & backup guide.
 - [`docs/ARCHITECTURE.md`](file:///d:/octyn_watcher/docs/ARCHITECTURE.md): System architecture, data flow diagrams, background loops.
 - [`docs/DEPLOYMENT.md`](file:///d:/octyn_watcher/docs/DEPLOYMENT.md): Production deployment guide (Docker, Nginx, Systemd).
 - [`docs/AGENT_DEPLOYMENT.md`](file:///d:/octyn_watcher/docs/AGENT_DEPLOYMENT.md): Remote site agent deployment, upgrading, & CI/CD auto-update guide.

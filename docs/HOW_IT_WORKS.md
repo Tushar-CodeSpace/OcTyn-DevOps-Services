@@ -93,3 +93,50 @@ Since remote servers are usually behind firewalls or NATs, direct SSH incoming c
 6. **Process Cancellation (<kbd>Ctrl</kbd> + <kbd>C</kbd>)**:
    - Pressing <kbd>Ctrl</kbd> + <kbd>C</kbd> in the browser terminal calls `POST /api/v1/terminal/{server_id}/commands/{command_id}/cancel`.
    - The agent detects the cancellation request while streaming and sends `SIGINT` (Ctrl+C signal) to the process group, cleanly interrupting the running command.
+
+---
+
+## 5. How Site MongoDB Config Backups Work
+
+OcTyn allows you to back up MongoDB database collection configurations across your remote client sites:
+
+1. **Instant Backup Testing**:
+   - In the **Server Detail** page, click **"Backup settings"** $\rightarrow$ **"Test Connection & Run Backup Now"**.
+   - If your password has special characters like `@` (e.g. `nido@123`), OcTyn automatically URL-encodes it (`nido%40123`) to avoid connection errors.
+2. **Instant Agent Trigger (`trigger_sync_id`)**:
+   - The central server sends a `trigger_sync_id` signal to the remote site agent.
+   - The agent immediately runs `sync_configs()` in a background thread and POSTs MongoDB collection snapshots back to the central hub.
+3. **Live UI Verification**:
+   - The dashboard displays an animated loading spinner (`Loader2`) and actively polls for up to 25 seconds until the snapshot arrives, displaying success or an explicit timeout notification.
+
+---
+
+## 6. How Data Retention & Disk Space Management Works
+
+To keep disk space usage low on the central server (`/dev/sda4`), OcTyn enforces a **7-Day Retention Policy**:
+
+1. **7-Day Auto-Expiration (MongoDB TTL)**:
+   - Native MongoDB TTL indexes automatically expire and delete telemetry metrics, config snapshots, and terminal logs older than **7 days** (604,800 seconds).
+2. **Daily Cleanup Loop**:
+   - The central backend runs a daily background loop that purges historical metrics, old snapshots, and resolved alerts older than 7 days.
+3. **Instant Manual Reclamation**:
+   - You can run the disk space reclamation script from the command line:
+     ```bash
+     uv run --project backend scripts/cleanup.py --days 7
+     ```
+     This deletes old data and runs MongoDB collection compaction (`compact`) to immediately compress database files on disk.
+   - You can also click **"Prune Data Older Than 7 Days"** directly from the **Settings** page in the web dashboard.
+
+---
+
+## 7. How Alert Controls Work (Per-Client & Per-Site)
+
+You can customize alert delivery so specific client sites don't trigger unnecessary notifications:
+
+1. **Client & Site Sub-Tiles**:
+   - On the **Settings** page, the right column features interactive **Client Sub-Tiles** and **Site Sub-Tiles** with real-time search filtering.
+2. **Alert Enable/Disable Toggles**:
+   - Admins and Super Admins can disable alerts for an entire client (e.g. `Samsonite`) or a specific site (e.g. `Nashik Plant`).
+3. **Alert Engine Enforcement**:
+   - When alerts are disabled for a site or client, the alert evaluator (`alerts.py`) and notifier (`notifier.py`) suppress notification popups and external alerts (e.g. WhatsApp messages).
+

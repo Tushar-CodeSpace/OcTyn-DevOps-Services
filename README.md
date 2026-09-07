@@ -54,8 +54,7 @@ evaluator derives health + raises alerts → dashboard polls and renders.
 - **Alert engine** (background evaluator, every 30s) — CPU > 90% sustained 5 min,
   RAM > 90%, disk > 85%, server offline, service stopped/error. Alerts are
   deduplicated while active and auto-resolved when conditions clear.
-- **Retention** — raw metrics kept 30 days (daily automatic cleanup);
-  resolved alerts older than 90 days are purged.
+- **Retention** — raw metrics, site config snapshots, and terminal logs kept 7 days (daily automatic cleanup & native MongoDB 7-day TTL auto-expiration); manual disk space reclamation via `uv run --project backend scripts/cleanup.py --days 7`.
 - **Structured logging** — JSON lines to stdout + rotating `logs/backend.log`.
 
 ## Project layout
