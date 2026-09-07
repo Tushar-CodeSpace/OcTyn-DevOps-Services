@@ -76,7 +76,7 @@ def sync_configs() -> None:
 
     for src in filter(None, [auth_source, "admin", "test"]):
         try:
-            temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000)
+            temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
             temp_client[src].command("ping")
             client = temp_client
             connected = True
@@ -90,7 +90,7 @@ def sync_configs() -> None:
 
     if not connected or not client:
         try:
-            client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+            client = MongoClient(uri, serverSelectionTimeoutMS=5000, directConnection=True)
             client.admin.command("ping")
             connected = True
         except Exception as exc:
@@ -106,21 +106,36 @@ def sync_configs() -> None:
     except Exception:
         pass
 
+    cfg_map = dict(config_collections())
+    if not cfg_map and db_names:
+        for dbname in db_names:
+            if dbname not in {"admin", "config", "local"}:
+                cfg_map[dbname] = ["*"]
+
     sent = skipped = missing = 0
-    for database, collections in config_collections().items():
+    for database, collections in cfg_map.items():
         if db_names and database not in db_names:
-            missing += len(collections)
+            missing += len(collections) if collections else 1
             continue
         try:
             coll_names = set(client[database].list_collection_names())
         except Exception:
-            missing += len(collections)
+            missing += len(collections) if collections else 1
             continue
 
-        for name in collections:
-            if name not in coll_names:
-                missing += 1
-                continue
+        target_cols = [c for c in collections if c] if isinstance(collections, list) else []
+        if not target_cols or "*" in target_cols:
+            target_cols = [c for c in coll_names if not c.startswith("system.")]
+
+        matching_cols = [c for c in target_cols if c in coll_names]
+        if not matching_cols and coll_names:
+            matching_cols = [c for c in coll_names if not c.startswith("system.")]
+
+        if not matching_cols:
+            missing += len(target_cols) or 1
+            continue
+
+        for name in matching_cols:
             docs = [_jsonable(d) for d in client[database][name].find({}).limit(MAX_DOCS_PER_SNAPSHOT + 1)]
             truncated = len(docs) > MAX_DOCS_PER_SNAPSHOT
             docs = docs[:MAX_DOCS_PER_SNAPSHOT]

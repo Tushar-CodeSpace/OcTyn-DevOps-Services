@@ -225,12 +225,32 @@ async def test_and_trigger_backup(
         import hashlib
         from pymongo import MongoClient
 
-        temp_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
-        temp_client.admin.command("ping")
+        auth_src = payload.mongo_auth_source or "admin"
+        temp_client = MongoClient(uri, authSource=auth_src, serverSelectionTimeoutMS=3000, directConnection=True)
+        try:
+            temp_client[auth_src].command("ping")
+        except Exception:
+            temp_client.admin.command("ping")
 
-        collections_map = payload.config_collections or [
-            {"database": "site_db", "collections": ["orders", "settings", "users"]}
-        ]
+        collections_map = payload.config_collections or []
+        db_names = set()
+        try:
+            db_names = set(temp_client.list_database_names())
+        except Exception:
+            pass
+
+        if not collections_map and db_names:
+            collections_map = [
+                {"database": dbname, "collections": ["*"]}
+                for dbname in db_names
+                if dbname not in {"admin", "config", "local"}
+            ]
+
+        if not collections_map:
+            collections_map = [
+                {"database": "site_db", "collections": ["orders", "settings", "users"]}
+            ]
+
         now = datetime.now(timezone.utc)
         captured_at = now.isoformat()
 
@@ -239,7 +259,20 @@ async def test_and_trigger_backup(
             cols = spec.get("collections", [])
             if not dbname:
                 continue
-            for col_name in cols:
+            try:
+                available_cols = set(temp_client[dbname].list_collection_names())
+            except Exception:
+                continue
+
+            target_cols = [c for c in cols if c] if isinstance(cols, list) else []
+            if not target_cols or "*" in target_cols:
+                target_cols = [c for c in available_cols if not c.startswith("system.")]
+
+            matching_cols = [c for c in target_cols if c in available_cols]
+            if not matching_cols and available_cols:
+                matching_cols = [c for c in available_cols if not c.startswith("system.")]
+
+            for col_name in matching_cols:
                 try:
                     docs = list(temp_client[dbname][col_name].find({}).limit(5000))
                     from app.database.connection import jsonable
