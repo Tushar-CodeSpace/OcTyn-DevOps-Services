@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BellOff, Building2, Key, Lock, MapPin, Save, Search, X } from "lucide-react";
+import { BellOff, Building2, Key, Lock, MapPin, Save, Search, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { showToast } from "@/components/ToastHost";
 import type { AlertConfig, Server, Site } from "@/lib/types";
@@ -64,6 +64,13 @@ const FIELDS: {
     min: 0,
     max: 23,
   },
+  {
+    key: "metrics_retention_days",
+    label: "Data Retention Window (days)",
+    hint: "Automatically purge telemetry metrics, MongoDB config snapshots, logs, and resolved alerts older than this number of days (default: 7 days).",
+    min: 1,
+    max: 365,
+  },
 ];
 
 export default function Settings() {
@@ -89,6 +96,45 @@ export default function Settings() {
   });
   const [changingPass, setChangingPass] = useState(false);
   const [passError, setPassError] = useState<string | null>(null);
+  const [pruning, setPruning] = useState(false);
+
+  async function handlePruneDataNow() {
+    if (
+      !confirm(
+        "Are you sure you want to purge telemetry metrics, config snapshots, terminal logs, and resolved alerts older than the retention period?"
+      )
+    ) {
+      return;
+    }
+    setPruning(true);
+    try {
+      const res = await apiFetch<{
+        status: string;
+        message: string;
+        details?: {
+          metrics?: number;
+          site_configs?: number;
+          terminal_commands?: number;
+          alerts?: number;
+        };
+      }>("/settings/prune", {
+        method: "POST",
+      });
+      showToast({
+        severity: "info",
+        title: "Data Pruned Successfully",
+        message: `${res.message} (${res.details?.metrics ?? 0} metrics, ${res.details?.site_configs ?? 0} snapshots, ${res.details?.terminal_commands ?? 0} logs deleted).`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Prune Failed",
+        message: err instanceof Error ? err.message : "Failed to prune old data",
+      });
+    } finally {
+      setPruning(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -384,10 +430,22 @@ export default function Settings() {
               )}
 
               {isAdmin && (
-                <Button onClick={save} disabled={saving || !form} className="mt-2 self-start">
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving…" : "Save changes"}
-                </Button>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <Button onClick={save} disabled={saving || !form} size="sm">
+                    <Save className="mr-2 h-4 w-4" />
+                    {saving ? "Saving…" : "Save changes"}
+                  </Button>
+                  <Button
+                    onClick={handlePruneDataNow}
+                    disabled={pruning}
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/40 text-red-400 hover:bg-red-950/40 hover:text-red-300"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {pruning ? "Pruning Data…" : "Prune Data Older Than 7 Days"}
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -41,6 +41,7 @@ _SYNC_DOC = "sync"
 _SYNC_FIELDS: dict[str, tuple[type, object, Optional[float]]] = {
     "config_sync_enabled": (bool, True, None),
     "config_sync_hour": (int, settings.config_sync_hour, 0.0),
+    "metrics_retention_days": (int, settings.metrics_retention_days, 1.0),
 }
 
 # Default agent config (global defaults; per-server overrides stored separately).
@@ -200,6 +201,15 @@ def get_config_sync_config() -> dict:
             value = min(23, int(value))
         out[name] = value
     return out
+
+
+def get_retention_days() -> int:
+    """Return effective metrics/data retention period in days (default: 7)."""
+    cfg = get_config_sync_config()
+    try:
+        return max(1, int(cfg.get("metrics_retention_days", 7)))
+    except (TypeError, ValueError):
+        return 7
 
 
 def update_config_sync_config(patch: dict) -> dict:

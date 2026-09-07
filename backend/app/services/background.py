@@ -60,18 +60,41 @@ def evaluate_all_alerts() -> int:
 
 
 def cleanup_expired_data() -> dict:
-    """Delete raw metrics older than retention and resolved alerts older than 90 days."""
-    metric_cutoff = now() - timedelta(days=_retention_days)
-    alert_cutoff = now() - timedelta(days=90)
-    deleted_metrics = db.metrics().delete_many({"recorded_at": {"$lt": metric_cutoff}}).deleted_count
+    """Delete raw metrics, site configs, terminal logs, and resolved alerts older than retention period (default 7 days)."""
+    retention_days = app_settings.get_retention_days()
+    cutoff = now() - timedelta(days=retention_days)
+
+    deleted_metrics = db.metrics().delete_many({"recorded_at": {"$lt": cutoff}}).deleted_count
+    deleted_configs = db.site_configs().delete_many({"received_at": {"$lt": cutoff}}).deleted_count
+    deleted_commands = db.terminal_commands().delete_many({"created_at": {"$lt": cutoff}}).deleted_count
     deleted_alerts = db.alerts().delete_many(
-        {"status": "resolved", "resolved_at": {"$lt": alert_cutoff}}
+        {
+            "$or": [
+                {"status": "resolved", "resolved_at": {"$lt": cutoff}},
+                {"created_at": {"$lt": cutoff}, "status": {"$ne": "active"}},
+            ]
+        }
     ).deleted_count
+
     logger.info(
-        "retention cleanup",
-        extra={"extra_fields": {"metrics": deleted_metrics, "alerts": deleted_alerts}},
+        "retention cleanup complete",
+        extra={
+            "extra_fields": {
+                "retention_days": retention_days,
+                "metrics": deleted_metrics,
+                "site_configs": deleted_configs,
+                "terminal_commands": deleted_commands,
+                "alerts": deleted_alerts,
+            }
+        },
     )
-    return {"metrics": deleted_metrics, "alerts": deleted_alerts}
+    return {
+        "retention_days": retention_days,
+        "metrics": deleted_metrics,
+        "site_configs": deleted_configs,
+        "terminal_commands": deleted_commands,
+        "alerts": deleted_alerts,
+    }
 
 
 async def run_background_loop() -> None:

@@ -21,6 +21,7 @@ class AlertSettingsRead(BaseModel):
     offline_threshold_seconds: int = 60
     config_sync_enabled: bool = True
     config_sync_hour: int = 0
+    metrics_retention_days: int = 7
 
 
 class AlertSettingsUpdate(BaseModel):
@@ -34,6 +35,7 @@ class AlertSettingsUpdate(BaseModel):
     offline_threshold_seconds: Optional[int] = Field(default=None, ge=15)
     config_sync_enabled: Optional[bool] = None
     config_sync_hour: Optional[int] = Field(default=None, ge=0, le=23)
+    metrics_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 
 @router.get("", response_model=AlertSettingsRead)
@@ -54,7 +56,7 @@ async def update_settings(
     for key, value in body.model_dump().items():
         if value is None:
             continue
-        if key.startswith("config_sync_"):
+        if key.startswith("config_sync_") or key == "metrics_retention_days":
             sync_patch[key] = value
         else:
             alert_patch[key] = value
@@ -70,6 +72,18 @@ async def update_settings(
         ) from exc
     merged = {**app_settings.get_alert_config(), **app_settings.get_config_sync_config()}
     return AlertSettingsRead(**merged)
+
+
+@router.post("/prune")
+async def trigger_data_pruning(_: dict = Depends(auth.require_admin)) -> dict:
+    """Manually trigger instant data pruning of telemetry & logs older than retention period (7 days)."""
+    from app.services.background import cleanup_expired_data
+    result = cleanup_expired_data()
+    return {
+        "status": "success",
+        "message": f"Successfully pruned data older than {result['retention_days']} days.",
+        "details": result,
+    }
 
 
 # ------------------------------------------------------------- whatsapp ---

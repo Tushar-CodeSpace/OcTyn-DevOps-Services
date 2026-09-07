@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     evaluator_interval_seconds: int = 5
 
     # Raw metric retention (days)
-    metrics_retention_days: int = 30
+    metrics_retention_days: int = 7
 
     # Site MongoDB config backup (defaults; runtime-overridable via Settings UI)
     config_sync_enabled: bool = True

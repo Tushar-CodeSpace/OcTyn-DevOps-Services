@@ -24,8 +24,13 @@ def _ensure_index(collection: Collection, keys, **options) -> None:
 
 
 def ensure_indexes() -> None:
+    # 7 days retention in seconds (7 * 86400 = 604,800s)
+    ttl_seconds = 604_800
+
     _ensure_index(db.metrics(), [("server_id", 1), ("recorded_at", 1)])
-    _ensure_index(db.metrics(), [("recorded_at", 1)])
+    _ensure_index(db.metrics(), [("recorded_at", 1)], expireAfterSeconds=ttl_seconds)
+    _ensure_index(db.site_configs(), [("received_at", 1)], expireAfterSeconds=ttl_seconds)
+    _ensure_index(db.terminal_commands(), [("created_at", 1)], expireAfterSeconds=ttl_seconds)
     _ensure_index(db.api_keys(), [("key_hash", 1)], unique=True)
     _ensure_index(db.api_keys(), [("server_id", 1)])
     _ensure_index(db.users(), [("email", 1)], unique=True)

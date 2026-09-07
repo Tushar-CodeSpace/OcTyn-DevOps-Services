@@ -172,6 +172,7 @@ export interface AlertConfig {
   offline_threshold_seconds?: number;
   config_sync_enabled: boolean;
   config_sync_hour: number;
+  metrics_retention_days?: number;
 }
 
 export interface ConfigCollectionSpec {
