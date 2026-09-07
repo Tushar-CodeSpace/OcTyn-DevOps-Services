@@ -104,8 +104,9 @@ export interface Service {
   id: string;
   server_id: string;
   name: string;
-  status: "running" | "stopped" | "unknown";
+  status: "running" | "stopped" | "disabled" | "unknown";
   port: number | null;
+  enabled?: boolean;
   last_checked_at: string;
 }
 

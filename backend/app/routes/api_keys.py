@@ -82,9 +82,13 @@ async def list_api_keys(server_id: str) -> list[ApiKeyRead]:
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(auth.require_admin)],
 )
-async def revoke_api_key(key_id: str) -> None:
+async def revoke_or_delete_api_key(key_id: str, force: bool = False) -> None:
     oid = parse_id(key_id)
     doc = db.api_keys().find_one({"_id": oid}) if oid else None
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
-    db.api_keys().update_one({"_id": doc["_id"]}, {"$set": {"status": "revoked"}})
+
+    if force or doc.get("status") == "revoked":
+        db.api_keys().delete_one({"_id": doc["_id"]})
+    else:
+        db.api_keys().update_one({"_id": doc["_id"]}, {"$set": {"status": "revoked"}})

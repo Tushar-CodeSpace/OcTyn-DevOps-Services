@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Save, ListChecks, Settings2, Terminal, X } from "lucide-react";
+import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Plus, Save, ListChecks, Settings2, Terminal, Trash2, X } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -72,6 +72,12 @@ export default function ServerDetail() {
   const [testingBackup, setTestingBackup] = useState(false);
   const [backupProgressText, setBackupProgressText] = useState<string | null>(null);
   const [backupCfgOpen, setBackupCfgOpen] = useState(false);
+
+  // Services Management State
+  const [showAddService, setShowAddService] = useState(false);
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newServicePort, setNewServicePort] = useState("");
+  const [addingService, setAddingService] = useState(false);
 
   function exportMetricsCsv() {
     if (!metrics.length || !server) return;
@@ -557,6 +563,75 @@ export default function ServerDetail() {
     setKeys(k);
   }
 
+  async function deleteKey(keyId: string) {
+    if (!id) return;
+    if (!confirm("Permanently delete this revoked API key record?")) return;
+    try {
+      await apiFetch(`/api-keys/${keyId}?force=true`, { method: "DELETE" });
+      showToast({ severity: "info", title: "API Key Deleted", message: "Revoked key entry permanently removed." });
+      const k = await apiFetch<ApiKey[]>(`/servers/${id}/api-keys`);
+      setKeys(k);
+    } catch (err) {
+      showToast({ severity: "critical", title: "Delete Failed", message: err instanceof Error ? err.message : "Error" });
+    }
+  }
+
+  async function addService() {
+    if (!id || !newServiceName.trim() || addingService) return;
+    setAddingService(true);
+    try {
+      await apiFetch(`/servers/${id}/services`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: newServiceName.trim(),
+          port: newServicePort.trim() ? Number(newServicePort.trim()) : undefined,
+          enabled: true,
+        }),
+      });
+      showToast({ severity: "info", title: "Service Added", message: `Monitoring service "${newServiceName.trim()}"` });
+      setNewServiceName("");
+      setNewServicePort("");
+      setShowAddService(false);
+      const s = await apiFetch<Service[]>(`/servers/${id}/services`);
+      setServices(s);
+    } catch (err) {
+      showToast({ severity: "critical", title: "Failed to Add Service", message: err instanceof Error ? err.message : "Error" });
+    } finally {
+      setAddingService(false);
+    }
+  }
+
+  async function toggleServiceEnabled(s: Service) {
+    const nextEnabled = !(s.enabled ?? true);
+    try {
+      await apiFetch(`/services/${s.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      showToast({
+        severity: "info",
+        title: nextEnabled ? "Service Enabled" : "Service Disabled",
+        message: `Monitoring ${nextEnabled ? "enabled" : "disabled"} for "${s.name}"`,
+      });
+      const updated = await apiFetch<Service[]>(`/servers/${id}/services`);
+      setServices(updated);
+    } catch (err) {
+      showToast({ severity: "critical", title: "Update Failed", message: err instanceof Error ? err.message : "Error" });
+    }
+  }
+
+  async function deleteService(serviceId: string, serviceName: string) {
+    if (!confirm(`Delete service "${serviceName}" from monitoring list?`)) return;
+    try {
+      await apiFetch(`/services/${serviceId}`, { method: "DELETE" });
+      showToast({ severity: "info", title: "Service Deleted", message: `Removed "${serviceName}" from monitoring` });
+      const updated = await apiFetch<Service[]>(`/servers/${id}/services`);
+      setServices(updated);
+    } catch (err) {
+      showToast({ severity: "critical", title: "Delete Failed", message: err instanceof Error ? err.message : "Error" });
+    }
+  }
+
   const chartData = metrics.map((m) => ({
     time: new Date(m.recorded_at).toLocaleTimeString(),
     cpu: m.cpu_percent,
@@ -1028,29 +1103,109 @@ export default function ServerDetail() {
       )}
 
       <Card>
-        <CardHeader><CardTitle className="text-sm">Services</CardTitle></CardHeader>
-        <CardContent>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="text-sm">Services</CardTitle>
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAddService(!showAddService)}
+              className="h-8 gap-1 border-slate-700 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add service
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {showAddService && isAdmin && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/60 p-3">
+              <input
+                className="h-8 rounded-md border border-slate-700 bg-slate-950 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                placeholder="Service name (e.g. redis, postgres)"
+                value={newServiceName}
+                onChange={(e) => setNewServiceName(e.target.value)}
+              />
+              <input
+                className="h-8 w-28 rounded-md border border-slate-700 bg-slate-950 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                placeholder="Port (optional)"
+                type="number"
+                value={newServicePort}
+                onChange={(e) => setNewServicePort(e.target.value)}
+              />
+              <Button size="sm" onClick={() => void addService()} disabled={addingService || !newServiceName.trim()}>
+                {addingService ? "Adding..." : "Save service"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAddService(false)}>
+                Cancel
+              </Button>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Port</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Monitoring</TableHead>
                 <TableHead>Last checked</TableHead>
+                {isAdmin && <TableHead className="w-12"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {services.length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-slate-500">No services reported yet.</TableCell></TableRow>
-              )}
-              {services.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">{s.name}</TableCell>
-                  <TableCell>{s.port ?? "—"}</TableCell>
-                  <TableCell><ServiceBadge status={s.status} /></TableCell>
-                  <TableCell>{formatTime(s.last_checked_at)}</TableCell>
+                <TableRow>
+                  <TableCell colSpan={isAdmin ? 6 : 5} className="text-slate-500">
+                    No services reported yet.
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
+              {services.map((s) => {
+                const isEnabled = s.enabled ?? true;
+                return (
+                  <TableRow key={s.id} className={!isEnabled ? "opacity-60" : undefined}>
+                    <TableCell className="font-medium">{s.name}</TableCell>
+                    <TableCell>{s.port ?? "—"}</TableCell>
+                    <TableCell>
+                      <ServiceBadge status={!isEnabled ? "disabled" : s.status} />
+                    </TableCell>
+                    <TableCell>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => void toggleServiceEnabled(s)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isEnabled ? "bg-emerald-600" : "bg-slate-700"
+                          }`}
+                          title={isEnabled ? "Disable monitoring" : "Enable monitoring"}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              isEnabled ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">{isEnabled ? "Enabled" : "Disabled"}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{formatTime(s.last_checked_at)}</TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                          onClick={() => void deleteService(s.id, s.name)}
+                          title="Delete service"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
@@ -1100,9 +1255,23 @@ export default function ServerDetail() {
                   </TableCell>
                   <TableCell>{formatTime(k.created_at)}</TableCell>
                   <TableCell>{formatTime(k.last_used_at)}</TableCell>
-                  <TableCell>
+                  <TableCell className="flex items-center justify-end gap-2">
                     {isAdmin && k.status === "active" && (
-                      <Button variant="destructive" size="sm" onClick={() => revokeKey(k.id)}>Revoke</Button>
+                      <Button variant="destructive" size="sm" onClick={() => void revokeKey(k.id)}>
+                        Revoke
+                      </Button>
+                    )}
+                    {isAdmin && k.status === "revoked" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                        onClick={() => void deleteKey(k.id)}
+                        title="Delete revoked API key"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
                     )}
                   </TableCell>
                 </TableRow>
@@ -1141,22 +1310,6 @@ export default function ServerDetail() {
                 <Skeleton className="h-28 w-full" />
               ) : (
                 <>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs text-slate-400">Monitored services (name[:port], comma separated)</Label>
-                    <input
-                      type="text"
-                      disabled={!isAdmin}
-                      value={agentCfg.monitored_services.join(", ")}
-                      onChange={(e) =>
-                        setAgentCfg({
-                          ...agentCfg,
-                          monitored_services: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                        })
-                      }
-                      className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                      placeholder="api:8080, uploader:9000"
-                    />
-                  </div>
 
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div className="flex flex-col gap-1">
