@@ -92,7 +92,11 @@ RETRIES = int(_cfg("HTTP_RETRY_COUNT") or 3)
 SERVICES = [s.strip() for s in _cfg("MONITORED_SERVICES").split(",") if s.strip()]
 
 SERVER_ID = _cfg("SERVER_ID")
-API_URL = _cfg("API_URL").rstrip("/")
+_raw_api_url = _cfg("API_URL").rstrip("/")
+if _raw_api_url and not _raw_api_url.endswith("/api/v1"):
+    API_URL = _raw_api_url + "/api/v1"
+else:
+    API_URL = _raw_api_url
 API_KEY = _cfg("API_KEY")
 
 MONGO_CONFIG_ENABLED = _cfg("MONGO_CONFIG_ENABLED").lower() in {"1", "true", "yes", "on"}
