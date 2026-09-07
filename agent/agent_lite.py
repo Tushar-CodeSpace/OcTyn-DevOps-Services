@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """agent_lite.py - zero-dependency monitoring agent (Python 3.8+, Linux).
 
 Single-file alternative to the Docker agent. Collects metrics from /proc
@@ -633,7 +634,7 @@ except ImportError:
     MongoClient = None
     HAS_PYMONGO = False
 
-CONFIG_COLLECTION_MAP: dict[str, list[str]] = {
+CONFIG_COLLECTION_MAP = {
     "analytic_service": ["analytic_config"],
     "data_uploader_service": ["integration_config"],
     "identity_service": [
