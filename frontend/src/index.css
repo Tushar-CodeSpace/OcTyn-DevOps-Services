@@ -368,4 +368,90 @@ body.tui-theme ::-webkit-scrollbar-thumb {
 .animate-terminal-blink {
   animation: terminal-blink 1s steps(2, jump-none) infinite;
 }
+
+/* Checkbox Inputs in TUI Theme */
+body.tui-theme input[type="checkbox"]:not(.sr-only) {
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+  accent-color: #22c55e !important;
+  width: 16px !important;
+  height: 16px !important;
+  cursor: pointer !important;
+  border-radius: 2px !important;
+}
+
+/* Custom Toggle Switches (button containers like Service Status toggle in ServerDetail) */
+body.tui-theme button[class*="rounded-full"][class*="w-9"],
+body.tui-theme button[class*="rounded-full"][class*="relative"] {
+  border-radius: 9999px !important;
+  border: 1px solid #475569 !important;
+  background-color: #1e293b !important;
+  background-image: none !important;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.8) !important;
+  opacity: 1 !important;
+}
+
+/* OFF Knob for Custom Toggle Buttons */
+body.tui-theme button[class*="rounded-full"][class*="w-9"] > span,
+body.tui-theme button[class*="rounded-full"][class*="relative"] > span {
+  border-radius: 9999px !important;
+  background-color: #94a3b8 !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.4) !important;
+  opacity: 1 !important;
+}
+
+/* ON Track for Custom Toggle Buttons */
+body.tui-theme button[class*="rounded-full"][class*="bg-emerald"] {
+  background-color: #052e16 !important;
+  border-color: #22c55e !important;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important;
+}
+
+/* ON Knob for Custom Toggle Buttons */
+body.tui-theme button[class*="rounded-full"][class*="bg-emerald"] > span {
+  background-color: #22c55e !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.9) !important;
+}
+
+/* Peer Checkbox Switch Tracks (Settings Alert Toggles) */
+body.tui-theme label div[class*="peer-focus"],
+body.tui-theme label div[class*="peer-checked"],
+body.tui-theme div.peer-focus\:outline-none {
+  border-radius: 9999px !important;
+  border: 1px solid #475569 !important;
+  background-color: #1e293b !important;
+  background-image: none !important;
+  position: relative !important;
+  opacity: 1 !important;
+}
+
+/* OFF Knob for Peer Checkbox Switches */
+body.tui-theme label div[class*="peer-focus"]::after,
+body.tui-theme label div[class*="peer-checked"]::after,
+body.tui-theme div.peer-focus\:outline-none::after {
+  border-radius: 9999px !important;
+  background-color: #94a3b8 !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.4) !important;
+  opacity: 1 !important;
+}
+
+/* ON Track for Peer Checkbox Switches */
+body.tui-theme label input:checked + div,
+body.tui-theme label input:checked + div[class*="peer-checked"],
+body.tui-theme div[class*="peer-checked"].bg-emerald-600 {
+  background-color: #052e16 !important;
+  border-color: #22c55e !important;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important;
+}
+
+/* ON Knob for Peer Checkbox Switches */
+body.tui-theme label input:checked + div::after,
+body.tui-theme label input:checked + div[class*="peer-checked"]::after {
+  background-color: #22c55e !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.9) !important;
+}
 
