@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type Theme = "tui" | "dark" | "nido-light" | "nido-dark";
+export type Theme = "tui" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
@@ -13,7 +13,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("user_theme") as Theme;
-    return ["tui", "dark", "nido-light", "nido-dark"].includes(saved) ? saved : "nido-light";
+    return ["tui", "dark"].includes(saved) ? saved : "tui";
   });
 
   const setTheme = (newTheme: Theme) => {
@@ -22,10 +22,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleTheme = () => {
-    const order: Theme[] = ["tui", "dark", "nido-dark", "nido-light"];
-    const idx = order.indexOf(theme);
-    const nextTheme = order[(idx + 1) % order.length];
-    setTheme(nextTheme);
+    setTheme(theme === "tui" ? "dark" : "tui");
   };
 
   useEffect(() => {
@@ -38,12 +35,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (theme === "tui") {
       root.classList.add("tui-theme", "dark");
       body.classList.add("tui-theme", "dark");
-    } else if (theme === "nido-light") {
-      root.classList.add("nido-light", "light");
-      body.classList.add("nido-light", "light");
-    } else if (theme === "nido-dark") {
-      root.classList.add("nido-dark", "dark");
-      body.classList.add("nido-dark", "dark");
     } else {
       root.classList.add("dark");
       body.classList.add("dark");
