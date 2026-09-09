@@ -23,15 +23,15 @@ def now() -> datetime:
 
 def alert_doc_to_read(doc: dict) -> AlertRead:
     return AlertRead(
-        id=doc["_id"],
-        server_id=doc["server_id"],
-        type=doc["type"],
-        severity=doc["severity"],
-        message=doc["message"],
+        id=str(doc["_id"]),
+        server_id=str(doc.get("server_id", "")),
+        type=str(doc.get("type", "unknown")),
+        severity=str(doc.get("severity", "warning")),
+        message=str(doc.get("message", "")),
         value=doc.get("value"),
         threshold=doc.get("threshold"),
-        status=doc.get("status", "active"),
-        created_at=doc["created_at"],
+        status=str(doc.get("status", "active")),
+        created_at=doc.get("created_at") or now(),
         resolved_at=doc.get("resolved_at"),
     )
 
