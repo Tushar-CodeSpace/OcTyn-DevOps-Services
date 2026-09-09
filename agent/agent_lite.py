@@ -959,37 +959,63 @@ def cycle():
     return ok
 
 
+def _sanitize_uri(uri):
+    """Mask password in MongoDB URI string for safe logging."""
+    if not uri or "://" not in uri:
+        return uri
+    try:
+        prefix, rest = uri.split("://", 1)
+        if "@" in rest:
+            userinfo, host = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, _ = userinfo.split(":", 1)
+                return "%s://%s:*****@%s" % (prefix, user, host)
+    except Exception:
+        pass
+    return uri
+
+
 def sync_configs():
     """Snapshot mapped collections from the site MongoDB and push changes."""
     if not HAS_PYMONGO:
-        log("config sync skipped: pymongo not installed (pip3 install pymongo)")
+        log("[CONFIG-SYNC] Skipped: pymongo not installed (pip3 install pymongo)")
         return
     from pymongo import MongoClient
 
+    log("[CONFIG-SYNC] Backup trigger initiated. Pulling live config from central hub...")
     try:
         hub_cfg = fetch_agent_config()
         if hub_cfg:
             apply_agent_config(hub_cfg)
-    except Exception:
-        pass
+            log("[CONFIG-SYNC] Latest hub config applied successfully.")
+    except Exception as exc:
+        log("[CONFIG-SYNC] Hub config fetch warning: %r" % (exc,))
 
-    uri = _encode_uri_password(mongo_uri())
-    if not uri:
-        log("config sync skipped: mongo_uri is empty")
-        return
+    raw_uri = mongo_uri()
     auth_source = mongo_auth_source()
+    log("[CONFIG-SYNC] Effective settings -> mongo_uri=%s auth_source=%s" % (_sanitize_uri(raw_uri), auth_source))
+
+    uri = _encode_uri_password(raw_uri)
+    if not uri:
+        log("[CONFIG-SYNC] Skipped: mongo_uri is empty")
+        return
 
     client = None
     connected = False
+    last_err = None
 
     # 1. Try URI natively first (respects authSource or database embedded in URI)
+    log("[CONFIG-SYNC] Connecting to MongoDB at %s..." % _sanitize_uri(uri))
     temp_client = None
     try:
         temp_client = MongoClient(uri, serverSelectionTimeoutMS=5000, directConnection=True)
         temp_client.admin.command("ping")
         client = temp_client
         connected = True
-    except Exception:
+        log("[CONFIG-SYNC] Native URI ping succeeded.")
+    except Exception as exc:
+        last_err = exc
+        log("[CONFIG-SYNC] Native URI ping failed (%r). Trying authSource fallbacks..." % (exc,))
         if temp_client:
             try:
                 temp_client.close()
@@ -1001,12 +1027,16 @@ def sync_configs():
         for src in filter(None, [auth_source, "admin", "test"]):
             temp_client = None
             try:
+                log("[CONFIG-SYNC] Trying MongoClient with authSource='%s'..." % src)
                 temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
                 temp_client[src].command("ping")
                 client = temp_client
                 connected = True
+                log("[CONFIG-SYNC] Auth ping succeeded with authSource='%s'." % src)
                 break
-            except Exception:
+            except Exception as exc:
+                last_err = exc
+                log("[CONFIG-SYNC] Auth ping failed with authSource='%s': %r" % (src, exc))
                 if temp_client:
                     try:
                         temp_client.close()
@@ -1014,7 +1044,7 @@ def sync_configs():
                         pass
 
     if not connected or not client:
-        log("config sync skipped: cannot reach site mongodb (auth/connection failed)")
+        log("[CONFIG-SYNC] FAILED: Cannot connect to site MongoDB (%r)" % (last_err,))
         if client:
             try:
                 client.close()
@@ -1026,8 +1056,9 @@ def sync_configs():
     db_names = set()
     try:
         db_names = set(client.list_database_names())
-    except Exception:
-        pass
+        log("[CONFIG-SYNC] Connected! Discovered databases: %r" % sorted(list(db_names)))
+    except Exception as exc:
+        log("[CONFIG-SYNC] Warning listing database names: %r" % (exc,))
 
     cfg_map = dict(config_collections())
     if not cfg_map and db_names:
@@ -1035,14 +1066,18 @@ def sync_configs():
             if dbname not in {"admin", "config", "local"}:
                 cfg_map[dbname] = ["*"]
 
+    log("[CONFIG-SYNC] Mapped collections to backup: %r" % cfg_map)
+
     sent = skipped = missing = 0
     for database, collections in cfg_map.items():
         if db_names and database not in db_names:
             missing += len(collections) if collections else 1
+            log("[CONFIG-SYNC] Database '%s' not found in MongoDB instance." % database)
             continue
         try:
             coll_names = set(client[database].list_collection_names())
-        except Exception:
+        except Exception as exc:
+            log("[CONFIG-SYNC] Cannot list collections in '%s': %r" % (database, exc))
             missing += len(collections) if collections else 1
             continue
 
@@ -1055,6 +1090,7 @@ def sync_configs():
             matching_cols = [c for c in coll_names if not c.startswith("system.")]
 
         if not matching_cols:
+            log("[CONFIG-SYNC] No matching collections found in '%s' for target list %r" % (database, collections))
             missing += len(target_cols) or 1
             continue
 
@@ -1063,6 +1099,7 @@ def sync_configs():
             truncated = len(docs) > MAX_DOCS_PER_SNAPSHOT
             docs = docs[:MAX_DOCS_PER_SNAPSHOT]
             payload_hash = hashlib.sha256(repr(sorted(docs, key=repr)).encode()).hexdigest()[:32]
+            log("[CONFIG-SYNC] Uploading %s.%s (%d documents, hash=%s)..." % (database, name, len(docs), payload_hash))
             req = urllib.request.Request(
                 "%s/configs/ingest" % API_URL,
                 data=json.dumps({
@@ -1082,12 +1119,15 @@ def sync_configs():
                     body = json.loads(resp.read(500) or b"{}")
                     if body.get("stored"):
                         sent += 1
+                        log("[CONFIG-SYNC] Upload %s.%s SUCCESS: stored new version." % (database, name))
                     else:
                         skipped += 1
+                        log("[CONFIG-SYNC] Upload %s.%s SUCCESS: content unchanged (hash match)." % (database, name))
             except Exception as exc:
-                log("config upload %s.%s failed: %r" % (database, name, exc))
+                log("[CONFIG-SYNC] Upload %s.%s FAILED: %r" % (database, name, exc))
+
     client.close()
-    log("config sync done: pushed=%d unchanged=%d missing=%d" % (sent, skipped, missing))
+    log("[CONFIG-SYNC] Finished backup! Pushed=%d, Unchanged=%d, Missing=%d" % (sent, skipped, missing))
 
 
 def check_and_apply_update():
