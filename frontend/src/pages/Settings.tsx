@@ -89,6 +89,83 @@ export default function Settings() {
   const [updatingSiteId, setUpdatingSiteId] = useState<string | null>(null);
   const [updatingClientName, setUpdatingClientName] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [deletingSiteId, setDeletingSiteId] = useState<string | null>(null);
+  const [purgingEmptySites, setPurgingEmptySites] = useState(false);
+
+  async function handleDeleteSite(site: Site) {
+    if (!isAdmin || deletingSiteId) return;
+    const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
+    if (siteServersCount > 0) {
+      showToast({
+        severity: "warning",
+        title: "Cannot Delete Site",
+        message: `Site ${site.code} (${site.client}) still has ${siteServersCount} active server(s). Delete or reassign servers first.`,
+      });
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete empty site "${site.code}" (${site.client} - ${site.location})?`)) {
+      return;
+    }
+    setDeletingSiteId(site.id);
+    try {
+      await apiFetch(`/sites/${site.id}`, { method: "DELETE" });
+      setSites((prev) => prev.filter((s) => s.id !== site.id));
+      showToast({
+        severity: "info",
+        title: "Site Deleted",
+        message: `Empty site "${site.code}" was removed successfully.`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Delete Site Failed",
+        message: err instanceof Error ? err.message : "Failed to delete site",
+      });
+    } finally {
+      setDeletingSiteId(null);
+    }
+  }
+
+  async function handlePurgeEmptySites() {
+    if (!isAdmin || purgingEmptySites) return;
+    const emptySites = sites.filter(
+      (site) => servers.filter((s) => s.site_id === site.id).length === 0
+    );
+    if (emptySites.length === 0) {
+      showToast({
+        severity: "info",
+        title: "No Empty Sites Found",
+        message: "All sites currently have active servers assigned.",
+      });
+      return;
+    }
+    if (
+      !confirm(
+        `Are you sure you want to delete ${emptySites.length} empty site(s) with 0 servers (${emptySites.map((s) => s.code).join(", ")})?`
+      )
+    ) {
+      return;
+    }
+    setPurgingEmptySites(true);
+    let deletedCount = 0;
+    const deletedIds = new Set<string>();
+    for (const site of emptySites) {
+      try {
+        await apiFetch(`/sites/${site.id}`, { method: "DELETE" });
+        deletedCount++;
+        deletedIds.add(site.id);
+      } catch {
+        // continue with next
+      }
+    }
+    setSites((prev) => prev.filter((s) => !deletedIds.has(s.id)));
+    setPurgingEmptySites(false);
+    showToast({
+      severity: "info",
+      title: "Empty Sites Purged",
+      message: `Successfully deleted ${deletedCount} empty site entry(s).`,
+    });
+  }
 
   // Personal Password Change State
   const [passForm, setPassForm] = useState({
@@ -630,16 +707,31 @@ export default function Settings() {
 
               {/* Sub-Tile 2: Site Alert Controls */}
               <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-emerald-400" />
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
                       Site Sub-Tiles
                     </span>
                   </div>
-                  <span className="text-[10px] text-slate-400">
-                    {filteredSites.length} of {sites.length} sites
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && sites.some((site) => servers.filter((s) => s.site_id === site.id).length === 0) && (
+                      <Button
+                        type="button"
+                        onClick={handlePurgeEmptySites}
+                        disabled={purgingEmptySites}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 text-red-400 border-red-500/40 hover:bg-red-950/40 hover:text-red-300"
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        {purgingEmptySites ? "Purging…" : "Purge Empty Sites"}
+                      </Button>
+                    )}
+                    <span className="text-[10px] text-slate-400">
+                      {filteredSites.length} of {sites.length} sites
+                    </span>
+                  </div>
                 </div>
 
                 {loadingSites ? (
@@ -659,6 +751,7 @@ export default function Settings() {
                       const isSiteEnabled = site.alerts_enabled !== false && !isClientDisabled;
                       const siteServersCount = servers.filter((s) => s.site_id === site.id).length;
                       const isSavingSite = updatingSiteId === site.id;
+                      const isDeletingThisSite = deletingSiteId === site.id;
 
                       return (
                         <div
@@ -676,21 +769,36 @@ export default function Settings() {
                               <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/80 truncate">
                                 {site.code}
                               </span>
-                              <span
-                                className={`text-[9px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
-                                  isClientDisabled
-                                    ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                                    : isSiteEnabled
-                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                                    : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                                }`}
-                              >
-                                {isClientDisabled ? "CLIENT MUTED" : isSiteEnabled ? "ACTIVE" : "MUTED"}
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isAdmin && siteServersCount === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSite(site)}
+                                    disabled={isDeletingThisSite}
+                                    title={`Delete empty site ${site.code}`}
+                                    className="p-1 text-red-400 hover:text-red-300 hover:bg-red-950/50 rounded transition-colors"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                <span
+                                  className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                    isClientDisabled
+                                      ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                      : isSiteEnabled
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                      : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                  }`}
+                                >
+                                  {isClientDisabled ? "CLIENT MUTED" : isSiteEnabled ? "ACTIVE" : "MUTED"}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex items-center justify-between text-[11px] text-slate-400">
                               <span className="truncate">{site.client} · {site.location}</span>
-                              <span className="shrink-0 text-[10px] font-mono text-slate-500">{siteServersCount} srv</span>
+                              <span className={`shrink-0 text-[10px] font-mono ${siteServersCount === 0 ? "text-red-400 font-bold" : "text-slate-500"}`}>
+                                {siteServersCount} srv
+                              </span>
                             </div>
                           </div>
 

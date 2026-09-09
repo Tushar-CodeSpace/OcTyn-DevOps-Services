@@ -128,6 +128,7 @@ async def update_server(server_id: str, body: ServerUpdate) -> ServerRead:
 )
 async def delete_server(server_id: str) -> None:
     doc = find_server_or_404(server_id)
+    site_id = doc.get("site_id")
     # Cascade: agent credentials, services, metrics, config overrides and alerts
     db.api_keys().delete_many({"server_id": doc["_id"]})
     db.services().delete_many({"server_id": doc["_id"]})
@@ -136,6 +137,9 @@ async def delete_server(server_id: str) -> None:
     db.server_configs().delete_many({"server_id": doc["_id"]})
     db.servers().delete_one({"_id": doc["_id"]})
     emit("server_deleted", {"server_id": str(doc["_id"])})
+
+    if site_id and db.servers().count_documents({"site_id": site_id}) == 0:
+        db.sites().delete_one({"_id": site_id})
 
 
 class PingRequest(BaseModel):
