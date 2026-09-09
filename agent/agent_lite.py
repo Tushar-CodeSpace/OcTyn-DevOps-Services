@@ -1079,7 +1079,7 @@ def sync_configs():
         # 1. Try native URI ping first
         temp_client = None
         try:
-            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=5000, directConnection=True)
+            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=2000, directConnection=True)
             temp_client.admin.command("ping")
             client = temp_client
             connected = True
@@ -1097,7 +1097,7 @@ def sync_configs():
         for src in auth_candidates:
             temp_client = None
             try:
-                temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
+                temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=2000, directConnection=True)
                 temp_client.admin.command("ping")
                 client = temp_client
                 connected = True
@@ -1137,7 +1137,7 @@ def sync_configs():
                                 username=creds["username"],
                                 password=p_val,
                                 authSource=src,
-                                serverSelectionTimeoutMS=5000,
+                                serverSelectionTimeoutMS=2000,
                                 directConnection=True,
                             )
                             temp_client.admin.command("ping")

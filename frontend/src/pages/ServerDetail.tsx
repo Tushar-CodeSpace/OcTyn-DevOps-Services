@@ -225,7 +225,6 @@ export default function ServerDetail() {
     setTestingBackup(true);
     setBackupProgressText("Connecting & Triggering...");
 
-    const startTime = Date.now();
     let initialSnaps: ConfigSnapshotMeta[] = [];
     try {
       initialSnaps = await apiFetch<ConfigSnapshotMeta[]>(`/configs/servers/${id}`);
@@ -277,13 +276,14 @@ export default function ServerDetail() {
         return;
       }
 
-      // If remote site agent trigger was sent, poll every 2s for up to 25s
-      const timeoutMs = 25000;
+      // If remote site agent trigger was sent, poll every 2s for up to 45s
+      const pollStartTime = Date.now();
+      const timeoutMs = 45000;
       const pollIntervalMs = 2000;
       let backupArrived = false;
 
-      while (Date.now() - startTime < timeoutMs) {
-        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+      while (Date.now() - pollStartTime < timeoutMs) {
+        const elapsedSec = Math.round((Date.now() - pollStartTime) / 1000);
         setBackupProgressText(`Waiting for site agent (${elapsedSec}s)...`);
 
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -320,7 +320,7 @@ export default function ServerDetail() {
         showToast({
           severity: "critical",
           title: "Backup Timed Out / Failed",
-          message: "Remote site agent did not upload config within 25 seconds. Please verify site agent service status and MongoDB URI.",
+          message: "Remote site agent did not upload config within 45 seconds. Please verify site agent service status and MongoDB URI.",
         });
       }
     } catch (err) {

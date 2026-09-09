@@ -238,99 +238,101 @@ async def test_and_trigger_backup(
 
     synced_from_hub = False
     synced_count = 0
-    try:
-        import hashlib
-        from pymongo import MongoClient
-
-        auth_src = payload.mongo_auth_source or "admin"
-        temp_client = MongoClient(uri, authSource=auth_src, serverSelectionTimeoutMS=3000, directConnection=True)
+    is_site_local = "localhost" in uri or "127.0.0.1" in uri
+    if not is_site_local:
         try:
-            temp_client[auth_src].command("ping")
-        except Exception:
-            temp_client.admin.command("ping")
+            import hashlib
+            from pymongo import MongoClient
 
-        collections_map = payload.config_collections or []
-        db_names = set()
-        try:
-            db_names = set(temp_client.list_database_names())
-        except Exception:
-            pass
-
-        if not collections_map and db_names:
-            collections_map = [
-                {"database": dbname, "collections": ["*"]}
-                for dbname in db_names
-                if dbname not in {"admin", "config", "local"}
-            ]
-
-        if not collections_map:
-            collections_map = [
-                {"database": "site_db", "collections": ["orders", "settings", "users"]}
-            ]
-
-        now = datetime.now(timezone.utc)
-        captured_at = now.isoformat()
-
-        for spec in collections_map:
-            dbname = spec.get("database")
-            cols = spec.get("collections", [])
-            if not dbname:
-                continue
+            auth_src = payload.mongo_auth_source or "admin"
+            temp_client = MongoClient(uri, authSource=auth_src, serverSelectionTimeoutMS=1500, directConnection=True)
             try:
-                available_cols = set(temp_client[dbname].list_collection_names())
+                temp_client[auth_src].command("ping")
             except Exception:
-                continue
+                temp_client.admin.command("ping")
 
-            target_cols = [c for c in cols if c] if isinstance(cols, list) else []
-            if not target_cols or "*" in target_cols:
-                target_cols = [c for c in available_cols if not c.startswith("system.")]
+            collections_map = payload.config_collections or []
+            db_names = set()
+            try:
+                db_names = set(temp_client.list_database_names())
+            except Exception:
+                pass
 
-            matching_cols = [c for c in target_cols if c in available_cols]
-            if not matching_cols and available_cols:
-                matching_cols = [c for c in available_cols if not c.startswith("system.")]
+            if not collections_map and db_names:
+                collections_map = [
+                    {"database": dbname, "collections": ["*"]}
+                    for dbname in db_names
+                    if dbname not in {"admin", "config", "local"}
+                ]
 
-            for col_name in matching_cols:
+            if not collections_map:
+                collections_map = [
+                    {"database": "site_db", "collections": ["orders", "settings", "users"]}
+                ]
+
+            now = datetime.now(timezone.utc)
+            captured_at = now.isoformat()
+
+            for spec in collections_map:
+                dbname = spec.get("database")
+                cols = spec.get("collections", [])
+                if not dbname:
+                    continue
                 try:
-                    docs = list(temp_client[dbname][col_name].find({}).limit(5000))
-                    from app.database.connection import jsonable
-                    clean_docs = [jsonable(d) for d in docs]
-                    phash = hashlib.sha256(repr(sorted(clean_docs, key=repr)).encode()).hexdigest()[:32]
+                    available_cols = set(temp_client[dbname].list_collection_names())
+                except Exception:
+                    continue
 
-                    snapshot = {
-                        "_id": new_id(),
-                        "server_id": sid,
-                        "database": dbname,
-                        "collection": col_name,
-                        "captured_at": captured_at,
-                        "received_at": now,
-                        "count": len(clean_docs),
-                        "content_hash": phash,
-                        "truncated": False,
-                        "documents": clean_docs,
-                    }
-                    db.site_configs().insert_one(snapshot)
-                    emit(
-                        "config_snapshot",
-                        {
-                            "id": str(snapshot["_id"]),
-                            "server_id": str(sid),
+                target_cols = [c for c in cols if c] if isinstance(cols, list) else []
+                if not target_cols or "*" in target_cols:
+                    target_cols = [c for c in available_cols if not c.startswith("system.")]
+
+                matching_cols = [c for c in target_cols if c in available_cols]
+                if not matching_cols and available_cols:
+                    matching_cols = [c for c in available_cols if not c.startswith("system.")]
+
+                for col_name in matching_cols:
+                    try:
+                        docs = list(temp_client[dbname][col_name].find({}).limit(5000))
+                        from app.database.connection import jsonable
+                        clean_docs = [jsonable(d) for d in docs]
+                        phash = hashlib.sha256(repr(sorted(clean_docs, key=repr)).encode()).hexdigest()[:32]
+
+                        snapshot = {
+                            "_id": new_id(),
+                            "server_id": sid,
                             "database": dbname,
                             "collection": col_name,
                             "captured_at": captured_at,
-                            "received_at": now.isoformat(),
+                            "received_at": now,
                             "count": len(clean_docs),
                             "content_hash": phash,
                             "truncated": False,
-                        },
-                        room=f"server:{sid}",
-                    )
-                    synced_count += 1
-                except Exception:
-                    pass
-        temp_client.close()
-        synced_from_hub = True
-    except Exception:
-        pass
+                            "documents": clean_docs,
+                        }
+                        db.site_configs().insert_one(snapshot)
+                        emit(
+                            "config_snapshot",
+                            {
+                                "id": str(snapshot["_id"]),
+                                "server_id": str(sid),
+                                "database": dbname,
+                                "collection": col_name,
+                                "captured_at": captured_at,
+                                "received_at": now.isoformat(),
+                                "count": len(clean_docs),
+                                "content_hash": phash,
+                                "truncated": False,
+                            },
+                            room=f"server:{sid}",
+                        )
+                        synced_count += 1
+                    except Exception:
+                        pass
+            temp_client.close()
+            synced_from_hub = True
+        except Exception:
+            pass
 
     msg = (
         f"Backup connection verified & executed directly! ({synced_count} collections backed up)."
