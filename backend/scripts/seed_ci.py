@@ -33,19 +33,22 @@ def now() -> datetime:
 
 
 def seed_user() -> None:
-    if db.users().find_one({"email": "admin@monitoring.com"}) is None:
-        db.users().insert_one(
-            {
-                "_id": new_id(),
-                "email": "admin@monitoring.com",
+    db.users().update_one(
+        {"email": "admin@monitoring.com"},
+        {
+            "$set": {
                 "name": "CI Admin",
                 "role": "admin",
                 "password_hash": hash_password("admin123"),
-            }
-        )
-        print("seeded user admin@monitoring.com")
-    else:
-        print("user exists")
+            },
+            "$setOnInsert": {
+                "_id": new_id(),
+                "email": "admin@monitoring.com",
+            },
+        },
+        upsert=True,
+    )
+    print("seeded user admin@monitoring.com")
 
 
 def seed_sites() -> None:
