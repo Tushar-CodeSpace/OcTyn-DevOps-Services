@@ -328,7 +328,7 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
         "connectivity_poll_interval_seconds": (1, 3600),
     }
     list_keys = {"monitored_services", "config_collections", "connectivity_targets"}
-    str_keys = {"mongo_uri", "mongo_auth_source"}
+    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id"}
     allowed = bool_keys | set(int_keys) | list_keys | str_keys
 
     for key, raw in patch.items():

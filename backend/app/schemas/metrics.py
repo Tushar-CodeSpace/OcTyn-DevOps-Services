@@ -55,3 +55,4 @@ class MetricIngestResponse(BaseModel):
     config_collections: Optional[list[dict]] = None
     connectivity_targets: Optional[list[dict]] = None
     connectivity_poll_interval_seconds: Optional[int] = None
+    trigger_sync_id: Optional[str] = None

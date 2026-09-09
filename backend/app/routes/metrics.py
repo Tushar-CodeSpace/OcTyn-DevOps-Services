@@ -157,6 +157,7 @@ async def ingest_metric(
         connectivity_poll_interval_seconds=int(
             agent_cfg["connectivity_poll_interval_seconds"]
         ),
+        trigger_sync_id=str(agent_cfg.get("trigger_sync_id", "")),
     )
 
 

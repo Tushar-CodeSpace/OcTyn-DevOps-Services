@@ -45,6 +45,7 @@ class AgentConfig(BaseModel):
     mongo_config_enabled: bool = True
     mongo_uri: str = ""
     mongo_auth_source: str = "admin"
+    trigger_sync_id: Optional[str] = ""
 
 
 class AgentConfigOverrideUpdate(BaseModel):
@@ -63,6 +64,7 @@ class AgentConfigOverrideUpdate(BaseModel):
     mongo_config_enabled: Optional[bool] = None
     mongo_uri: Optional[str] = None
     mongo_auth_source: Optional[str] = None
+    trigger_sync_id: Optional[str] = None
 
     @field_validator("config_sync_hour")
     @classmethod
