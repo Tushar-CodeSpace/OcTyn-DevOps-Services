@@ -13,7 +13,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("user_theme") as Theme;
-    return ["tui", "dark", "nido-light", "nido-dark"].includes(saved) ? saved : "tui";
+    return ["tui", "dark", "nido-light", "nido-dark"].includes(saved) ? saved : "nido-light";
   });
 
   const setTheme = (newTheme: Theme) => {

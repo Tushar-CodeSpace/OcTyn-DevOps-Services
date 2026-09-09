@@ -15,8 +15,9 @@ dist/
 build/
 
 # Logs
-logs/*
-!logs/.gitkeep
+logs/
+*.log
+*.log.*
 
 # OS / editor
 .DS_Store
@@ -26,10 +27,6 @@ Thumbs.db
 
 # Docker
 *.local.env
-
-# logs
-logs/*
-*.log
 
 # opencode local files
 .opencode/

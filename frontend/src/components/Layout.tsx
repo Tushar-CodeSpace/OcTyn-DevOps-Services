@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ToastHost } from "@/components/ToastHost";
 import { NotificationBell } from "@/components/NotificationBell";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -350,6 +351,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </span>
               </div>
             )}
+            <ThemeToggle />
             <NotificationBell />
           </div>
         </header>
