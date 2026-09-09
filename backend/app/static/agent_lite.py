@@ -1008,6 +1008,31 @@ def _extract_auth_sources(raw_uri, configured_auth):
     return out
 
 
+def _parse_mongo_credentials(uri):
+    """Extract host_uri, username, and unquoted/raw passwords from URI."""
+    if not uri or "://" not in uri:
+        return None
+    try:
+        import urllib.parse
+        prefix, rest = uri.split("://", 1)
+        if "@" in rest:
+            userinfo, host_part = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                clean_user = urllib.parse.unquote(user)
+                clean_pass = urllib.parse.unquote(password)
+                host_clean = host_part.split("/")[0] if "/" in host_part else host_part
+                return {
+                    "username": clean_user,
+                    "password": clean_pass,
+                    "raw_password": password,
+                    "host_uri": "%s://%s" % (prefix, host_clean),
+                }
+    except Exception:
+        pass
+    return None
+
+
 def sync_configs():
     """Snapshot mapped collections from the site MongoDB and push changes."""
     if not HAS_PYMONGO:
@@ -1038,6 +1063,8 @@ def sync_configs():
         uri_candidates.append(primary_uri.replace("localhost", "127.0.0.1"))
 
     auth_candidates = _extract_auth_sources(raw_uri, auth_source)
+    creds = _parse_mongo_credentials(raw_uri)
+
     client = None
     connected = False
     last_err = None
@@ -1048,7 +1075,7 @@ def sync_configs():
 
         log("[CONFIG-SYNC] Connecting to MongoDB at %s..." % _sanitize_uri(target_uri))
 
-        # 1. Try native URI first
+        # 1. Try native URI ping first
         temp_client = None
         try:
             temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=5000, directConnection=True)
@@ -1065,13 +1092,12 @@ def sync_configs():
                 except Exception:
                     pass
 
-        # 2. Try candidate authSource databases
+        # 2. Try candidate authSource databases with URI
         for src in auth_candidates:
             temp_client = None
             try:
-                log("[CONFIG-SYNC] Trying MongoClient with authSource='%s'..." % src)
                 temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
-                temp_client[src].command("ping")
+                temp_client.admin.command("ping")
                 client = temp_client
                 connected = True
                 log("[CONFIG-SYNC] Auth ping succeeded with authSource='%s'." % src)
@@ -1083,6 +1109,48 @@ def sync_configs():
                         temp_client.close()
                     except Exception:
                         pass
+
+        # 3. Try explicit username/password kwargs if URI contained credentials
+        if not connected and creds:
+            host_candidates = [creds["host_uri"]]
+            if "localhost" in creds["host_uri"]:
+                host_candidates.append(creds["host_uri"].replace("localhost", "127.0.0.1"))
+
+            pass_candidates = []
+            if creds["password"]:
+                pass_candidates.append(creds["password"])
+            if creds["raw_password"] and creds["raw_password"] != creds["password"]:
+                pass_candidates.append(creds["raw_password"])
+
+            for h_uri in host_candidates:
+                if connected:
+                    break
+                for p_val in pass_candidates:
+                    if connected:
+                        break
+                    for src in auth_candidates:
+                        temp_client = None
+                        try:
+                            temp_client = MongoClient(
+                                h_uri,
+                                username=creds["username"],
+                                password=p_val,
+                                authSource=src,
+                                serverSelectionTimeoutMS=5000,
+                                directConnection=True,
+                            )
+                            temp_client.admin.command("ping")
+                            client = temp_client
+                            connected = True
+                            log("[CONFIG-SYNC] Explicit kwargs Auth ping succeeded (user='%s', authSource='%s')." % (creds["username"], src))
+                            break
+                        except Exception as exc:
+                            last_err = exc
+                            if temp_client:
+                                try:
+                                    temp_client.close()
+                                except Exception:
+                                    pass
 
     if not connected or not client:
         log("[CONFIG-SYNC] FAILED: Cannot connect to site MongoDB (%r)" % (last_err,))
