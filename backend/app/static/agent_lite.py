@@ -204,7 +204,7 @@ def mongo_config_enabled():
 
 
 def mongo_uri():
-    return _runtime_str("mongo_uri", MONGO_URI)
+    return _runtime_str("mongo_uri", MONGO_URI or "mongodb://localhost:27017")
 
 
 def mongo_auth_source():
@@ -965,8 +965,16 @@ def sync_configs():
         return
     from pymongo import MongoClient
 
+    try:
+        hub_cfg = fetch_agent_config()
+        if hub_cfg:
+            apply_agent_config(hub_cfg)
+    except Exception:
+        pass
+
     uri = _encode_uri_password(mongo_uri())
     if not uri:
+        log("config sync skipped: mongo_uri is empty")
         return
     auth_source = mongo_auth_source()
 
@@ -1128,8 +1136,16 @@ def main():
         )
     log("lite agent starting host=%s server_id=%s api_url=%s"
         % (socket.gethostname(), SERVER_ID, API_URL))
+
+    initial_config = fetch_agent_config()
+    if initial_config:
+        apply_agent_config(initial_config)
+
     if "--once" in sys.argv:
         sys.exit(0 if cycle() else 1)
+    if "--sync-configs" in sys.argv:
+        sync_configs()
+        sys.exit(0)
 
     start_config_poller()
     start_connectivity_poller()

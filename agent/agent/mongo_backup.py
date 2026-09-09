@@ -66,8 +66,18 @@ def sync_configs() -> None:
         log("config sync skipped: pymongo not installed")
         return
 
+    try:
+        from agent.config import apply_agent_config
+        from agent.transport import fetch_agent_config
+        hub_cfg = fetch_agent_config()
+        if hub_cfg:
+            apply_agent_config(hub_cfg)
+    except Exception:
+        pass
+
     uri = _encode_uri_password(mongo_uri())
     if not uri:
+        log("config sync skipped: mongo_uri is empty")
         return
     auth_source = mongo_auth_source()
 

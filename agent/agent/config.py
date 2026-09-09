@@ -38,7 +38,11 @@ def _get_env_val(key: str) -> str:
 
 # Required credentials read from .env / environment
 SERVER_ID: str = _get_env_val("SERVER_ID")
-API_URL: str = _get_env_val("API_URL").rstrip("/")
+_raw_api_url: str = _get_env_val("API_URL").rstrip("/")
+if _raw_api_url and not _raw_api_url.endswith("/api/v1"):
+    API_URL: str = _raw_api_url + "/api/v1"
+else:
+    API_URL: str = _raw_api_url
 API_KEY: str = _get_env_val("API_KEY")
 
 DEFAULT_BOOTSTRAP = {
@@ -61,8 +65,8 @@ _RUNTIME_CONFIG: Dict[str, Any] = {
     "http_retry_count": 3,
     "config_poll_interval_seconds": 5,
     "connectivity_poll_interval_seconds": 15,
-    "mongo_config_enabled": False,
-    "mongo_uri": "",
+    "mongo_config_enabled": True,
+    "mongo_uri": "mongodb://localhost:27017",
     "mongo_auth_source": "admin",
 }
 
@@ -181,11 +185,11 @@ def retry_count() -> int:
 
 
 def mongo_config_enabled() -> bool:
-    return _runtime_bool("mongo_config_enabled", False)
+    return _runtime_bool("mongo_config_enabled", True)
 
 
 def mongo_uri() -> str:
-    return _runtime_str("mongo_uri", "")
+    return _runtime_str("mongo_uri", "mongodb://localhost:27017")
 
 
 def mongo_auth_source() -> str:
