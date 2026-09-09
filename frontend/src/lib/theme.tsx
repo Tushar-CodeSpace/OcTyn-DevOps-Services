@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type Theme = "tui" | "dark" | "light" | "cyberpunk" | "emerald";
+export type Theme = "tui" | "dark";
 
 interface ThemeContextType {
   theme: Theme;
@@ -13,7 +13,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem("user_theme") as Theme;
-    return saved || "tui";
+    return saved === "dark" || saved === "tui" ? saved : "tui";
   });
 
   const setTheme = (newTheme: Theme) => {
@@ -22,7 +22,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleTheme = () => {
-    const nextTheme: Theme = theme === "tui" ? "dark" : theme === "dark" ? "light" : "tui";
+    const nextTheme: Theme = theme === "tui" ? "dark" : "tui";
     setTheme(nextTheme);
   };
 
@@ -30,21 +30,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const root = document.documentElement;
     const body = document.body;
 
-    root.classList.remove("tui-theme", "dark", "light", "cyberpunk", "emerald");
-    body.classList.remove("tui-theme", "dark", "light", "cyberpunk", "emerald");
+    root.classList.remove("tui-theme", "dark");
+    body.classList.remove("tui-theme", "dark");
 
     if (theme === "tui") {
       root.classList.add("tui-theme", "dark");
       body.classList.add("tui-theme", "dark");
-    } else if (theme === "light") {
-      root.classList.add("light");
-      body.classList.add("light");
-    } else if (theme === "cyberpunk") {
-      root.classList.add("cyberpunk", "dark");
-      body.classList.add("cyberpunk", "dark");
-    } else if (theme === "emerald") {
-      root.classList.add("emerald", "dark");
-      body.classList.add("emerald", "dark");
     } else {
       root.classList.add("dark");
       body.classList.add("dark");
