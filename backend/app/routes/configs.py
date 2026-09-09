@@ -51,7 +51,24 @@ async def ingest_config_snapshot(
             sort=[("received_at", -1)],
         )
     )
+    now = datetime.now(timezone.utc)
     if latest and latest["content_hash"] == payload.content_hash:
+        db.site_configs().update_one({"_id": latest["_id"]}, {"$set": {"received_at": now}})
+        emit(
+            "config_snapshot",
+            {
+                "id": str(latest["_id"]),
+                "server_id": str(server["_id"]),
+                "database": latest["database"],
+                "collection": latest["collection"],
+                "captured_at": payload.captured_at,
+                "received_at": now.isoformat(),
+                "count": latest["count"],
+                "content_hash": latest["content_hash"],
+                "truncated": latest.get("truncated", False),
+            },
+            room=f"server:{server['_id']}",
+        )
         return {"success": True, "stored": False, "reason": "unchanged"}
 
     now = datetime.now(timezone.utc)

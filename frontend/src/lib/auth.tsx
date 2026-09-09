@@ -63,12 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
-    if (isSuperAdmin) {
-      root.classList.add("tui-theme");
-      body.classList.add("tui-theme");
-    } else {
-      root.classList.remove("tui-theme");
-      body.classList.remove("tui-theme");
+    const savedTheme = localStorage.getItem("user_theme");
+    if (!savedTheme && isSuperAdmin) {
+      root.classList.add("tui-theme", "dark");
+      body.classList.add("tui-theme", "dark");
     }
   }, [isSuperAdmin]);
 

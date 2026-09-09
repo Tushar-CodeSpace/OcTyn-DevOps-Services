@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { BellOff, Building2, Key, Lock, MapPin, Save, Search, Trash2, X } from "lucide-react";
+import { BellOff, Building2, Key, Lock, MapPin, Palette, Save, Search, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { showToast } from "@/components/ToastHost";
 import type { AlertConfig, Server, Site } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
+import { useTheme, type Theme } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -75,6 +76,7 @@ const FIELDS: {
 
 export default function Settings() {
   const { user: currentUser, isAdmin } = useAuth();
+  const { theme: activeTheme, setTheme } = useTheme();
   const [form, setForm] = useState<AlertConfig | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -369,6 +371,54 @@ export default function Settings() {
                   </Button>
                 </div>
               </form>
+
+              {/* Account Theme Selector */}
+              <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Palette className="h-4 w-4 text-emerald-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      Account Theme Preference
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Active: {activeTheme.toUpperCase()}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Select your preferred account interface style. The theme applies instantly across all tabs.
+                </p>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5 mt-1">
+                  {[
+                    { id: "tui", name: "Amber CRT (TUI)", desc: "Retro Terminal", bg: "bg-amber-950/40 border-amber-500/50 text-amber-400" },
+                    { id: "dark", name: "Obsidian Dark", desc: "Sleek Dark Mode", bg: "bg-slate-900 border-slate-700 text-slate-200" },
+                    { id: "emerald", name: "Emerald Matrix", desc: "Matrix Green Glow", bg: "bg-emerald-950/40 border-emerald-500/50 text-emerald-400" },
+                    { id: "cyberpunk", name: "Neon Cyberpunk", desc: "Cyan/Magenta Glow", bg: "bg-purple-950/40 border-cyan-500/50 text-cyan-400" },
+                    { id: "light", name: "Modern Light", desc: "Clean High Contrast", bg: "bg-slate-100 border-slate-300 text-slate-900" },
+                  ].map((tOption) => (
+                    <button
+                      key={tOption.id}
+                      type="button"
+                      onClick={() => {
+                        setTheme(tOption.id as Theme);
+                        showToast({
+                          severity: "info",
+                          title: "Theme Changed",
+                          message: `Account interface theme set to ${tOption.name}.`,
+                        });
+                      }}
+                      className={`flex flex-col p-2.5 rounded-xl border text-left transition-all ${tOption.bg} ${
+                        activeTheme === tOption.id
+                          ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-slate-950 font-bold scale-[1.02]"
+                          : "opacity-80 hover:opacity-100"
+                      }`}
+                    >
+                      <span className="text-xs font-bold">{tOption.name}</span>
+                      <span className="text-[10px] opacity-75 mt-0.5">{tOption.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
