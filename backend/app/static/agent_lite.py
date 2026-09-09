@@ -980,31 +980,46 @@ def sync_configs():
 
     client = None
     connected = False
-    # Attempt ping using configured authSource, then fallback to test/default
-    for src in filter(None, [auth_source, "admin", "test"]):
-        try:
-            temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
-            temp_client[src].command("ping")
-            client = temp_client
-            connected = True
-            break
-        except Exception:
+
+    # 1. Try URI natively first (respects authSource or database embedded in URI)
+    temp_client = None
+    try:
+        temp_client = MongoClient(uri, serverSelectionTimeoutMS=5000, directConnection=True)
+        temp_client.admin.command("ping")
+        client = temp_client
+        connected = True
+    except Exception:
+        if temp_client:
             try:
-                if temp_client:
-                    temp_client.close()
+                temp_client.close()
             except Exception:
                 pass
 
+    # 2. Try configured authSource and fallbacks
+    if not connected:
+        for src in filter(None, [auth_source, "admin", "test"]):
+            temp_client = None
+            try:
+                temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
+                temp_client[src].command("ping")
+                client = temp_client
+                connected = True
+                break
+            except Exception:
+                if temp_client:
+                    try:
+                        temp_client.close()
+                    except Exception:
+                        pass
+
     if not connected or not client:
-        try:
-            client = MongoClient(uri, serverSelectionTimeoutMS=5000, directConnection=True)
-            client.admin.command("ping")
-            connected = True
-        except Exception as exc:
-            log("config sync skipped: cannot reach site mongodb: %r" % (exc,))
-            if client:
+        log("config sync skipped: cannot reach site mongodb (auth/connection failed)")
+        if client:
+            try:
                 client.close()
-            return
+            except Exception:
+                pass
+        return
 
     captured_at = datetime.now(timezone.utc).isoformat()
     db_names = set()
