@@ -76,6 +76,41 @@ def _sanitize_uri(uri: str) -> str:
     return uri
 
 
+def _extract_auth_sources(raw_uri: str, configured_auth: str) -> List[str]:
+    """Build prioritized list of potential authentication databases to try."""
+    sources = []
+    if configured_auth:
+        sources.append(str(configured_auth).strip())
+    try:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(raw_uri)
+        if parsed.path and parsed.path.strip("/"):
+            sources.append(parsed.path.strip("/").split("/")[0])
+        qp = urllib.parse.parse_qs(parsed.query)
+        if "authSource" in qp:
+            sources.extend(qp["authSource"])
+    except Exception:
+        pass
+
+    try:
+        from agent.config import config_collections
+        cmap = config_collections()
+        if isinstance(cmap, dict):
+            sources.extend(list(cmap.keys()))
+    except Exception:
+        pass
+
+    sources.extend(["admin", "identity_service", "auth_api", "Master", "bagging", "sorting_service", "test"])
+    seen = set()
+    out = []
+    for s in sources:
+        sc = str(s).strip()
+        if sc and sc not in seen:
+            seen.add(sc)
+            out.append(sc)
+    return out
+
+
 def sync_configs() -> None:
     """Snapshot mapped collections from the site MongoDB and push changes to hub."""
     if not HAS_PYMONGO:
@@ -97,40 +132,50 @@ def sync_configs() -> None:
     auth_source = mongo_auth_source()
     log(f"[CONFIG-SYNC] Effective settings -> mongo_uri={_sanitize_uri(raw_uri)} auth_source={auth_source}")
 
-    uri = _encode_uri_password(raw_uri)
-    if not uri:
+    primary_uri = _encode_uri_password(raw_uri)
+    if not primary_uri:
         log("[CONFIG-SYNC] Skipped: mongo_uri is empty")
         return
 
+    # Prepare URI variations (original URI and 127.0.0.1 variant if localhost)
+    uri_candidates = [primary_uri]
+    if "localhost" in primary_uri:
+        uri_candidates.append(primary_uri.replace("localhost", "127.0.0.1"))
+
+    auth_candidates = _extract_auth_sources(raw_uri, auth_source)
     client = None
     connected = False
     last_err = None
 
-    # 1. Try URI natively first (respects authSource or database embedded in URI)
-    log(f"[CONFIG-SYNC] Connecting to MongoDB at {_sanitize_uri(uri)}...")
-    temp_client = None
-    try:
-        temp_client = MongoClient(uri, serverSelectionTimeoutMS=5000, directConnection=True)
-        temp_client.admin.command("ping")
-        client = temp_client
-        connected = True
-        log("[CONFIG-SYNC] Native URI ping succeeded.")
-    except Exception as exc:
-        last_err = exc
-        log(f"[CONFIG-SYNC] Native URI ping failed ({exc!r}). Trying authSource fallbacks...")
-        if temp_client:
-            try:
-                temp_client.close()
-            except Exception:
-                pass
+    for target_uri in uri_candidates:
+        if connected:
+            break
 
-    # 2. Try configured authSource and fallbacks
-    if not connected:
-        for src in filter(None, [auth_source, "admin", "test"]):
+        log(f"[CONFIG-SYNC] Connecting to MongoDB at {_sanitize_uri(target_uri)}...")
+
+        # 1. Try native URI first
+        temp_client = None
+        try:
+            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=5000, directConnection=True)
+            temp_client.admin.command("ping")
+            client = temp_client
+            connected = True
+            log("[CONFIG-SYNC] Native URI ping succeeded.")
+            break
+        except Exception as exc:
+            last_err = exc
+            if temp_client:
+                try:
+                    temp_client.close()
+                except Exception:
+                    pass
+
+        # 2. Try candidate authSource databases
+        for src in auth_candidates:
             temp_client = None
             try:
                 log(f"[CONFIG-SYNC] Trying MongoClient with authSource='{src}'...")
-                temp_client = MongoClient(uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
+                temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=5000, directConnection=True)
                 temp_client[src].command("ping")
                 client = temp_client
                 connected = True
@@ -138,7 +183,6 @@ def sync_configs() -> None:
                 break
             except Exception as exc:
                 last_err = exc
-                log(f"[CONFIG-SYNC] Auth ping failed with authSource='{src}': {exc!r}")
                 if temp_client:
                     try:
                         temp_client.close()
