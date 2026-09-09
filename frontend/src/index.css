@@ -4,6 +4,13 @@
   color-scheme: dark;
 }
 
+html, body {
+  overflow-x: hidden;
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500/30 selection:text-emerald-200;
   background-image:
@@ -11,6 +18,25 @@ body {
     radial-gradient(ellipse 70% 50% at 95% 15%, rgba(56, 189, 248, 0.1), transparent),
     radial-gradient(ellipse 60% 50% at 5% 85%, rgba(99, 102, 241, 0.08), transparent);
   background-attachment: fixed;
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.touch-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .glass-card {

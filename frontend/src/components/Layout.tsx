@@ -280,10 +280,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Desktop rail spacer (mobile uses the drawer) */}
       <div className={cn("hidden h-screen shrink-0 lg:block", pinned ? "w-[268px]" : "w-[116px]")} />
 
-      <main className="flex min-w-0 flex-1 flex-col py-3 pr-3">
+      <main className="flex min-w-0 flex-1 flex-col p-2 sm:p-3 pb-24 lg:pb-3">
         {/* Top navbar header */}
         <header className={cn(
-          "sticky top-0 z-30 mb-5 flex h-14 shrink-0 items-center gap-2 rounded-2xl border border-slate-800/80 px-3 shadow-lg shadow-black/30 backdrop-blur-xl sm:gap-3 sm:px-4",
+          "sticky top-0 z-30 mb-3 sm:mb-5 flex h-14 shrink-0 items-center gap-2 rounded-2xl border border-slate-800/80 px-3 shadow-lg shadow-black/30 backdrop-blur-xl sm:gap-3 sm:px-4",
           isSuperAdmin
             ? "bg-black border-slate-800"
             : "bg-gradient-to-r from-slate-900/90 via-slate-900/70 to-slate-900/40"
@@ -291,23 +291,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-slate-300 hover:text-white lg:hidden"
+            className="h-8 w-8 text-slate-300 hover:text-white lg:hidden shrink-0"
             onClick={() => setMobileOpen(true)}
             title="Open menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
 
-          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 shrink-0">
             <div className="hidden h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 sm:flex">
               <PageIcon className="h-4 w-4 text-emerald-400" />
             </div>
-            <h2 className="min-w-0 truncate text-sm font-semibold tracking-tight text-slate-100">
+            <h2 className="min-w-0 truncate text-xs sm:text-sm font-semibold tracking-tight text-slate-100">
               {pageTitle}
             </h2>
           </div>
 
-          {/* Quick Search trigger button — placed on LEFT right after page name */}
+          {/* Quick Search trigger button — Desktop */}
           <button
             onClick={() => setSearchOpen(true)}
             className="hidden sm:flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/60 px-3 py-1.5 text-xs text-slate-400 hover:border-emerald-500/40 hover:text-slate-200 transition-all cursor-pointer shadow-inner ml-2"
@@ -319,8 +319,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </kbd>
           </button>
 
+          {/* Mobile Quick Search trigger icon button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSearchOpen(true)}
+            className="h-8 w-8 text-emerald-400 sm:hidden ml-auto shrink-0"
+            title="Search"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+
           {/* Right cluster */}
-          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="ml-auto sm:ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
             <span className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
@@ -355,8 +366,39 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <NotificationBell />
           </div>
         </header>
+
         {children}
       </main>
+
+      {/* iOS & Android Mobile Bottom App Bar */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/90 px-2 py-1.5 pb-safe shadow-2xl flex justify-around items-center">
+        {nav.map(({ to, label, icon: Icon }) => {
+          const isActive = location.pathname === to || (to === "/" && location.pathname === "/");
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              className={cn(
+                "flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[10px] font-medium transition-all",
+                isActive
+                  ? "text-emerald-400 font-bold bg-emerald-500/10"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Icon className="h-5 w-5" />
+              <span>{label}</span>
+            </NavLink>
+          );
+        })}
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
+        >
+          <Menu className="h-5 w-5" />
+          <span>Menu</span>
+        </button>
+      </div>
+
       <ToastHost />
     </div>
   );

@@ -1,0 +1,18 @@
+{
+  "short_name": "OcTyn DevOps",
+  "name": "OcTyn DevOps Services",
+  "description": "Central DevOps Infrastructure Monitoring & Management",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any 192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "display": "standalone",
+  "orientation": "any"
+}

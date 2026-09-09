@@ -466,6 +466,64 @@ export default function TerminalPage() {
                     </form>
                 </div>
 
+                {/* Mobile Virtual Touch Keyboard Bar for iOS & Android */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-800/80 pt-2.5 sm:hidden">
+                    <button
+                        type="button"
+                        onClick={() => handleTabCompletion()}
+                        disabled={running}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-mono font-medium text-emerald-400 active:bg-emerald-950 active:scale-95 transition-all"
+                    >
+                        TAB
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigateHistory(true)}
+                        disabled={running}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-mono font-medium text-slate-300 active:bg-slate-800 active:scale-95 transition-all"
+                    >
+                        ↑ Prev
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigateHistory(false)}
+                        disabled={running}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-mono font-medium text-slate-300 active:bg-slate-800 active:scale-95 transition-all"
+                    >
+                        ↓ Next
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (running && currentCommandId) {
+                                setRunning(false);
+                                setCurrentCommandId(null);
+                                apiFetch(`/terminal/${id}/commands/${currentCommandId}/cancel`, { method: "POST" }).catch(() => {});
+                            } else {
+                                setOutput((prev) => prev + "^C\n");
+                            }
+                        }}
+                        className="rounded-lg border border-red-900/60 bg-red-950/40 px-2.5 py-1 text-xs font-mono font-medium text-red-400 active:bg-red-900 active:scale-95 transition-all"
+                    >
+                        Ctrl+C
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setOutput("")}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs font-mono font-medium text-amber-400 active:bg-amber-950 active:scale-95 transition-all"
+                    >
+                        Clear
+                    </button>
+                    <button
+                        type="button"
+                        onClick={(e) => void submit(e as unknown as React.FormEvent)}
+                        disabled={running || !input.trim()}
+                        className="ml-auto rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-1 text-xs font-mono font-bold text-white disabled:opacity-50 active:bg-emerald-700 active:scale-95 transition-all"
+                    >
+                        RUN ↵
+                    </button>
+                </div>
+
                 {nanoState && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm animate-in fade-in duration-200">
                         <div className="flex h-[88vh] w-full max-w-5xl flex-col rounded-lg border border-emerald-800/80 bg-zinc-950 shadow-2xl shadow-emerald-950/50">
