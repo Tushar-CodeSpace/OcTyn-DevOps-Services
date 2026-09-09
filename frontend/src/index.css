@@ -368,3 +368,128 @@ body.tui-theme ::-webkit-scrollbar-thumb {
 .animate-terminal-blink {
   animation: terminal-blink 1s steps(2, jump-none) infinite;
 }
+
+/* ==================== NIDO THEME LIGHT (ORANGE LIGHT THEME) ==================== */
+
+html.nido-light,
+body.nido-light {
+  background-color: #fffaf5 !important;
+  color: #1c1917 !important;
+  background-image:
+    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(249, 115, 22, 0.15), transparent),
+    radial-gradient(ellipse 70% 50% at 95% 15%, rgba(251, 146, 60, 0.1), transparent);
+  background-attachment: fixed !important;
+}
+
+body.nido-light header,
+body.nido-light aside {
+  background-color: #ffffff !important;
+  border-color: #fed7aa !important;
+  box-shadow: 0 4px 20px -2px rgba(249, 115, 22, 0.1) !important;
+}
+
+body.nido-light .glass-card,
+body.nido-light [class*="bg-slate-900"],
+body.nido-light [class*="bg-slate-950"] {
+  background-color: #ffffff !important;
+  border-color: #fed7aa !important;
+  color: #1c1917 !important;
+  box-shadow: 0 4px 15px rgba(249, 115, 22, 0.06) !important;
+}
+
+body.nido-light h1,
+body.nido-light h2,
+body.nido-light h3,
+body.nido-light h4 {
+  color: #0c0a09 !important;
+}
+
+body.nido-light p,
+body.nido-light span,
+body.nido-light div,
+body.nido-light td,
+body.nido-light .text-slate-100,
+body.nido-light .text-slate-200,
+body.nido-light .text-slate-300,
+body.nido-light .text-slate-400 {
+  color: #292524 !important;
+}
+
+body.nido-light .text-slate-500,
+body.nido-light .text-slate-600 {
+  color: #78716c !important;
+}
+
+body.nido-light input,
+body.nido-light select,
+body.nido-light textarea {
+  background-color: #fffaf5 !important;
+  border-color: #fdba74 !important;
+  color: #1c1917 !important;
+}
+
+body.nido-light input:focus,
+body.nido-light select:focus {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.25) !important;
+}
+
+/* ==================== NIDO DARK THEME (ORANGE DARK THEME) ==================== */
+
+html.nido-dark,
+body.nido-dark {
+  background-color: #0c0a09 !important;
+  color: #f5f5f4 !important;
+  background-image:
+    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(249, 115, 22, 0.25), transparent),
+    radial-gradient(ellipse 70% 50% at 95% 15%, rgba(194, 65, 12, 0.18), transparent);
+  background-attachment: fixed !important;
+}
+
+body.nido-dark header,
+body.nido-dark aside {
+  background-color: #1c1917 !important;
+  border-color: #7c2d12 !important;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6) !important;
+}
+
+body.nido-dark .glass-card,
+body.nido-dark [class*="bg-slate-900"],
+body.nido-dark [class*="bg-slate-950"] {
+  background-color: #1c1917 !important;
+  border-color: #7c2d12 !important;
+  color: #f5f5f4 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.nido-dark h1,
+body.nido-dark h2,
+body.nido-dark h3,
+body.nido-dark h4 {
+  color: #fff7ed !important;
+}
+
+body.nido-dark p,
+body.nido-dark span,
+body.nido-dark div,
+body.nido-dark td,
+body.nido-dark .text-slate-100,
+body.nido-dark .text-slate-200,
+body.nido-dark .text-slate-300,
+body.nido-dark .text-slate-400 {
+  color: #e7e5e4 !important;
+}
+
+body.nido-dark input,
+body.nido-dark select,
+body.nido-dark textarea {
+  background-color: #0c0a09 !important;
+  border-color: #7c2d12 !important;
+  color: #fff7ed !important;
+}
+
+body.nido-dark input:focus,
+body.nido-dark select:focus {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.4) !important;
+}

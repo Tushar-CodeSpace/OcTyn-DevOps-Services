@@ -465,10 +465,12 @@ export default function Settings() {
                 <p className="text-xs text-slate-400">
                   Select your preferred account interface style. The theme applies instantly across all tabs.
                 </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mt-1">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mt-1">
                   {[
                     { id: "tui", name: "Amber CRT (TUI)", desc: "Retro Terminal Style", bg: "bg-amber-950/40 border-amber-500/50 text-amber-400" },
-                    { id: "dark", name: "Obsidian Dark", desc: "Sleek Modern Dark Mode", bg: "bg-slate-900 border-slate-700 text-slate-200" },
+                    { id: "dark", name: "Obsidian Dark", desc: "Sleek Dark Mode", bg: "bg-slate-900 border-slate-700 text-slate-200" },
+                    { id: "nido-light", name: "Nido Theme Light", desc: "Vibrant Orange Light", bg: "bg-orange-50 border-orange-300 text-orange-700 font-semibold" },
+                    { id: "nido-dark", name: "Nido Dark Theme", desc: "Glowing Orange Dark", bg: "bg-stone-900 border-orange-600/70 text-orange-400" },
                   ].map((tOption) => (
                     <button
                       key={tOption.id}
@@ -483,7 +485,7 @@ export default function Settings() {
                       }}
                       className={`flex flex-col p-3 rounded-xl border text-left transition-all ${tOption.bg} ${
                         activeTheme === tOption.id
-                          ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-slate-950 font-bold scale-[1.01]"
+                          ? "ring-2 ring-orange-500 ring-offset-2 ring-offset-slate-950 font-bold scale-[1.02]"
                           : "opacity-80 hover:opacity-100"
                       }`}
                     >
