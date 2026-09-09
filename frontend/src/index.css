@@ -369,37 +369,77 @@ body.tui-theme ::-webkit-scrollbar-thumb {
   animation: terminal-blink 1s steps(2, jump-none) infinite;
 }
 
-/* ==================== NIDO THEME LIGHT (PREMIUM WARM ORANGE & SLATE) ==================== */
+/* ==================== NIDO THEME LIGHT (EXECUTIVE SLATE & ORANGE) ==================== */
 
 html.nido-light,
 body.nido-light {
-  background-color: #f8fafc !important;
-  color: #1e293b !important;
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
   background-image:
-    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(249, 115, 22, 0.08), transparent),
-    radial-gradient(ellipse 70% 50% at 95% 15%, rgba(251, 146, 60, 0.05), transparent) !important;
+    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(249, 115, 22, 0.06), transparent),
+    radial-gradient(ellipse 70% 50% at 95% 15%, rgba(241, 245, 249, 0.5), transparent) !important;
   background-attachment: fixed !important;
 }
 
-/* Clear dark gradients and force light background on Header, Sidebar, Cards & Panels */
-body.nido-light header,
-body.nido-light aside,
-body.nido-light main,
-body.nido-light section,
-body.nido-light nav,
-body.nido-light .glass-card,
-body.nido-light .glass-pill,
-body.nido-light [class*="bg-slate-900"],
-body.nido-light [class*="bg-slate-950"],
-body.nido-light [class*="from-slate-900"],
-body.nido-light [class*="from-slate-950"] {
+/* Executive Dark Navy Sidebar (Framing Contrast) */
+body.nido-light aside {
+  background-color: #0f172a !important;
+  background-image: none !important;
+  border-color: #1e293b !important;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2) !important;
+}
+
+body.nido-light aside nav a {
+  color: #94a3b8 !important;
+}
+
+body.nido-light aside nav a:hover {
+  background-color: #1e293b !important;
+  background-image: none !important;
+  color: #f8fafc !important;
+}
+
+body.nido-light aside nav a.active,
+body.nido-light aside nav a[class*="from-emerald"],
+body.nido-light aside nav a[class*="from-indigo"] {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  background-image: none !important;
+  color: #f97316 !important;
+  font-weight: 600 !important;
+}
+
+body.nido-light aside nav a.active *,
+body.nido-light aside nav a[class*="from-emerald"] *,
+body.nido-light aside nav a[class*="from-indigo"] * {
+  color: #f97316 !important;
+}
+
+body.nido-light aside nav a span[class*="bg-emerald-400"],
+body.nido-light aside nav a span[class*="bg-indigo-400"] {
+  background-color: #f97316 !important;
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.8) !important;
+}
+
+/* Top Navbar Header */
+body.nido-light header {
   background-color: #ffffff !important;
   background-image: none !important;
   border-color: #e2e8f0 !important;
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04) !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03) !important;
 }
 
-/* Typography Hierarchy in Light Mode */
+/* Elevated Cards & Panels on Slate Canvas */
+body.nido-light .glass-card,
+body.nido-light .glass-pill,
+body.nido-light [class*="bg-slate-900"],
+body.nido-light [class*="bg-slate-950"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* Typography Hierarchy */
 body.nido-light h1,
 body.nido-light h2,
 body.nido-light h3,
@@ -430,32 +470,6 @@ body.nido-light [class*="text-slate-600"] {
   color: #94a3b8 !important;
 }
 
-/* Sidebar Nav Links & Active State */
-body.nido-light aside nav a {
-  color: #475569 !important;
-}
-
-body.nido-light aside nav a:hover {
-  background-color: #fff7ed !important;
-  background-image: none !important;
-  color: #ea580c !important;
-}
-
-body.nido-light aside nav a.active,
-body.nido-light aside nav a[class*="from-emerald"],
-body.nido-light aside nav a[class*="from-indigo"] {
-  background-color: #ffedd5 !important;
-  background-image: none !important;
-  color: #c2410c !important;
-  font-weight: 600 !important;
-}
-
-body.nido-light aside nav a span[class*="bg-emerald-400"],
-body.nido-light aside nav a span[class*="bg-indigo-400"] {
-  background-color: #ea580c !important;
-  box-shadow: 0 0 8px rgba(234, 88, 12, 0.5) !important;
-}
-
 /* Buttons in Light Mode */
 body.nido-light button[class*="from-emerald"],
 body.nido-light button[class*="bg-emerald"] {
@@ -481,10 +495,10 @@ body.nido-light .button {
 }
 
 body.nido-light button:not([class*="from-emerald"]):not([class*="bg-emerald"]):hover {
-  background-color: #fff7ed !important;
+  background-color: #f8fafc !important;
   background-image: none !important;
-  border-color: #fdba74 !important;
-  color: #c2410c !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 
 /* Form Controls */
@@ -553,6 +567,7 @@ body.nido-light thead tr {
   background-color: #f8fafc !important;
   background-image: none !important;
   color: #475569 !important;
+  font-weight: 600 !important;
   border-bottom-color: #e2e8f0 !important;
 }
 
@@ -561,7 +576,7 @@ body.nido-light tr {
 }
 
 body.nido-light tbody tr:hover {
-  background-color: #fff7ed !important;
+  background-color: #f8fafc !important;
 }
 
 /* Dialogs & Popovers */
