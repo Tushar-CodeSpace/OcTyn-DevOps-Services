@@ -211,7 +211,7 @@ async def test_and_trigger_backup(
     db.terminal_commands().insert_one({
         "_id": cmd_id,
         "server_id": sid,
-        "command": "cd /opt/octyn-agent 2>/dev/null || cd /opt/agent 2>/dev/null || cd \"$HOME\" || true; python3 agent_lite.py --sync-configs 2>/dev/null || python3 agent.py --sync-configs 2>/dev/null || uv run agent --sync-configs 2>/dev/null || python3 -c 'from agent.mongo_backup import sync_configs; sync_configs()' 2>/dev/null",
+        "command": "cd /opt/octyn-agent 2>/dev/null || cd /opt/agent 2>/dev/null || cd \"$HOME\" || true; python3 agent_lite.py --sync-configs || python3 agent.py --sync-configs || uv run agent --sync-configs || python3 -c 'from agent.mongo_backup import sync_configs; sync_configs()'",
         "created_by": user["_id"],
         "user_email": user["email"],
         "status": "pending",
