@@ -63,12 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
-    const savedTheme = localStorage.getItem("user_theme");
-    if (!savedTheme && isSuperAdmin) {
-      root.classList.add("tui-theme", "dark");
-      body.classList.add("tui-theme", "dark");
-    }
-  }, [isSuperAdmin]);
+    root.classList.remove("tui-theme");
+    root.classList.add("dark");
+    body.classList.remove("tui-theme");
+    body.classList.add("dark");
+  }, []);
 
   const value = useMemo<AuthState>(
     () => ({

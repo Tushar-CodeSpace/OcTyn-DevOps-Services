@@ -11,36 +11,31 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem("user_theme") as Theme;
-    return ["tui", "dark"].includes(saved) ? saved : "tui";
-  });
+  const [theme, setThemeState] = useState<Theme>("dark");
 
   const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-    localStorage.setItem("user_theme", newTheme);
+    // TUI disabled for now; force Obsidian Dark ("dark")
+    const activeTheme = newTheme === "dark" ? "dark" : "dark";
+    setThemeState(activeTheme);
+    localStorage.setItem("user_theme", activeTheme);
   };
 
   const toggleTheme = () => {
-    setTheme(theme === "tui" ? "dark" : "tui");
+    // Single active theme: Obsidian Dark
+    setTheme("dark");
   };
 
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
 
-    root.classList.remove("tui-theme", "dark", "light", "nido-light", "nido-dark");
-    body.classList.remove("tui-theme", "dark", "light", "nido-light", "nido-dark");
+    root.classList.remove("tui-theme", "light", "nido-light", "nido-dark");
+    body.classList.remove("tui-theme", "light", "nido-light", "nido-dark");
 
-    if (theme === "tui") {
-      root.classList.add("tui-theme", "dark");
-      body.classList.add("tui-theme", "dark");
-    } else {
-      root.classList.add("dark");
-      body.classList.add("dark");
-    }
+    root.classList.add("dark");
+    body.classList.add("dark");
 
-    localStorage.setItem("user_theme", theme);
+    localStorage.setItem("user_theme", "dark");
   }, [theme]);
 
   return (

@@ -467,13 +467,15 @@ export default function Settings() {
                 </p>
                 <div className="grid grid-cols-2 gap-3 mt-1">
                   {[
-                    { id: "tui", name: "Amber CRT (TUI)", desc: "Retro Terminal Style", bg: "bg-amber-950/40 border-amber-500/50 text-amber-400" },
-                    { id: "dark", name: "Obsidian Dark", desc: "Sleek Dark Mode", bg: "bg-slate-900 border-slate-700 text-slate-200" },
+                    { id: "dark", name: "Obsidian Dark", desc: "Sleek Dark Mode (Active)", bg: "bg-slate-900 border-slate-700 text-slate-200", disabled: false },
+                    { id: "tui", name: "Amber CRT (TUI)", desc: "Disabled for now", bg: "bg-amber-950/20 border-amber-900/30 text-amber-500/50", disabled: true },
                   ].map((tOption) => (
                     <button
                       key={tOption.id}
                       type="button"
+                      disabled={tOption.disabled}
                       onClick={() => {
+                        if (tOption.disabled) return;
                         setTheme(tOption.id as Theme);
                         showToast({
                           severity: "info",
@@ -482,12 +484,21 @@ export default function Settings() {
                         });
                       }}
                       className={`flex flex-col p-3 rounded-xl border text-left transition-all ${tOption.bg} ${
-                        activeTheme === tOption.id
+                        tOption.disabled
+                          ? "opacity-50 cursor-not-allowed"
+                          : activeTheme === tOption.id
                           ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-slate-950 font-bold scale-[1.02]"
                           : "opacity-80 hover:opacity-100"
                       }`}
                     >
-                      <span className="text-xs font-bold">{tOption.name}</span>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="text-xs font-bold">{tOption.name}</span>
+                        {tOption.disabled && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-medium border border-slate-700">
+                            Disabled
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] opacity-75 mt-0.5">{tOption.desc}</span>
                     </button>
                   ))}
