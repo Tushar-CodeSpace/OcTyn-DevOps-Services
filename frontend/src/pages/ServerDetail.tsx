@@ -137,6 +137,9 @@ export default function ServerDetail() {
   const [svcPage, setSvcPage] = useState(0);
   const [backupQuery, setBackupQuery] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
+  // Collapsible overview sections (null = auto: expand only when attention needed)
+  const [healthOpen, setHealthOpen] = useState<boolean | null>(null);
+  const [connOpen, setConnOpen] = useState<boolean | null>(null);
   const SVC_PAGE_SIZE = 10;
 
   // Custom data widgets (agent-pushed MongoDB tallies)
@@ -1104,6 +1107,9 @@ export default function ServerDetail() {
 
   const failedChecks = statusChecks.filter((c) => c.state === "fail").length;
   const activeAlarmCount = alerts?.length ?? 0;
+  const connUnreachable = (connectivity ?? []).filter((c) => !c.reachable).length;
+  const healthExpanded = healthOpen ?? (failedChecks > 0 || activeAlarmCount > 0);
+  const connExpanded = connOpen ?? connUnreachable > 0;
 
   function toggleDb(database: string) {
     setExpandedDbs((prev) => ({ ...prev, [database]: !prev[database] }));
@@ -1218,10 +1224,23 @@ export default function ServerDetail() {
       {/* System health: status checks + active alarms */}
       <Card>
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 py-3">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          <button
+            type="button"
+            onClick={() => setHealthOpen(!healthExpanded)}
+            className="flex min-w-0 items-center gap-2 text-left"
+            title={healthExpanded ? "Collapse section" : "Expand section"}
+          >
+            {healthExpanded ? (
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+            )}
+            <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
             <CardTitle className="text-sm">System health</CardTitle>
-          </div>
+            <span className="hidden truncate text-[11px] font-normal text-slate-500 md:inline">
+              {statusChecks.length} checks · {activeAlarmCount} alarm{activeAlarmCount === 1 ? "" : "s"}
+            </span>
+          </button>
           {failedChecks === 0 && activeAlarmCount === 0 ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -1234,7 +1253,7 @@ export default function ServerDetail() {
             </span>
           )}
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent className={cn("flex flex-col gap-3", !healthExpanded && "hidden")}>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {statusChecks.map((c) => (
               <div
@@ -1324,13 +1343,32 @@ export default function ServerDetail() {
       </Card>
 
       <Card className="overflow-hidden">
-        <CardHeader className="flex-row items-center gap-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-emerald-400" />
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 py-2.5">
+          <button
+            type="button"
+            onClick={() => setConnOpen(!connExpanded)}
+            className="flex min-w-0 items-center gap-2 text-left"
+            title={connExpanded ? "Collapse section" : "Expand section"}
+          >
+            {connExpanded ? (
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+            )}
+            <Activity className="h-4 w-4 shrink-0 text-emerald-400" />
             <CardTitle className="text-xs font-semibold text-slate-200">Device connectivity</CardTitle>
-          </div>
+          </button>
+          <span className="font-mono text-[11px] text-slate-500">
+            {!connectivity
+              ? "loading…"
+              : connectivity.length === 0
+                ? "no targets"
+                : connUnreachable > 0
+                  ? `${connUnreachable} offline · ${reachableTargets.length}/${connectivity.length} reachable`
+                  : `${connectivity.length}/${connectivity.length} reachable`}
+          </span>
         </CardHeader>
-        <CardContent className="px-4 pb-3">
+        <CardContent className={cn("px-4 pb-3", !connExpanded && "hidden")}>
           {!connectivity ? (
             <p className="text-xs text-slate-500">Loading device status…</p>
           ) : connectivity.length === 0 ? (
