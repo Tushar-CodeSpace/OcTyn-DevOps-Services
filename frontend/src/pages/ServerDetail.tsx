@@ -641,6 +641,55 @@ export default function ServerDetail() {
     }
   }
 
+  // ---- Compact services: search + status filter + pagination ----
+  // NOTE: hooks must stay above the `if (!server)` early return (React error #310).
+  const svcCounts = useMemo(() => {
+    let running = 0;
+    let stopped = 0;
+    let disabled = 0;
+    for (const s of services) {
+      if (!(s.enabled ?? true)) disabled += 1;
+      else if (s.status === "running") running += 1;
+      else if (s.status === "stopped") stopped += 1;
+    }
+    return { running, stopped, disabled, total: services.length };
+  }, [services]);
+
+  const filteredServices = useMemo(() => {
+    const q = svcQuery.trim().toLowerCase();
+    return services.filter((s) => {
+      if (svcStatus === "disabled" && (s.enabled ?? true)) return false;
+      if (svcStatus === "running" && (!(s.enabled ?? true) || s.status !== "running")) return false;
+      if (svcStatus === "stopped" && (!(s.enabled ?? true) || s.status !== "stopped")) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        String(s.port ?? "").includes(q)
+      );
+    });
+  }, [services, svcQuery, svcStatus]);
+
+  // ---- Backups grouped by database ----
+  const backupGroups = useMemo(() => {
+    const list = snapMeta ?? [];
+    const q = backupQuery.trim().toLowerCase();
+    const byDb = new Map<string, ConfigSnapshotMeta[]>();
+    for (const m of list) {
+      if (q && !`${m.database}.${m.collection}`.toLowerCase().includes(q)) continue;
+      const arr = byDb.get(m.database) ?? [];
+      arr.push(m);
+      byDb.set(m.database, arr);
+    }
+    const groups = [...byDb.entries()].map(([database, items]) => {
+      items.sort((a, b) => a.collection.localeCompare(b.collection));
+      const totalDocs = items.reduce((n, x) => n + (x.count ?? 0), 0);
+      const lastReceived = items.reduce((max, x) => (x.received_at > max ? x.received_at : max), items[0]?.received_at ?? "");
+      return { database, items, totalDocs, lastReceived };
+    });
+    groups.sort((a, b) => (b.lastReceived > a.lastReceived ? 1 : b.lastReceived < a.lastReceived ? -1 : 0));
+    return groups;
+  }, [snapMeta, backupQuery]);
+
   const chartData = metrics.map((m) => ({
     time: new Date(m.recorded_at).toLocaleTimeString(),
     cpu: m.cpu_percent,
@@ -766,60 +815,12 @@ export default function ServerDetail() {
   const avgWrite = (stats.writeSum / statCount).toFixed(1);
   const avgIops = Math.round(stats.iopsSum / statCount);
 
-  // ---- Compact services: search + status filter + pagination ----
-  const svcCounts = useMemo(() => {
-    let running = 0;
-    let stopped = 0;
-    let disabled = 0;
-    for (const s of services) {
-      if (!(s.enabled ?? true)) disabled += 1;
-      else if (s.status === "running") running += 1;
-      else if (s.status === "stopped") stopped += 1;
-    }
-    return { running, stopped, disabled, total: services.length };
-  }, [services]);
-
-  const filteredServices = useMemo(() => {
-    const q = svcQuery.trim().toLowerCase();
-    return services.filter((s) => {
-      if (svcStatus === "disabled" && (s.enabled ?? true)) return false;
-      if (svcStatus === "running" && (!(s.enabled ?? true) || s.status !== "running")) return false;
-      if (svcStatus === "stopped" && (!(s.enabled ?? true) || s.status !== "stopped")) return false;
-      if (!q) return true;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        String(s.port ?? "").includes(q)
-      );
-    });
-  }, [services, svcQuery, svcStatus]);
-
   const svcTotalPages = Math.max(1, Math.ceil(filteredServices.length / SVC_PAGE_SIZE));
   const safeSvcPage = Math.min(svcPage, svcTotalPages - 1);
   const pagedServices = filteredServices.slice(
     safeSvcPage * SVC_PAGE_SIZE,
     safeSvcPage * SVC_PAGE_SIZE + SVC_PAGE_SIZE
   );
-
-  // ---- Backups grouped by database ----
-  const backupGroups = useMemo(() => {
-    const list = snapMeta ?? [];
-    const q = backupQuery.trim().toLowerCase();
-    const byDb = new Map<string, ConfigSnapshotMeta[]>();
-    for (const m of list) {
-      if (q && !`${m.database}.${m.collection}`.toLowerCase().includes(q)) continue;
-      const arr = byDb.get(m.database) ?? [];
-      arr.push(m);
-      byDb.set(m.database, arr);
-    }
-    const groups = [...byDb.entries()].map(([database, items]) => {
-      items.sort((a, b) => a.collection.localeCompare(b.collection));
-      const totalDocs = items.reduce((n, x) => n + (x.count ?? 0), 0);
-      const lastReceived = items.reduce((max, x) => (x.received_at > max ? x.received_at : max), items[0]?.received_at ?? "");
-      return { database, items, totalDocs, lastReceived };
-    });
-    groups.sort((a, b) => (b.lastReceived > a.lastReceived ? 1 : b.lastReceived < a.lastReceived ? -1 : 0));
-    return groups;
-  }, [snapMeta, backupQuery]);
 
   const backupDbCount = backupGroups.length;
   const backupCollCount = backupGroups.reduce((n, g) => n + g.items.length, 0);
