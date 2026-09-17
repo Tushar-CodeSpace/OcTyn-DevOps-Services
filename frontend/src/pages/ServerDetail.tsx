@@ -1556,7 +1556,7 @@ export default function ServerDetail() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {entries.map(({ def, sample }) => {
                   const name = sample?.widget_name ?? def?.name ?? "?";
                   const gid = name.replace(/[^A-Za-z0-9_-]/g, "_");
@@ -2156,7 +2156,7 @@ export default function ServerDetail() {
         </CardHeader>
         <CardContent>
           {!widgets ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-44 w-full rounded-xl" />
               ))}
@@ -2179,7 +2179,7 @@ export default function ServerDetail() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {widgets.map((w) => {
                 const state = widgetState(w);
                 const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
