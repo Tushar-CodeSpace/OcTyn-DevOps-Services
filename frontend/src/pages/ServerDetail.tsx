@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, LayoutGrid, Loader2, MapPin, MinusCircle, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
   CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,7 +16,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetSample } from "@/lib/types";
+import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -94,6 +97,26 @@ export default function ServerDetail() {
   const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
   const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
   const [savingWidgets, setSavingWidgets] = useState(false);
+  // Per-widget overview chart mode (bar/pie/trend), persisted per server
+  type WidgetChartMode = "bar" | "pie" | "trend";
+  const chartStoreKey = `octyn:widget-charts:${id ?? "unknown"}`;
+  const [widgetChart, setWidgetChart] = useState<Record<string, WidgetChartMode>>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(chartStoreKey) ?? "{}") as Record<string, string>;
+      const clean: Record<string, WidgetChartMode> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (v === "bar" || v === "pie" || v === "trend") clean[k] = v;
+      }
+      return clean;
+    } catch {
+      return {};
+    }
+  });
+  const [widgetHistory, setWidgetHistory] = useState<Record<string, WidgetHistoryPoint[]>>({});
+  const [loadingHist, setLoadingHist] = useState<Record<string, boolean>>({});
+  // Refs so the socket handler (stable closure) sees current chart modes
+  const chartModeRef = useRef(widgetChart);
+  chartModeRef.current = widgetChart;
 
   function exportMetricsCsv() {
     if (!metrics.length || !server) return;
@@ -366,6 +389,35 @@ export default function ServerDetail() {
     setWidgets(items);
   }
 
+  async function loadWidgetHistory(name: string, force = false) {
+    if (!id) return;
+    if (!force && (loadingHist[name] || widgetHistory[name])) return;
+    setLoadingHist((prev) => ({ ...prev, [name]: true }));
+    try {
+      const pts = await apiFetch<WidgetHistoryPoint[]>(
+        `/widgets/servers/${id}/history?widget_name=${encodeURIComponent(name)}&hours=24`
+      );
+      setWidgetHistory((prev) => ({ ...prev, [name]: pts }));
+    } catch {
+      setWidgetHistory((prev) => ({ ...prev, [name]: [] }));
+    } finally {
+      setLoadingHist((prev) => ({ ...prev, [name]: false }));
+    }
+  }
+
+  function pickChart(name: string, mode: "bar" | "pie" | "trend") {
+    setWidgetChart((prev) => {
+      const next = { ...prev, [name]: mode };
+      try {
+        localStorage.setItem(chartStoreKey, JSON.stringify(next));
+      } catch {
+        /* private mode etc. */
+      }
+      return next;
+    });
+    if (mode === "trend") void loadWidgetHistory(name);
+  }
+
   function openWidgetCfg() {
     setWidgetDraft(
       (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }))
@@ -416,6 +468,14 @@ export default function ServerDetail() {
     if (/(fail|error|expired|invalid|reject)/.test(l)) return "bg-red-500";
     if (/(pending|retry|warn|unknown)/.test(l)) return "bg-amber-500";
     return "bg-sky-500";
+  }
+
+  function groupHex(label: string): string {
+    const l = label.toLowerCase();
+    if (/(success|^ok$|passed|complete)/.test(l)) return "#34d399";
+    if (/(fail|error|expired|invalid|reject)/.test(l)) return "#f87171";
+    if (/(pending|retry|warn|unknown)/.test(l)) return "#fbbf24";
+    return "#38bdf8";
   }
 
   async function fetchSnapshotDocuments(snapshotId: string): Promise<Record<string, unknown>[]> {
@@ -606,6 +666,14 @@ export default function ServerDetail() {
         const next = (prev ?? []).filter((w) => w.widget_name !== d.widget_name);
         return [d, ...next];
       });
+      // Drop cached trend so it refetches fresh on next view; refetch now if visible
+      setWidgetHistory((prev) => {
+        if (!(d.widget_name in prev)) return prev;
+        const next = { ...prev };
+        delete next[d.widget_name];
+        return next;
+      });
+      if (chartModeRef.current[d.widget_name] === "trend") void loadWidgetHistory(d.widget_name, true);
     };
 
     socket.on("metric", onMetric);
@@ -1482,7 +1550,256 @@ export default function ServerDetail() {
         </Card>
       </div>
 
+      {/* Data widgets on overview — Bar / Pie / Trend per widget */}
+      {(() => {
+        const defs = agentCfg?.custom_widgets ?? [];
+        const defByName = new Map(defs.map((d) => [d.name, d]));
+        const seen = new Set((widgets ?? []).map((s) => s.widget_name));
+        const entries: { def?: CustomWidgetSpec; sample?: WidgetSample }[] = [
+          ...(widgets ?? []).map((s) => ({ sample: s, def: defByName.get(s.widget_name) })),
+          ...defs.filter((d) => !seen.has(d.name)).map((d) => ({ def: d })),
+        ];
+        if (entries.length === 0) return null;
+        return (
+          <Card>
+            <CardHeader className="flex-col gap-1">
+              <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm">Data widgets ({entries.length})</CardTitle>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Live tallies from the site agent — pick Bar, Pie or Trend per widget.
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setActiveTab("widgets")}>
+                  Manage widgets
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {entries.map(({ def, sample }) => {
+                  const name = sample?.widget_name ?? def?.name ?? "?";
+                  const gid = name.replace(/[^A-Za-z0-9_-]/g, "_");
+                  const mode = widgetChart[name] ?? "bar";
+                  const state = sample ? widgetState(sample) : "stale";
+                  const groups = Object.entries(sample?.groups ?? {}).sort((a, b) => b[1] - a[1]);
+                  const total = sample?.total ?? 0;
+                  const pieTop = groups.slice(0, 6);
+                  const pieOther = groups.slice(6).reduce((n, [, c]) => n + c, 0);
+                  const pieData = [
+                    ...pieTop.map(([label, value]) => ({ name: label, value })),
+                    ...(pieOther > 0 ? [{ name: "Other", value: pieOther }] : []),
+                  ];
+                  const hist = widgetHistory[name] ?? [];
+                  const failedKey = Object.keys(hist[0]?.groups ?? sample?.groups ?? {}).find((k) =>
+                    /fail|error/i.test(k)
+                  );
+                  const trendData = hist.map((p) => ({
+                    time: new Date(p.received_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    total: p.total,
+                    failed: failedKey ? (p.groups[failedKey] ?? 0) : 0,
+                  }));
+                  return (
+                    <div
+                      key={name}
+                      className="flex flex-col gap-2 rounded-xl border border-slate-800/70 bg-slate-950/40 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-100" title={name}>
+                            {name}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
+                            {sample
+                              ? `${sample.database}.${sample.collection} · last ${sample.window_minutes}m`
+                              : `${def?.database}.${def?.collection} · every ${def?.poll_interval_seconds ?? 60}s`}
+                          </p>
+                        </div>
+                        {sample && (
+                          <span
+                            className={cn(
+                              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                              state === "error"
+                                ? "bg-red-500/10 text-red-300"
+                                : state === "stale"
+                                  ? "bg-amber-500/10 text-amber-300"
+                                  : "bg-emerald-500/10 text-emerald-300"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "h-1.5 w-1.5 rounded-full",
+                                state === "error"
+                                  ? "bg-red-400"
+                                  : state === "stale"
+                                    ? "bg-amber-400"
+                                    : "bg-emerald-400"
+                              )}
+                            />
+                            {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
+                          </span>
+                        )}
+                      </div>
 
+                      <div className="inline-flex self-start rounded-lg border border-slate-700 bg-slate-900 p-0.5">
+                        {(["bar", "pie", "trend"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => pickChart(name, m)}
+                            className={cn(
+                              "rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
+                              mode === m
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : "text-slate-400 hover:text-slate-200"
+                            )}
+                          >
+                            {m === "trend" ? "Trend" : m === "pie" ? "Pie" : "Bars"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {!sample ? (
+                        <p className="py-6 text-center text-xs text-slate-500">
+                          Waiting for the agent's first tally…
+                        </p>
+                      ) : sample.error ? (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                          Agent reported: {sample.error}
+                        </div>
+                      ) : mode === "pie" ? (
+                        pieData.length === 0 ? (
+                          <p className="py-6 text-center text-xs text-slate-500">No events in this window.</p>
+                        ) : (
+                          <div>
+                            <ResponsiveContainer width="100%" height={170}>
+                              <PieChart>
+                                <Pie
+                                  data={pieData}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  innerRadius={48}
+                                  outerRadius={72}
+                                  paddingAngle={2}
+                                  strokeWidth={0}
+                                >
+                                  {pieData.map((d) => (
+                                    <Cell key={d.name} fill={groupHex(d.name)} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                              {pieData.map((d) => (
+                                <span key={d.name} className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
+                                  <span
+                                    className="h-2 w-2 rounded-full"
+                                    style={{ background: groupHex(d.name) }}
+                                  />
+                                  {d.name} · {d.value.toLocaleString()}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      ) : mode === "trend" ? (
+                        loadingHist[name] && hist.length === 0 ? (
+                          <div className="flex flex-col gap-2 py-2">
+                            <Skeleton className="h-36 w-full rounded-lg" />
+                          </div>
+                        ) : hist.length < 2 ? (
+                          <p className="py-6 text-center text-xs text-slate-500">
+                            Not enough history yet — trend builds as the agent reports.
+                          </p>
+                        ) : (
+                          <ResponsiveContainer width="100%" height={170}>
+                            <AreaChart data={trendData}>
+                              <defs>
+                                <linearGradient id={`wtot-${gid}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#34d399" stopOpacity={0.4} />
+                                  <stop offset="95%" stopColor="#34d399" stopOpacity={0.0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                              <XAxis dataKey="time" stroke="#64748b" fontSize={10} minTickGap={32} />
+                              <YAxis stroke="#64748b" fontSize={10} width={36} />
+                              <Tooltip
+                                contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="total"
+                                stroke="#34d399"
+                                strokeWidth={2}
+                                fillOpacity={1}
+                                fill={`url(#wtot-${gid})`}
+                                name="Total"
+                              />
+                              {failedKey && (
+                                <Area
+                                  type="monotone"
+                                  dataKey="failed"
+                                  stroke="#f87171"
+                                  strokeWidth={2}
+                                  fillOpacity={0}
+                                  name={failedKey}
+                                />
+                              )}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        )
+                      ) : groups.length === 0 ? (
+                        <p className="py-6 text-center text-xs text-slate-500">No events in this window.</p>
+                      ) : (
+                        <div>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-extrabold tracking-tight text-slate-50">
+                              {total.toLocaleString()}
+                            </span>
+                            <span className="text-xs text-slate-500">events</span>
+                          </div>
+                          <div className="mt-2 flex flex-col gap-1.5">
+                            {groups.slice(0, 4).map(([label, count]) => {
+                              const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0;
+                              return (
+                                <div key={label} className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="truncate font-mono text-slate-300" title={label}>
+                                      {label}
+                                    </span>
+                                    <span className="ml-2 shrink-0 font-mono text-slate-400">
+                                      {count.toLocaleString()} · {pct}%
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-auto flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
+                        <span>
+                          {sample ? `total ${total.toLocaleString()} · updated ${formatTime(sample.received_at)}` : "no data yet"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">

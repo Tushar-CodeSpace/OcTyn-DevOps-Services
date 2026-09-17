@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
-from app.schemas.widgets import WidgetSampleCreate, WidgetSampleRead
+from app.schemas.widgets import WidgetHistoryPoint, WidgetSampleCreate, WidgetSampleRead
 from app.services import authentication as auth
 from app.services.monitoring import authenticate_agent
 
@@ -123,4 +123,49 @@ async def list_latest_widgets(
         out.append(widget_doc_to_read(doc))
         if len(out) >= limit:
             break
+    return out
+
+
+@router.get("/servers/{server_id}/history", response_model=list[WidgetHistoryPoint])
+async def widget_history(
+    server_id: str,
+    widget_name: str = Query(min_length=1, max_length=100),
+    hours: int = Query(default=24, ge=1, le=168),
+    _: dict = Depends(auth.get_current_user),
+) -> list[WidgetHistoryPoint]:
+    """Dashboard endpoint: downsampled trend of one widget (<=120 points).
+
+    Each sample is a rolling-window count, so consecutive points show how the
+    tally evolves over time. Buckets keep the last sample in each window.
+    """
+    from datetime import timedelta
+
+    sid = parse_id(server_id)
+    if sid is None or db.servers().find_one({"_id": sid}) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    since = now() - timedelta(hours=hours)
+    docs = list(
+        db.widget_data()
+        .find({"server_id": sid, "widget_name": widget_name, "received_at": {"$gte": since}})
+        .sort("received_at", 1)
+        .limit(5000)
+    )
+    if not docs:
+        return []
+    bucket_seconds = max(60, (hours * 3600) // 120)
+    buckets: dict[int, dict] = {}
+    for doc in docs:
+        received = doc.get("received_at")
+        epoch = int(received.timestamp()) if isinstance(received, datetime) else 0
+        buckets[epoch // bucket_seconds] = doc
+    out: list[WidgetHistoryPoint] = []
+    for key in sorted(buckets):
+        doc = buckets[key]
+        out.append(
+            WidgetHistoryPoint(
+                received_at=doc["received_at"],
+                total=int(doc.get("total", 0)),
+                groups={str(k): int(v) for k, v in (doc.get("groups") or {}).items()},
+            )
+        )
     return out

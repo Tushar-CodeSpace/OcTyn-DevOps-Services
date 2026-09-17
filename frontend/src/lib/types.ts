@@ -207,6 +207,12 @@ export interface WidgetSample {
   error: string | null;
 }
 
+export interface WidgetHistoryPoint {
+  received_at: string;
+  total: number;
+  groups: Record<string, number>;
+}
+
 export interface AgentConfig {
   config_sync_enabled: boolean;
   config_sync_hour: number;

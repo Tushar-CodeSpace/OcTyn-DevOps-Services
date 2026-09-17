@@ -42,3 +42,11 @@ class WidgetSampleRead(BaseModel):
     collected_at: datetime
     received_at: datetime
     error: Optional[str] = None
+
+
+class WidgetHistoryPoint(BaseModel):
+    """One downsampled trend point of a widget (last sample per bucket)."""
+
+    received_at: datetime
+    total: int
+    groups: dict[str, int]
