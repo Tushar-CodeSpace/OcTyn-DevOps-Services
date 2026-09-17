@@ -43,6 +43,53 @@ const RANGES = [
   { label: "30d", minutes: 43200 },
 ];
 
+function SectionHead({ title, sub }: { title: string; sub?: string }) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        {title}
+      </h2>
+      {sub && <p className="hidden text-[11px] text-slate-600 sm:block">{sub}</p>}
+      <div className="h-px flex-1 bg-slate-800/70" />
+    </div>
+  );
+}
+
+function Spark({
+  id,
+  data,
+  dataKey,
+  color,
+}: {
+  id: string;
+  data: Record<string, string | number>[];
+  dataKey: string;
+  color: string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={44}>
+      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.35} />
+            <stop offset="95%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey={dataKey}
+          stroke={color}
+          strokeWidth={1.5}
+          fill={`url(#${id})`}
+          fillOpacity={1}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
 export default function ServerDetail() {
   const { id } = useParams<{ id: string }>();
   const { isAdmin, isSuperAdmin } = useAuth();
@@ -971,7 +1018,7 @@ export default function ServerDetail() {
   const backupDbCount = backupGroups.length;
   const backupCollCount = backupGroups.reduce((n, g) => n + g.items.length, 0);
 
-  // ---- EC2-style overview helpers (plain values, safe below early return) ----
+  // ---- Overview helpers (plain values, safe below early return) ----
   function formatBytes(bytes: number | null | undefined): string {
     if (bytes == null || !isFinite(bytes) || bytes < 0) return "—";
     if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -1054,6 +1101,9 @@ export default function ServerDetail() {
       state: !snapMeta || snapMeta.length === 0 ? "neutral" : "pass",
     },
   ];
+
+  const failedChecks = statusChecks.filter((c) => c.state === "fail").length;
+  const activeAlarmCount = alerts?.length ?? 0;
 
   function toggleDb(database: string) {
     setExpandedDbs((prev) => ({ ...prev, [database]: !prev[database] }));
@@ -1165,144 +1215,81 @@ export default function ServerDetail() {
 
       {activeTab === "overview" && (
       <>
-      {/* EC2-style instance summary: details + status checks + alarms */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center gap-2 py-3">
-            <ServerIcon className="h-4 w-4 text-emerald-400" />
-            <CardTitle className="text-sm">Instance details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Server ID</dt>
-                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.id}>{server.id}</dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Hostname</dt>
-                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.hostname}>{server.hostname}</dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">IP address</dt>
-                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200">{server.ip_address ?? "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">State</dt>
-                <dd className="mt-1"><StatusBadge status={server.status} /></dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Site</dt>
-                <dd className="mt-0.5 truncate text-sm text-slate-200">
-                  {site ? `${site.client} · ${site.location}` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Last seen</dt>
-                <dd className="mt-0.5 text-sm text-slate-200">{formatTime(server.last_seen_at)}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">System uptime</dt>
-                <dd className="mt-0.5 font-mono text-sm text-slate-200">{formatUptime(latest?.uptime_seconds)}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Check interval</dt>
-                <dd className="mt-0.5 font-mono text-sm text-slate-200">
-                  {agentCfg ? `${agentCfg.monitoring_interval_seconds}s` : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Services</dt>
-                <dd className="mt-0.5 text-sm text-slate-200">
-                  {runningServices.length}/{enabledServices.length} running
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Devices</dt>
-                <dd className="mt-0.5 text-sm text-slate-200">
-                  {!connectivity ? "Loading…" : `${reachableTargets.length}/${connectivity.length} reachable`}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Backups</dt>
-                <dd className="mt-0.5 text-sm text-slate-200">
-                  {!snapMeta ? "Loading…" : `${snapMeta.length} collections`}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Network I/O</dt>
-                <dd className="mt-0.5 font-mono text-sm text-slate-200">
-                  {latest ? `↑ ${formatBytes(latest.network_bytes_sent)} ↓ ${formatBytes(latest.network_bytes_received)}` : "—"}
-                </dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader className="flex-row items-center gap-2 py-3">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <CardTitle className="text-sm">Status checks</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {statusChecks.map((c) => (
-                <div
-                  key={c.label}
-                  className="flex items-center gap-2.5 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-2"
-                >
-                  {c.state === "pass" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                  ) : c.state === "fail" ? (
-                    <XCircle className="h-4 w-4 shrink-0 text-red-400" />
-                  ) : (
-                    <MinusCircle className="h-4 w-4 shrink-0 text-slate-500" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200">{c.label}</p>
-                    <p className="truncate text-[11px] text-slate-500" title={c.detail}>{c.detail}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "ml-auto shrink-0 text-[11px] font-semibold",
-                      c.state === "pass"
-                        ? "text-emerald-400"
-                        : c.state === "fail"
-                          ? "text-red-400"
-                          : "text-slate-500"
-                    )}
-                  >
-                    {c.state === "pass" ? "Passed" : c.state === "fail" ? "Failed" : "—"}
-                  </span>
+      {/* System health: status checks + active alarms */}
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 py-3">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <CardTitle className="text-sm">System health</CardTitle>
+          </div>
+          {failedChecks === 0 && activeAlarmCount === 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              All systems operational
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold text-red-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+              {failedChecks + activeAlarmCount} issue{(failedChecks + activeAlarmCount) === 1 ? "" : "s"} need attention
+            </span>
+          )}
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {statusChecks.map((c) => (
+              <div
+                key={c.label}
+                className="flex items-center gap-2.5 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-2"
+              >
+                {c.state === "pass" ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                ) : c.state === "fail" ? (
+                  <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                ) : (
+                  <MinusCircle className="h-4 w-4 shrink-0 text-slate-500" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-200">{c.label}</p>
+                  <p className="truncate text-[11px] text-slate-500" title={c.detail}>{c.detail}</p>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex-row items-center justify-between py-3">
-              <div className="flex items-center gap-2">
-                <Bell className="h-4 w-4 text-amber-400" />
-                <CardTitle className="text-sm">
-                  Active alarms{alerts ? ` (${alerts.length})` : ""}
-                </CardTitle>
+                <span
+                  className={cn(
+                    "ml-auto shrink-0 text-[11px] font-semibold",
+                    c.state === "pass"
+                      ? "text-emerald-400"
+                      : c.state === "fail"
+                        ? "text-red-400"
+                        : "text-slate-500"
+                  )}
+                >
+                  {c.state === "pass" ? "Passed" : c.state === "fail" ? "Failed" : "—"}
+                </span>
               </div>
+            ))}
+          </div>
+          <div className="border-t border-slate-800/60 pt-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <Bell className="h-3.5 w-3.5" />
+                Active alarms{alerts ? ` (${alerts.length})` : ""}
+              </p>
               <Link to="/alerts" className="text-xs font-medium text-emerald-300 hover:text-emerald-200">
                 View all
               </Link>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {!alerts ? (
-                <>
-                  <Skeleton className="h-9 w-full" />
-                  <Skeleton className="h-9 w-full" />
-                </>
-              ) : alerts.length === 0 ? (
-                <p className="flex items-center gap-2 text-xs text-slate-500">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  No active alarms — all clear.
-                </p>
-              ) : (
-                alerts.slice(0, 5).map((a) => (
+            </div>
+            {!alerts ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            ) : alerts.length === 0 ? (
+              <p className="flex items-center gap-2 text-xs text-slate-500">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                No active alarms — all clear.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {alerts.slice(0, 4).map((a) => (
                   <div
                     key={a.id}
                     className="flex items-center gap-2.5 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-2"
@@ -1329,12 +1316,12 @@ export default function ServerDetail() {
                       {formatTime(a.created_at)}
                     </span>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="overflow-hidden">
         <CardHeader className="flex-row items-center gap-3 py-2.5">
@@ -1403,23 +1390,16 @@ export default function ServerDetail() {
         </CardContent>
       </Card>
 
-      {/* KPI Cards with Peak & Avg Window Stats */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+      <SectionHead title="Key metrics" sub="Live values with trend and window avg / peak" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
           <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">CPU Load</CardTitle></CardHeader>
           <CardContent>
             <div className="text-2xl font-extrabold text-sky-400">{latest ? `${latest.cpu_percent}%` : "—"}</div>
-            {latest && (
-              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-500"
-                  style={{ width: `${Math.min(latest.cpu_percent, 100)}%` }}
-                />
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
+            <Spark id="spark-cpu" data={chartData.slice(-60)} dataKey="cpu" color="#38bdf8" />
+            <div className="mt-1 flex items-center justify-between border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
               <span>Avg: {avgCpu}%</span>
-              <span className="text-sky-300 font-semibold">Peak: {stats.cpuMax}%</span>
+              <span className="font-semibold text-sky-300">Peak: {stats.cpuMax}%</span>
             </div>
           </CardContent>
         </Card>
@@ -1428,17 +1408,10 @@ export default function ServerDetail() {
           <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Memory</CardTitle></CardHeader>
           <CardContent>
             <div className="text-2xl font-extrabold text-purple-400">{latest ? `${latest.memory_percent}%` : "—"}</div>
-            {latest && (
-              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
-                  style={{ width: `${Math.min(latest.memory_percent, 100)}%` }}
-                />
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
+            <Spark id="spark-mem" data={chartData.slice(-60)} dataKey="memory" color="#a78bfa" />
+            <div className="mt-1 flex items-center justify-between border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
               <span>Avg: {avgMem}%</span>
-              <span className="text-purple-300 font-semibold">Peak: {stats.memMax}%</span>
+              <span className="font-semibold text-purple-300">Peak: {stats.memMax}%</span>
             </div>
           </CardContent>
         </Card>
@@ -1447,57 +1420,14 @@ export default function ServerDetail() {
           <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk Space</CardTitle></CardHeader>
           <CardContent>
             <div className="text-2xl font-extrabold text-amber-400">{latest ? `${latest.disk_percent}%` : "—"}</div>
-            {latest && (
-              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
-                  style={{ width: `${Math.min(latest.disk_percent, 100)}%` }}
-                />
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
+            <Spark id="spark-disk" data={chartData.slice(-60)} dataKey="disk" color="#fbbf24" />
+            <div className="mt-1 flex items-center justify-between border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
               <span>Used: {latest ? `${latest.disk_percent}%` : "—"}</span>
-              <span className="text-amber-300 font-semibold">Peak: {stats.diskMax}%</span>
+              <span className="font-semibold text-amber-300">Peak: {stats.diskMax}%</span>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk Read</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-extrabold text-emerald-400">{latest ? `${latest.disk_read_rate_mb ?? 0} MB/s` : "—"}</div>
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
-              <span>Avg: {avgRead} MB/s</span>
-              <span className="text-emerald-300 font-semibold">Peak: {stats.readMax} MB/s</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk Write</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-extrabold text-teal-400">{latest ? `${latest.disk_write_rate_mb ?? 0} MB/s` : "—"}</div>
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
-              <span>Avg: {avgWrite} MB/s</span>
-              <span className="text-teal-300 font-semibold">Peak: {stats.writeMax} MB/s</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk IOPS</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-extrabold text-cyan-400">{latest ? `${latest.disk_iops ?? 0} ops/s` : "—"}</div>
-            <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
-              <span>Avg: {avgIops} ops/s</span>
-              <span className="text-cyan-300 font-semibold">Peak: {stats.iopsMax} ops/s</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Capacity & availability KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
           <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Uptime</CardTitle></CardHeader>
           <CardContent>
@@ -1505,50 +1435,62 @@ export default function ServerDetail() {
               <Clock className="h-5 w-5 text-slate-400" />
               {formatUptime(latest?.uptime_seconds)}
             </div>
-            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
-              Since last reboot
+            <div className="mt-1 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
+              Since last reboot · every {agentCfg?.monitoring_interval_seconds ?? "—"}s checks
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Memory used</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-extrabold text-violet-400">
-              {latest && latest.memory_total ? formatBytes(memUsed) : "—"}
-            </div>
-            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
-              of {latest && latest.memory_total ? formatBytes(latest.memory_total) : "—"} total
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk used</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-extrabold text-orange-400">
-              {latest && latest.disk_total ? formatBytes(diskUsed) : "—"}
-            </div>
-            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
-              of {latest && latest.disk_total ? formatBytes(latest.disk_total) : "—"} total
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
-          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">API health</CardTitle></CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-extrabold ${apiErrRate > 5 ? "text-red-400" : apiErrRate > 0 ? "text-amber-400" : "text-emerald-400"}`}>
-              {latest ? `${apiErrRate.toFixed(1)}% err` : "—"}
-            </div>
-            <div className="mt-2 flex items-center justify-between border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
-              <span>4xx: {latest?.api_requests_4xx ?? 0}</span>
-              <span>5xx: {latest?.api_requests_5xx ?? 0}</span>
-              <span>Total: {latest?.api_requests_total ?? 0}</span>
-            </div>
+            <div className="mt-1 h-[44px]" />
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex-row items-center gap-2 py-3">
+          <Activity className="h-4 w-4 text-emerald-400" />
+          <CardTitle className="text-sm">Throughput & capacity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Disk read</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">avg {avgRead} · peak {stats.readMax} MB/s</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Disk write</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">avg {avgWrite} · peak {stats.writeMax} MB/s</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Disk IOPS</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">avg {avgIops} · peak {stats.iopsMax} ops/s</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">API health</p>
+              <p className={cn("mt-0.5 truncate font-mono text-sm", apiErrRate > 5 ? "text-red-400" : apiErrRate > 0 ? "text-amber-400" : "text-emerald-400")}>
+                {latest ? `${apiErrRate.toFixed(1)}% err` : "—"} · 4xx {latest?.api_requests_4xx ?? 0} / 5xx {latest?.api_requests_5xx ?? 0}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Network sent</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">{latest ? formatBytes(latest.network_bytes_sent) : "—"}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Network received</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">{latest ? formatBytes(latest.network_bytes_received) : "—"}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Memory used</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">
+                {latest && latest.memory_total ? `${formatBytes(memUsed)} of ${formatBytes(latest.memory_total)}` : "—"}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Disk used</p>
+              <p className="mt-0.5 truncate font-mono text-sm text-slate-200">
+                {latest && latest.disk_total ? `${formatBytes(diskUsed)} of ${formatBytes(latest.disk_total)}` : "—"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Data widgets on overview — Bar / Pie / Trend per widget */}
       {(() => {
@@ -1801,6 +1743,8 @@ export default function ServerDetail() {
         );
       })()}
 
+      <SectionHead title="Performance" sub="Resource usage over the selected range" />
+
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-sm">Resource usage</CardTitle>
@@ -1908,6 +1852,68 @@ export default function ServerDetail() {
       )}
       </>
       )}
+
+      <SectionHead title="Inventory" sub="Server identity and site context" />
+      <Card>
+        <CardHeader className="flex-row items-center gap-2 py-3">
+          <ServerIcon className="h-4 w-4 text-emerald-400" />
+          <CardTitle className="text-sm">Instance details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+            <div className="min-w-0">
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Server ID</dt>
+              <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.id}>{server.id}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Hostname</dt>
+              <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.hostname}>{server.hostname}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">IP address</dt>
+              <dd className="mt-0.5 truncate font-mono text-sm text-slate-200">{server.ip_address ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">State</dt>
+              <dd className="mt-1"><StatusBadge status={server.status} /></dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Site</dt>
+              <dd className="mt-0.5 truncate text-sm text-slate-200">
+                {site ? `${site.client} · ${site.location}` : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Last seen</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">{formatTime(server.last_seen_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Services</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {runningServices.length}/{enabledServices.length} running
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Devices</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {!connectivity ? "Loading…" : `${reachableTargets.length}/${connectivity.length} reachable`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Backups</dt>
+              <dd className="mt-0.5 text-sm text-slate-200">
+                {!snapMeta ? "Loading…" : `${snapMeta.length} collections`}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Check interval</dt>
+              <dd className="mt-0.5 font-mono text-sm text-slate-200">
+                {agentCfg ? `${agentCfg.monitoring_interval_seconds}s` : "—"}
+              </dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
       {activeTab === "services" && (
       <Card>
