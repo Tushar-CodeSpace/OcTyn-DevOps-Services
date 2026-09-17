@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Activity, Building2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Plus, Save, Search, ListChecks, Settings2, Terminal, Trash2, X } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, MinusCircle, Play, Plus, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -13,7 +13,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, Metric, Server, Service, Site } from "@/lib/types";
+import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, Metric, Server, Service, Site } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -65,6 +65,7 @@ export default function ServerDetail() {
   const [newDbName, setNewDbName] = useState("");
   const [agentCfgOpen, setAgentCfgOpen] = useState(false);
   const [connectivity, setConnectivity] = useState<ConnectivityStatus[] | null>(null);
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [newTargetName, setNewTargetName] = useState("");
   const [newTargetIp, setNewTargetIp] = useState("");
   const [dbType, setDbType] = useState<"mongo" | "postgres">("mongo");
@@ -147,6 +148,9 @@ export default function ServerDetail() {
     setServer(s);
     setServices(svc);
     setKeys(k);
+    apiFetch<Alert[]>(`/alerts?server_id=${id}&status=active&limit=20`)
+      .then(setAlerts)
+      .catch(() => setAlerts([]));
     await loadMetrics();
   }
 
@@ -825,6 +829,90 @@ export default function ServerDetail() {
   const backupDbCount = backupGroups.length;
   const backupCollCount = backupGroups.reduce((n, g) => n + g.items.length, 0);
 
+  // ---- EC2-style overview helpers (plain values, safe below early return) ----
+  function formatBytes(bytes: number | null | undefined): string {
+    if (bytes == null || !isFinite(bytes) || bytes < 0) return "—";
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+    if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${Math.round(bytes)} B`;
+  }
+
+  function formatUptime(totalSeconds: number | null | undefined): string {
+    if (totalSeconds == null || !isFinite(totalSeconds)) return "—";
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s % 60}s`;
+    return `${s}s`;
+  }
+
+  type CheckState = "pass" | "fail" | "neutral";
+
+  const lastSeenSecs =
+    server.last_seen_at
+      ? Math.max(0, (Date.now() - new Date(server.last_seen_at).getTime()) / 1000)
+      : null;
+  const heartbeatThreshold = (agentCfg?.monitoring_interval_seconds ?? 30) * 3 + 30;
+  const heartbeatOk = lastSeenSecs != null && lastSeenSecs <= heartbeatThreshold;
+  const enabledServices = services.filter((s) => s.enabled ?? true);
+  const runningServices = enabledServices.filter((s) => s.status === "running");
+  const connList = connectivity ?? [];
+  const reachableTargets = connList.filter((c) => c.reachable);
+  const memUsed =
+    latest && latest.memory_total ? latest.memory_total - (latest.memory_available ?? 0) : null;
+  const diskUsed = latest && latest.disk_total ? latest.disk_total - (latest.disk_free ?? 0) : null;
+  const apiErrRate = latest?.api_error_rate_percent ?? 0;
+
+  const statusChecks: { label: string; detail: string; state: CheckState }[] = [
+    {
+      label: "Agent heartbeat",
+      detail:
+        lastSeenSecs == null
+          ? "Never reported"
+          : `Last seen ${formatTime(server.last_seen_at)} (every ${agentCfg?.monitoring_interval_seconds ?? "—"}s)`,
+      state: heartbeatOk ? "pass" : "fail",
+    },
+    {
+      label: "Monitored services",
+      detail:
+        services.length === 0
+          ? "No services configured"
+          : `${runningServices.length}/${enabledServices.length} running`,
+      state:
+        services.length === 0
+          ? "neutral"
+          : runningServices.length === enabledServices.length
+            ? "pass"
+            : "fail",
+    },
+    {
+      label: "Device connectivity",
+      detail: !connectivity
+        ? "Loading…"
+        : connectivity.length === 0
+          ? "No targets configured"
+          : `${reachableTargets.length}/${connectivity.length} reachable`,
+      state: !connectivity || connectivity.length === 0
+        ? "neutral"
+        : reachableTargets.length === connectivity.length
+          ? "pass"
+          : "fail",
+    },
+    {
+      label: "Config backups",
+      detail: !snapMeta
+        ? "Loading…"
+        : snapMeta.length === 0
+          ? "No snapshots yet"
+          : `${snapMeta.length} collections · latest ${formatTime(backupGroups[0]?.lastReceived ?? snapMeta[0].received_at)}`,
+      state: !snapMeta || snapMeta.length === 0 ? "neutral" : "pass",
+    },
+  ];
+
   function toggleDb(database: string) {
     setExpandedDbs((prev) => ({ ...prev, [database]: !prev[database] }));
   }
@@ -934,6 +1022,177 @@ export default function ServerDetail() {
 
       {activeTab === "overview" && (
       <>
+      {/* EC2-style instance summary: details + status checks + alarms */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex-row items-center gap-2 py-3">
+            <ServerIcon className="h-4 w-4 text-emerald-400" />
+            <CardTitle className="text-sm">Instance details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Server ID</dt>
+                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.id}>{server.id}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Hostname</dt>
+                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200" title={server.hostname}>{server.hostname}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">IP address</dt>
+                <dd className="mt-0.5 truncate font-mono text-sm text-slate-200">{server.ip_address ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">State</dt>
+                <dd className="mt-1"><StatusBadge status={server.status} /></dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Site</dt>
+                <dd className="mt-0.5 truncate text-sm text-slate-200">
+                  {site ? `${site.client} · ${site.location}` : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Last seen</dt>
+                <dd className="mt-0.5 text-sm text-slate-200">{formatTime(server.last_seen_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">System uptime</dt>
+                <dd className="mt-0.5 font-mono text-sm text-slate-200">{formatUptime(latest?.uptime_seconds)}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Check interval</dt>
+                <dd className="mt-0.5 font-mono text-sm text-slate-200">
+                  {agentCfg ? `${agentCfg.monitoring_interval_seconds}s` : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Services</dt>
+                <dd className="mt-0.5 text-sm text-slate-200">
+                  {runningServices.length}/{enabledServices.length} running
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Devices</dt>
+                <dd className="mt-0.5 text-sm text-slate-200">
+                  {!connectivity ? "Loading…" : `${reachableTargets.length}/${connectivity.length} reachable`}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Backups</dt>
+                <dd className="mt-0.5 text-sm text-slate-200">
+                  {!snapMeta ? "Loading…" : `${snapMeta.length} collections`}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Network I/O</dt>
+                <dd className="mt-0.5 font-mono text-sm text-slate-200">
+                  {latest ? `↑ ${formatBytes(latest.network_bytes_sent)} ↓ ${formatBytes(latest.network_bytes_received)}` : "—"}
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader className="flex-row items-center gap-2 py-3">
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              <CardTitle className="text-sm">Status checks</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {statusChecks.map((c) => (
+                <div
+                  key={c.label}
+                  className="flex items-center gap-2.5 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-2"
+                >
+                  {c.state === "pass" ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                  ) : c.state === "fail" ? (
+                    <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                  ) : (
+                    <MinusCircle className="h-4 w-4 shrink-0 text-slate-500" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-200">{c.label}</p>
+                    <p className="truncate text-[11px] text-slate-500" title={c.detail}>{c.detail}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 text-[11px] font-semibold",
+                      c.state === "pass"
+                        ? "text-emerald-400"
+                        : c.state === "fail"
+                          ? "text-red-400"
+                          : "text-slate-500"
+                    )}
+                  >
+                    {c.state === "pass" ? "Passed" : c.state === "fail" ? "Failed" : "—"}
+                  </span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between py-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-amber-400" />
+                <CardTitle className="text-sm">
+                  Active alarms{alerts ? ` (${alerts.length})` : ""}
+                </CardTitle>
+              </div>
+              <Link to="/alerts" className="text-xs font-medium text-emerald-300 hover:text-emerald-200">
+                View all
+              </Link>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {!alerts ? (
+                <>
+                  <Skeleton className="h-9 w-full" />
+                  <Skeleton className="h-9 w-full" />
+                </>
+              ) : alerts.length === 0 ? (
+                <p className="flex items-center gap-2 text-xs text-slate-500">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  No active alarms — all clear.
+                </p>
+              ) : (
+                alerts.slice(0, 5).map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-2.5 rounded-lg border border-slate-800/60 bg-slate-950/50 px-3 py-2"
+                    title={a.message}
+                  >
+                    <span
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full",
+                        a.severity === "critical"
+                          ? "bg-red-400"
+                          : a.severity === "warning"
+                            ? "bg-amber-400"
+                            : "bg-sky-400"
+                      )}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-slate-200">
+                        {a.type}
+                        <span className="ml-1.5 font-normal text-slate-500">{a.severity}</span>
+                      </p>
+                      <p className="truncate text-[11px] text-slate-500">{a.message}</p>
+                    </div>
+                    <span className="ml-auto shrink-0 text-[10px] text-slate-500">
+                      {formatTime(a.created_at)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       <Card className="overflow-hidden">
         <CardHeader className="flex-row items-center gap-3 py-2.5">
           <div className="flex items-center gap-2">
@@ -1089,6 +1348,60 @@ export default function ServerDetail() {
             <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/60 pt-1.5">
               <span>Avg: {avgIops} ops/s</span>
               <span className="text-cyan-300 font-semibold">Peak: {stats.iopsMax} ops/s</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Capacity & availability KPIs */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Uptime</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-2xl font-extrabold text-slate-100">
+              <Clock className="h-5 w-5 text-slate-400" />
+              {formatUptime(latest?.uptime_seconds)}
+            </div>
+            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
+              Since last reboot
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Memory used</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-2xl font-extrabold text-violet-400">
+              {latest && latest.memory_total ? formatBytes(memUsed) : "—"}
+            </div>
+            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
+              of {latest && latest.memory_total ? formatBytes(latest.memory_total) : "—"} total
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">Disk used</CardTitle></CardHeader>
+          <CardContent>
+            <div className="text-2xl font-extrabold text-orange-400">
+              {latest && latest.disk_total ? formatBytes(diskUsed) : "—"}
+            </div>
+            <div className="mt-2 border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
+              of {latest && latest.disk_total ? formatBytes(latest.disk_total) : "—"} total
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">API health</CardTitle></CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-extrabold ${apiErrRate > 5 ? "text-red-400" : apiErrRate > 0 ? "text-amber-400" : "text-emerald-400"}`}>
+              {latest ? `${apiErrRate.toFixed(1)}% err` : "—"}
+            </div>
+            <div className="mt-2 flex items-center justify-between border-t border-slate-800/60 pt-1.5 font-mono text-[10px] text-slate-400">
+              <span>4xx: {latest?.api_requests_4xx ?? 0}</span>
+              <span>5xx: {latest?.api_requests_5xx ?? 0}</span>
+              <span>Total: {latest?.api_requests_total ?? 0}</span>
             </div>
           </CardContent>
         </Card>
