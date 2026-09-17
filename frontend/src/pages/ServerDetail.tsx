@@ -1254,7 +1254,7 @@ export default function ServerDetail() {
           )}
         </CardHeader>
         <CardContent className={cn("flex flex-col gap-3", !healthExpanded && "hidden")}>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:grid-cols-4">
             {statusChecks.map((c) => (
               <div
                 key={c.label}
@@ -1297,7 +1297,7 @@ export default function ServerDetail() {
               </Link>
             </div>
             {!alerts ? (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <Skeleton className="h-9 w-full" />
                 <Skeleton className="h-9 w-full" />
               </div>
@@ -1307,7 +1307,7 @@ export default function ServerDetail() {
                 No active alarms — all clear.
               </p>
             ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {alerts.slice(0, 4).map((a) => (
                   <div
                     key={a.id}
@@ -1376,7 +1376,7 @@ export default function ServerDetail() {
               No device targets configured — add them via "Agent runtime".
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {connectivity.map((c) => (
                 <div
                   key={c.name + c.ip}
