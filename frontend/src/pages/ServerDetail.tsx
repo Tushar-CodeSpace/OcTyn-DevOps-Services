@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, MinusCircle, Play, Plus, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, LayoutGrid, Loader2, MapPin, MinusCircle, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -13,7 +13,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, Metric, Server, Service, Site } from "@/lib/types";
+import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetSample } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -81,13 +81,19 @@ export default function ServerDetail() {
   const [addingService, setAddingService] = useState(false);
 
   // Tabbed layout + compact filter state (handy with many ports / backups)
-  const [activeTab, setActiveTab] = useState<"overview" | "services" | "backups" | "keys">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "services" | "widgets" | "backups" | "keys">("overview");
   const [svcQuery, setSvcQuery] = useState("");
   const [svcStatus, setSvcStatus] = useState<"all" | "running" | "stopped" | "disabled">("all");
   const [svcPage, setSvcPage] = useState(0);
   const [backupQuery, setBackupQuery] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
   const SVC_PAGE_SIZE = 10;
+
+  // Custom data widgets (agent-pushed MongoDB tallies)
+  const [widgets, setWidgets] = useState<WidgetSample[] | null>(null);
+  const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
+  const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
+  const [savingWidgets, setSavingWidgets] = useState(false);
 
   function exportMetricsCsv() {
     if (!metrics.length || !server) return;
@@ -354,6 +360,64 @@ export default function ServerDetail() {
     setSnapMeta(metas);
   }
 
+  async function loadWidgets() {
+    if (!id) return;
+    const items = await apiFetch<WidgetSample[]>(`/widgets/servers/${id}`);
+    setWidgets(items);
+  }
+
+  function openWidgetCfg() {
+    setWidgetDraft(
+      (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }))
+    );
+    setWidgetCfgOpen(true);
+  }
+
+  async function saveWidgetCfg() {
+    if (!id) return;
+    setSavingWidgets(true);
+    try {
+      const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ custom_widgets: widgetDraft }),
+      });
+      setAgentCfg(saved);
+      showToast({
+        severity: "info",
+        title: "Widgets saved",
+        message: "The site agent will pick up widget changes within a few seconds.",
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Save failed",
+        message: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setSavingWidgets(false);
+    }
+  }
+
+  function widgetIntervalSeconds(name: string): number {
+    const def = agentCfg?.custom_widgets?.find((w) => w.name === name);
+    return def?.poll_interval_seconds ?? 60;
+  }
+
+  function widgetState(w: WidgetSample): "fresh" | "stale" | "error" {
+    if (w.error) return "error";
+    const ageMs = Date.now() - new Date(w.received_at).getTime();
+    if (!isFinite(ageMs)) return "stale";
+    return ageMs <= widgetIntervalSeconds(w.widget_name) * 2000 + 60000 ? "fresh" : "stale";
+  }
+
+  function groupColor(label: string): string {
+    const l = label.toLowerCase();
+    if (/(success|^ok$|passed|complete)/.test(l)) return "bg-emerald-500";
+    if (/(fail|error|expired|invalid|reject)/.test(l)) return "bg-red-500";
+    if (/(pending|retry|warn|unknown)/.test(l)) return "bg-amber-500";
+    return "bg-sky-500";
+  }
+
   async function fetchSnapshotDocuments(snapshotId: string): Promise<Record<string, unknown>[]> {
     if (snapDocs[snapshotId]) return snapDocs[snapshotId];
     setLoadingSnapDocs(snapshotId);
@@ -489,6 +553,7 @@ export default function ServerDetail() {
     loadSnapshots().catch(() => setSnapMeta([]));
     loadAgentConfig().catch(() => { });
     loadConnectivity().catch(() => { });
+    loadWidgets().catch(() => setWidgets([]));
     const t = setInterval(() => {
       load().catch(() => { });
     }, 30000); // fallback; socket keeps it live
@@ -535,6 +600,13 @@ export default function ServerDetail() {
         loadSnapshots().catch(() => { });
       }
     };
+    const onWidgetUpdate = (d: WidgetSample & { server_id: string }) => {
+      if (d.server_id !== id) return;
+      setWidgets((prev) => {
+        const next = (prev ?? []).filter((w) => w.widget_name !== d.widget_name);
+        return [d, ...next];
+      });
+    };
 
     socket.on("metric", onMetric);
     socket.on("service_update", onServiceUpdate);
@@ -542,6 +614,7 @@ export default function ServerDetail() {
     socket.on("server_updated", onServerUpdated);
     socket.on("connectivity", onConnectivity);
     socket.on("config_snapshot", onConfigSnapshot);
+    socket.on("widget_update", onWidgetUpdate);
     socket.on("connect", joinServerRoom);
     return () => {
       clearInterval(t);
@@ -553,6 +626,7 @@ export default function ServerDetail() {
       socket.off("server_updated", onServerUpdated);
       socket.off("connectivity", onConnectivity);
       socket.off("config_snapshot", onConfigSnapshot);
+      socket.off("widget_update", onWidgetUpdate);
       socket.off("connect", joinServerRoom);
     };
   }, [id, range]);
@@ -1000,6 +1074,7 @@ export default function ServerDetail() {
           [
             { id: "overview", label: "Overview" },
             { id: "services", label: `Services (${svcCounts.total})` },
+            { id: "widgets", label: `Widgets (${widgets?.length ?? 0})` },
             { id: "backups", label: `Backups (${backupCollCount})` },
             { id: "keys", label: `Keys (${keys.length})` },
           ] as const
@@ -1693,6 +1768,160 @@ export default function ServerDetail() {
       </Card>
       )}
 
+      {activeTab === "widgets" && (
+      <Card>
+        <CardHeader className="flex-col gap-2">
+          <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm">
+                Custom data widgets{widgets ? ` (${widgets.length})` : ""}
+              </CardTitle>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Periodic tallies collected by the site agent from site MongoDB
+                (e.g. upload SUCCESS vs FAILED per minute).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
+                <LayoutGrid className="mr-1 h-4 w-4 text-emerald-400" />
+                Configure widgets
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void loadWidgets()}>
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!widgets ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-44 w-full rounded-xl" />
+              ))}
+            </div>
+          ) : widgets.length === 0 ? (
+            <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
+              <p className="text-sm text-slate-400">
+                No widgets yet — the agent hasn't reported any tallies.
+              </p>
+              <p className="text-xs text-slate-500">
+                Click <span className="font-semibold text-slate-300">Configure widgets</span> to
+                add one, e.g. count <span className="font-mono">data_uploader_service.integration_logs</span> grouped
+                by <span className="font-mono">upload_status</span> every 60s.
+              </p>
+              {isAdmin && (
+                <Button size="sm" variant="outline" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Add widget
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {widgets.map((w) => {
+                const state = widgetState(w);
+                const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
+                return (
+                  <div
+                    key={w.widget_name}
+                    className={cn(
+                      "flex flex-col gap-3 rounded-xl border bg-slate-950/40 p-4",
+                      state === "error"
+                        ? "border-red-500/40"
+                        : state === "stale"
+                          ? "border-amber-500/30"
+                          : "border-slate-800/70"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-100" title={w.widget_name}>
+                          {w.widget_name}
+                        </p>
+                        <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={`${w.database}.${w.collection}`}>
+                          {w.database}.{w.collection} · last {w.window_minutes}m
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          state === "error"
+                            ? "bg-red-500/10 text-red-300"
+                            : state === "stale"
+                              ? "bg-amber-500/10 text-amber-300"
+                              : "bg-emerald-500/10 text-emerald-300"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            state === "error"
+                              ? "bg-red-400"
+                              : state === "stale"
+                                ? "bg-amber-400"
+                                : "bg-emerald-400"
+                          )}
+                        />
+                        {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
+                      </span>
+                    </div>
+
+                    {w.error ? (
+                      <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                        Agent reported: {w.error}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-3xl font-extrabold tracking-tight text-slate-50">
+                            {w.total.toLocaleString()}
+                          </span>
+                          <span className="text-xs text-slate-500">events</span>
+                        </div>
+                        {entries.length === 0 ? (
+                          <p className="text-xs text-slate-500">No events in this window.</p>
+                        ) : (
+                          <div className="flex flex-col gap-1.5">
+                            {entries.map(([label, count]) => {
+                              const pct = w.total > 0 ? Math.min(100, Math.round((count / w.total) * 100)) : 0;
+                              return (
+                                <div key={label} className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="truncate font-mono text-slate-300" title={label}>
+                                      {label}
+                                    </span>
+                                    <span className="ml-2 shrink-0 font-mono text-slate-400">
+                                      {count.toLocaleString()} · {pct}%
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="mt-auto flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
+                      <span>collected {formatTime(w.collected_at)}</span>
+                      <span>every {widgetIntervalSeconds(w.widget_name)}s</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
       {activeTab === "keys" && (
       <Card>
         <CardHeader className="flex-row items-center justify-between">
@@ -2175,6 +2404,220 @@ export default function ServerDetail() {
                       <Button onClick={() => void saveBackupCfg()} disabled={savingBackup} variant="outline" size="sm">
                         <Save className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
                         {savingBackup ? "Saving…" : "Save backup config"}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom widget configuration popup */}
+      {widgetCfgOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <LayoutGrid className="h-4 w-4 text-emerald-400" />
+                Custom data widgets
+              </CardTitle>
+              <button
+                onClick={() => setWidgetCfgOpen(false)}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="-mt-1 text-xs text-slate-500">
+              The site agent counts documents in the given database + collection over a
+              rolling window and pushes SUCCESS / FAILED style tallies every interval.
+              Needs site MongoDB access (same URI as config backup) + pymongo on the host.
+            </p>
+            <div className="flex flex-col gap-3 overflow-y-auto">
+              {!agentCfg ? (
+                <Skeleton className="h-28 w-full" />
+              ) : (
+                <>
+                  {widgetDraft.length === 0 && (
+                    <p className="rounded-lg border border-dashed border-slate-700/80 p-4 text-xs text-slate-500">
+                      No widgets configured. Add one below — e.g. name{" "}
+                      <span className="font-mono text-slate-300">Inscan uploads</span>, database{" "}
+                      <span className="font-mono text-slate-300">data_uploader_service</span>, collection{" "}
+                      <span className="font-mono text-slate-300">integration_logs</span>, group by{" "}
+                      <span className="font-mono text-slate-300">upload_status</span>.
+                    </p>
+                  )}
+                  {widgetDraft.map((w, i) => (
+                    <div key={i} className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Name</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={w.name}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, name: e.target.value };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="Inscan uploads"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Database</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={w.database}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, database: e.target.value };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="data_uploader_service"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Collection</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={w.collection}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, collection: e.target.value };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="integration_logs"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Every (s)</Label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={3600}
+                            disabled={!isAdmin}
+                            value={w.poll_interval_seconds}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, poll_interval_seconds: Number(e.target.value) };
+                              setWidgetDraft(next);
+                            }}
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Window (min)</Label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10080}
+                            disabled={!isAdmin}
+                            value={w.window_minutes}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, window_minutes: Number(e.target.value) };
+                              setWidgetDraft(next);
+                            }}
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Group by field</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={w.group_by_field}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, group_by_field: e.target.value };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="upload_status"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-400">Time field</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={w.time_field}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, time_field: e.target.value };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="created_at"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex cursor-pointer select-none items-center gap-2">
+                          <input
+                            type="checkbox"
+                            disabled={!isAdmin}
+                            checked={w.enabled}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, enabled: e.target.checked };
+                              setWidgetDraft(next);
+                            }}
+                            className="h-4 w-4 accent-emerald-500 disabled:opacity-50"
+                          />
+                          <span className="text-xs text-slate-300">Enabled</span>
+                        </label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!isAdmin}
+                          onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
+                          className="h-7 text-xs text-red-400 hover:text-red-300 disabled:opacity-30"
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setWidgetDraft([
+                            ...widgetDraft,
+                            {
+                              name: "",
+                              database: "",
+                              collection: "",
+                              enabled: true,
+                              poll_interval_seconds: 60,
+                              window_minutes: 60,
+                              group_by_field: "upload_status",
+                              time_field: "created_at",
+                              max_groups: 10,
+                            },
+                          ])
+                        }
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Add widget
+                      </Button>
+                      <Button onClick={() => void saveWidgetCfg()} disabled={savingWidgets} size="sm">
+                        <Save className="mr-1.5 h-3.5 w-3.5" />
+                        {savingWidgets ? "Saving…" : "Save widgets"}
                       </Button>
                     </div>
                   )}

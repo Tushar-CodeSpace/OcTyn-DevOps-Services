@@ -68,6 +68,7 @@ _RUNTIME_CONFIG: Dict[str, Any] = {
     "mongo_config_enabled": True,
     "mongo_uri": "mongodb://localhost:27017",
     "mongo_auth_source": "admin",
+    "custom_widgets": [],
 }
 
 _RUNTIME_FIELDS = (
@@ -133,6 +134,8 @@ def apply_agent_config(body: Dict[str, Any]) -> None:
         ]
     if isinstance(body.get("config_collections"), list):
         merged["config_collections"] = body["config_collections"]
+    if isinstance(body.get("custom_widgets"), list):
+        merged["custom_widgets"] = body["custom_widgets"]
     for key in _RUNTIME_FIELDS:
         if key in body:
             merged[key] = body[key]
@@ -216,6 +219,53 @@ def config_services() -> List[str]:
     if isinstance(services, list):
         return list(services)
     return []
+
+
+def custom_widgets() -> List[Dict[str, Any]]:
+    """Sanitized custom data-widget specs from hub config (name/db/collection + knobs)."""
+    raw = _RUNTIME_CONFIG.get("custom_widgets")
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        database = str(item.get("database", "")).strip()
+        collection = str(item.get("collection", "")).strip()
+        if not name or not database or not collection:
+            continue
+        try:
+            poll = max(1, min(3600, int(item.get("poll_interval_seconds", 60))))
+        except (TypeError, ValueError):
+            poll = 60
+        try:
+            window = max(1, min(10080, int(item.get("window_minutes", 60))))
+        except (TypeError, ValueError):
+            window = 60
+        try:
+            max_groups = max(1, min(50, int(item.get("max_groups", 10))))
+        except (TypeError, ValueError):
+            max_groups = 10
+        group_by = str(item.get("group_by_field", "upload_status")).strip() or "upload_status"
+        time_field = str(item.get("time_field", "created_at")).strip() or "created_at"
+        if group_by.startswith("$") or time_field.startswith("$"):
+            continue
+        enabled = item.get("enabled", True)
+        if not isinstance(enabled, bool):
+            enabled = str(enabled).lower() in {"1", "true", "yes", "on"}
+        out.append({
+            "name": name[:100],
+            "database": database[:100],
+            "collection": collection[:100],
+            "enabled": enabled,
+            "poll_interval_seconds": poll,
+            "window_minutes": window,
+            "group_by_field": group_by[:200],
+            "time_field": time_field[:200],
+            "max_groups": max_groups,
+        })
+    return out
 
 
 def config_collections() -> Dict[str, List[str]]:

@@ -75,6 +75,9 @@ _AGENT_DEFAULT_SERVICES: list[str] = []
 # Named realtime-connectivity targets (default: none — admins add per site).
 _AGENT_DEFAULT_TARGETS: list[dict] = []
 
+# Custom data widgets (default: none — admins configure per server).
+_AGENT_DEFAULT_WIDGETS: list[dict] = []
+
 # Scalar runtime defaults for agents (global; per-server overrides can replace).
 _AGENT_SCALAR_DEFAULTS: dict[str, object] = {
     "monitoring_interval_seconds": settings.agent_monitoring_interval_seconds,
@@ -282,6 +285,10 @@ def get_agent_config(server_id: str) -> dict:
     if not isinstance(targets, list):
         targets = _AGENT_DEFAULT_TARGETS
 
+    widgets = override.get("custom_widgets")
+    if not isinstance(widgets, list):
+        widgets = _AGENT_DEFAULT_WIDGETS
+
     enabled = override.get("config_sync_enabled", sync_cfg["config_sync_enabled"])
     hour = int(override.get("config_sync_hour", sync_cfg["config_sync_hour"]))
 
@@ -299,8 +306,47 @@ def get_agent_config(server_id: str) -> dict:
             for t in targets
             if isinstance(t, dict) and t.get("name") and t.get("ip")
         ],
+        "custom_widgets": [w for w in (_sanitize_widget(t) for t in widgets) if w],
         "trigger_sync_id": str(override.get("trigger_sync_id", "")),
         **scalars,
+    }
+
+
+def _sanitize_widget(item) -> dict:
+    """Coerce one stored widget spec into agent-safe shape; {} if invalid."""
+    if not isinstance(item, dict):
+        return {}
+    name = str(item.get("name", "")).strip()
+    database = str(item.get("database", "")).strip()
+    collection = str(item.get("collection", "")).strip()
+    if not name or not database or not collection:
+        return {}
+    try:
+        poll = max(1, min(3600, int(item.get("poll_interval_seconds", 60))))
+    except (TypeError, ValueError):
+        poll = 60
+    try:
+        window = max(1, min(10080, int(item.get("window_minutes", 60))))
+    except (TypeError, ValueError):
+        window = 60
+    try:
+        max_groups = max(1, min(50, int(item.get("max_groups", 10))))
+    except (TypeError, ValueError):
+        max_groups = 10
+    group_by = str(item.get("group_by_field", "upload_status")).strip() or "upload_status"
+    time_field = str(item.get("time_field", "created_at")).strip() or "created_at"
+    enabled = item.get("enabled", True)
+    enabled = enabled if isinstance(enabled, bool) else str(enabled).lower() in {"1", "true", "yes", "on"}
+    return {
+        "name": name[:100],
+        "database": database[:100],
+        "collection": collection[:100],
+        "enabled": enabled,
+        "poll_interval_seconds": poll,
+        "window_minutes": window,
+        "group_by_field": group_by[:200],
+        "time_field": time_field[:200],
+        "max_groups": max_groups,
     }
 
 
@@ -327,7 +373,7 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
         "config_poll_interval_seconds": (1, 300),
         "connectivity_poll_interval_seconds": (1, 3600),
     }
-    list_keys = {"monitored_services", "config_collections", "connectivity_targets"}
+    list_keys = {"monitored_services", "config_collections", "connectivity_targets", "custom_widgets"}
     str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id"}
     allowed = bool_keys | set(int_keys) | list_keys | str_keys
 
@@ -351,6 +397,12 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
             if not isinstance(raw, (list, tuple)):
                 raise ValueError("connectivity_targets: must be a list")
             clean[key] = _normalize_targets(raw)
+        elif key == "custom_widgets":
+            if not isinstance(raw, (list, tuple)):
+                raise ValueError("custom_widgets: must be a list")
+            if len(raw) > 20:
+                raise ValueError("custom_widgets: at most 20 widgets per server")
+            clean[key] = _normalize_widgets(raw)
         else:  # mongo_uri / mongo_auth_source
             clean[key] = str(raw).strip()
 
@@ -375,6 +427,44 @@ def _normalize_collections(raw) -> dict[str, list[str]]:
         if not isinstance(collections, (list, tuple)):
             raise ValueError(f"config_collections[{database}]: collections must be a list")
         normalized[database] = [str(c).strip() for c in collections if str(c).strip()]
+    return normalized
+
+
+def _normalize_widgets(raw) -> list[dict]:
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("custom_widgets: each entry must be an object")
+        name = str(item.get("name", "")).strip()
+        database = str(item.get("database", "")).strip()
+        collection = str(item.get("collection", "")).strip()
+        if not name or not database or not collection:
+            raise ValueError("custom_widgets: name, database and collection are required")
+        if name.lower() in seen:
+            raise ValueError(f"custom_widgets: duplicate widget name {name!r}")
+        seen.add(name.lower())
+        poll = _coerce_clamped_int(item.get("poll_interval_seconds", 60), "custom_widgets.poll_interval_seconds", 1, 3600)
+        window = _coerce_clamped_int(item.get("window_minutes", 60), "custom_widgets.window_minutes", 1, 10080)
+        max_groups = _coerce_clamped_int(item.get("max_groups", 10), "custom_widgets.max_groups", 1, 50)
+        group_by = str(item.get("group_by_field", "upload_status")).strip()
+        time_field = str(item.get("time_field", "created_at")).strip()
+        if not group_by or not time_field:
+            raise ValueError("custom_widgets: group_by_field and time_field are required")
+        if group_by.startswith("$") or time_field.startswith("$"):
+            raise ValueError("custom_widgets: field paths must not start with '$'")
+        enabled = item.get("enabled", True)
+        normalized.append({
+            "name": name,
+            "database": database,
+            "collection": collection,
+            "enabled": _coerce_bool(enabled),
+            "poll_interval_seconds": poll,
+            "window_minutes": window,
+            "group_by_field": group_by,
+            "time_field": time_field,
+            "max_groups": max_groups,
+        })
     return normalized
 
 

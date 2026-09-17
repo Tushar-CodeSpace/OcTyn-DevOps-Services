@@ -110,6 +110,7 @@ _CONFIG = {
     "config_sync_hour": 0,
     "monitored_services": None,   # None -> fall back to SERVICES from local config
     "config_collections": None,   # None -> fall back to CONFIG_COLLECTION_MAP
+    "custom_widgets": [],         # user-defined periodic MongoDB count widgets
 }
 
 
@@ -136,6 +137,8 @@ def apply_agent_config(body):
         ]
     if isinstance(body.get("config_collections"), list):
         merged["config_collections"] = body["config_collections"]
+    if isinstance(body.get("custom_widgets"), list):
+        merged["custom_widgets"] = body["custom_widgets"]
     for key in _RUNTIME_FIELDS:
         if key in body:
             merged[key] = body[key]
@@ -289,6 +292,247 @@ def start_connectivity_poller():
             time.sleep(max(1, connectivity_poll_interval()))
 
     threading.Thread(target=_poll, name="connectivity-poller", daemon=True).start()
+
+
+# --- custom data widgets: periodic MongoDB count aggregations (needs pymongo) ---
+_WIDGET_LAST_RUN = {}
+
+
+def custom_widgets():
+    """Sanitized custom data-widget specs from hub config."""
+    raw = _CONFIG.get("custom_widgets")
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        database = str(item.get("database", "")).strip()
+        collection = str(item.get("collection", "")).strip()
+        if not name or not database or not collection:
+            continue
+        try:
+            poll = max(1, min(3600, int(item.get("poll_interval_seconds", 60))))
+        except (TypeError, ValueError):
+            poll = 60
+        try:
+            window = max(1, min(10080, int(item.get("window_minutes", 60))))
+        except (TypeError, ValueError):
+            window = 60
+        try:
+            max_groups = max(1, min(50, int(item.get("max_groups", 10))))
+        except (TypeError, ValueError):
+            max_groups = 10
+        group_by = str(item.get("group_by_field", "upload_status")).strip() or "upload_status"
+        time_field = str(item.get("time_field", "created_at")).strip() or "created_at"
+        if group_by.startswith("$") or time_field.startswith("$"):
+            continue
+        enabled = item.get("enabled", True)
+        if not isinstance(enabled, bool):
+            enabled = str(enabled).lower() in {"1", "true", "yes", "on"}
+        out.append({
+            "name": name[:100],
+            "database": database[:100],
+            "collection": collection[:100],
+            "enabled": enabled,
+            "poll_interval_seconds": poll,
+            "window_minutes": window,
+            "group_by_field": group_by[:200],
+            "time_field": time_field[:200],
+            "max_groups": max_groups,
+        })
+    return out
+
+
+def _widget_lookup(doc, dotted):
+    cur = doc
+    for part in dotted.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _widget_connect():
+    """Connect to the site MongoDB (same fallbacks as config backup)."""
+    raw_uri = mongo_uri()
+    primary_uri = _encode_uri_password(raw_uri)
+    if not primary_uri:
+        return None
+    uri_candidates = [primary_uri]
+    if "localhost" in primary_uri:
+        uri_candidates.append(primary_uri.replace("localhost", "127.0.0.1"))
+    auth_candidates = _extract_auth_sources(raw_uri, mongo_auth_source())
+    creds = _parse_mongo_credentials(raw_uri)
+
+    def _try(client_factory):
+        try:
+            c = client_factory()
+            c.admin.command("ping")
+            return c
+        except Exception:
+            return None
+
+    for target_uri in uri_candidates:
+        client = _try(lambda: MongoClient(target_uri, serverSelectionTimeoutMS=3000, directConnection=True))
+        if client is not None:
+            return client
+        for src in auth_candidates:
+            client = _try(lambda: MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=3000, directConnection=True))
+            if client is not None:
+                return client
+        if creds:
+            host_candidates = [creds["host_uri"]]
+            if "localhost" in creds["host_uri"]:
+                host_candidates.append(creds["host_uri"].replace("localhost", "127.0.0.1"))
+            pass_candidates = []
+            if creds["password"]:
+                pass_candidates.append(creds["password"])
+            if creds["raw_password"] and creds["raw_password"] != creds["password"]:
+                pass_candidates.append(creds["raw_password"])
+            for h_uri in host_candidates:
+                for p_val in pass_candidates:
+                    for src in auth_candidates:
+                        client = _try(lambda: MongoClient(h_uri, username=creds["username"], password=p_val, authSource=src, serverSelectionTimeoutMS=3000, directConnection=True))
+                        if client is not None:
+                            return client
+    return None
+
+
+def _widget_cutoff(coll, time_field, cutoff):
+    """Match the stored type of the time field (datetime vs ISO string)."""
+    try:
+        sample = coll.find_one({time_field: {"$exists": True}}, projection={time_field: 1}, sort=[("_id", -1)])
+    except Exception:
+        return cutoff
+    val = _widget_lookup(sample, time_field) if sample else None
+    if isinstance(val, str):
+        try:
+            return cutoff.replace(tzinfo=None).isoformat()
+        except Exception:
+            return cutoff
+    return cutoff
+
+
+def _widget_payload(widget, collected_at, window, total, groups, error=None):
+    return {
+        "server_id": SERVER_ID,
+        "widget_name": widget["name"],
+        "database": widget["database"],
+        "collection": widget["collection"],
+        "window_minutes": window,
+        "total": max(0, int(total)),
+        "groups": {str(k)[:100]: max(0, int(v)) for k, v in groups.items()},
+        "collected_at": collected_at.isoformat(),
+        "error": (error or "")[:500] or None,
+    }
+
+
+def collect_widget(client, widget):
+    """Run one widget aggregation; always returns a hub-ready payload."""
+    from datetime import timedelta
+    database = widget["database"]
+    collection = widget["collection"]
+    window = widget["window_minutes"]
+    group_by = widget["group_by_field"]
+    time_field = widget["time_field"]
+    max_groups = widget["max_groups"]
+    collected_at = datetime.now(timezone.utc)
+    cutoff = collected_at - timedelta(minutes=window)
+    try:
+        if database not in client.list_database_names():
+            return _widget_payload(widget, collected_at, window, 0, {}, error="database '%s' not found" % database)
+        coll = client[database][collection]
+        try:
+            if collection not in coll.database.list_collection_names():
+                return _widget_payload(widget, collected_at, window, 0, {}, error="collection '%s.%s' not found" % (database, collection))
+        except Exception:
+            pass
+        match = {time_field: {"$gte": _widget_cutoff(coll, time_field, cutoff)}}
+        try:
+            total = coll.count_documents(match, maxTimeMS=20000)
+        except Exception as exc:
+            return _widget_payload(widget, collected_at, window, 0, {}, error="count failed: %s" % exc)
+        groups = {}
+        try:
+            pipeline = [
+                {"$match": match},
+                {"$group": {"_id": "$" + group_by, "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": max(1, max_groups)},
+            ]
+            for row in coll.aggregate(pipeline, maxTimeMS=20000):
+                key = row.get("_id")
+                label = "UNKNOWN" if key is None else str(key)[:100]
+                try:
+                    groups[label] = int(row.get("count", 0))
+                except (TypeError, ValueError):
+                    continue
+        except Exception as exc:
+            return _widget_payload(widget, collected_at, window, 0, {}, error="group-by failed: %s" % exc)
+        return _widget_payload(widget, collected_at, window, total, groups)
+    except Exception as exc:
+        return _widget_payload(widget, collected_at, window, 0, {}, error=str(exc)[:300])
+
+
+def push_widgets():
+    """Collect and push every due (interval-elapsed) enabled widget."""
+    widgets = [w for w in custom_widgets() if w.get("enabled", True)]
+    if not widgets:
+        return
+    if not mongo_config_enabled():
+        log("[WIDGETS] Skipped: site MongoDB access is disabled in agent config")
+        return
+    if not HAS_PYMONGO:
+        log("[WIDGETS] Skipped: pymongo not installed")
+        return
+    now_mono = time.monotonic()
+    due = [w for w in widgets if now_mono - _WIDGET_LAST_RUN.get(w["name"], 0.0) >= w["poll_interval_seconds"]]
+    if not due:
+        return
+    try:
+        client = _widget_connect()
+    except Exception as exc:
+        log("[WIDGETS] Connect error: %r" % (exc,))
+        return
+    if client is None:
+        log("[WIDGETS] FAILED: cannot reach site MongoDB at %s" % _sanitize_uri(mongo_uri()))
+        return
+    try:
+        for w in due:
+            try:
+                payload = collect_widget(client, w)
+                if push("/widgets", payload):
+                    _WIDGET_LAST_RUN[w["name"]] = time.monotonic()
+                    if payload.get("error"):
+                        log("[WIDGETS] '%s': reported error: %s" % (w["name"], payload["error"]))
+                    else:
+                        log("[WIDGETS] '%s': total=%d groups=%s" % (w["name"], payload["total"], payload["groups"]))
+                else:
+                    log("[WIDGETS] '%s': push failed, will retry next tick" % w["name"])
+            except Exception as exc:
+                log("[WIDGETS] '%s' error: %r" % (w.get("name", "?"), exc))
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def start_widget_poller():
+    """Tick due custom-widget collections in the background."""
+
+    def _poll():
+        while True:
+            try:
+                push_widgets()
+            except Exception as exc:
+                log("[WIDGETS] poll error: %r" % (exc,))
+            time.sleep(10)
+
+    threading.Thread(target=_poll, name="widget-poller", daemon=True).start()
 
 
 def _kill_process_group(process):
@@ -1316,6 +1560,7 @@ def main():
     start_config_poller()
     start_connectivity_poller()
     start_terminal_poller()
+    start_widget_poller()
 
     # Config backup runs once daily at the centrally-configured hour
     # (default 12:00 AM local time of this host).

@@ -49,6 +49,10 @@ def connectivity() -> Collection:
     return get_db()["connectivity"]
 
 
+def widget_data() -> Collection:
+    return get_db()["widget_data"]
+
+
 def audit_logs() -> Collection:
     return get_db()["audit_logs"]
 

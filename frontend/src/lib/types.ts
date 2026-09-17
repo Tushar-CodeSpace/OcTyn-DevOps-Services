@@ -181,11 +181,38 @@ export interface ConfigCollectionSpec {
   collections: string[];
 }
 
+export interface CustomWidgetSpec {
+  name: string;
+  database: string;
+  collection: string;
+  enabled: boolean;
+  poll_interval_seconds: number;
+  window_minutes: number;
+  group_by_field: string;
+  time_field: string;
+  max_groups: number;
+}
+
+export interface WidgetSample {
+  id: string;
+  server_id: string;
+  widget_name: string;
+  database: string;
+  collection: string;
+  window_minutes: number;
+  total: number;
+  groups: Record<string, number>;
+  collected_at: string;
+  received_at: string;
+  error: string | null;
+}
+
 export interface AgentConfig {
   config_sync_enabled: boolean;
   config_sync_hour: number;
   monitored_services: string[];
   config_collections: ConfigCollectionSpec[];
+  custom_widgets: CustomWidgetSpec[];
   connectivity_targets: ConnectivityTarget[];
   monitoring_interval_seconds: number;
   http_timeout_seconds: number;

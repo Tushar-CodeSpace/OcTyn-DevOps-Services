@@ -26,6 +26,27 @@ class ConnectivityTarget(BaseModel):
     ip: str = Field(min_length=1, max_length=64)
 
 
+class CustomWidgetSpec(BaseModel):
+    """A user-defined periodic MongoDB count widget executed by the site agent.
+
+    Example: count documents in ``data_uploader_service.integration_logs``
+    over the last ``window_minutes``, broken down by ``group_by_field``
+    (e.g. ``upload_status`` -> {SUCCESS: n, FAILED: m}).
+    """
+
+    model_config = {"extra": "forbid"}
+
+    name: str = Field(min_length=1, max_length=100)
+    database: str = Field(min_length=1, max_length=100)
+    collection: str = Field(min_length=1, max_length=100)
+    enabled: bool = True
+    poll_interval_seconds: int = Field(default=60, ge=1, le=3600)
+    window_minutes: int = Field(default=60, ge=1, le=10080)
+    group_by_field: str = Field(default="upload_status", min_length=1, max_length=200)
+    time_field: str = Field(default="created_at", min_length=1, max_length=200)
+    max_groups: int = Field(default=10, ge=1, le=50)
+
+
 class AgentConfig(BaseModel):
     # config backup
     config_sync_enabled: bool = True
@@ -33,6 +54,7 @@ class AgentConfig(BaseModel):
     monitored_services: list[str] = Field(default_factory=list)
     config_collections: list[ConfigCollectionSpec] = Field(default_factory=list)
     connectivity_targets: list[ConnectivityTarget] = Field(default_factory=list)
+    custom_widgets: list[CustomWidgetSpec] = Field(default_factory=list)
 
     # core runtime
     monitoring_interval_seconds: int = Field(default=60, ge=1, le=3600)
@@ -56,6 +78,7 @@ class AgentConfigOverrideUpdate(BaseModel):
     monitored_services: Optional[list[str]] = None
     config_collections: Optional[list[ConfigCollectionSpec]] = None
     connectivity_targets: Optional[list[ConnectivityTarget]] = None
+    custom_widgets: Optional[list[CustomWidgetSpec]] = None
     monitoring_interval_seconds: Optional[int] = Field(default=None, ge=1, le=3600)
     http_timeout_seconds: Optional[int] = Field(default=None, ge=1, le=120)
     http_retry_count: Optional[int] = Field(default=None, ge=0, le=10)

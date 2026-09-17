@@ -24,6 +24,7 @@ from app.routes import (
     sites,
     terminal,
     users,
+    widgets,
 )
 from app.routes import configs as configs_routes
 from app.routes import settings as settings_routes
@@ -80,6 +81,7 @@ app.include_router(agent_config.router)
 app.include_router(agent_update.router)
 app.include_router(connectivity.router)
 app.include_router(terminal.router)
+app.include_router(widgets.router)
 
 # Entrypoint for uvicorn: app.main:socket_app
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
