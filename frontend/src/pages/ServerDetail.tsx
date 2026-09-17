@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, Building2, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Plus, Save, ListChecks, Settings2, Terminal, Trash2, X } from "lucide-react";
+import { Activity, Building2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, Loader2, MapPin, Play, Plus, Save, Search, ListChecks, Settings2, Terminal, Trash2, X } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -78,6 +78,15 @@ export default function ServerDetail() {
   const [newServiceName, setNewServiceName] = useState("");
   const [newServicePort, setNewServicePort] = useState("");
   const [addingService, setAddingService] = useState(false);
+
+  // Tabbed layout + compact filter state (handy with many ports / backups)
+  const [activeTab, setActiveTab] = useState<"overview" | "services" | "backups" | "keys">("overview");
+  const [svcQuery, setSvcQuery] = useState("");
+  const [svcStatus, setSvcStatus] = useState<"all" | "running" | "stopped" | "disabled">("all");
+  const [svcPage, setSvcPage] = useState(0);
+  const [backupQuery, setBackupQuery] = useState("");
+  const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
+  const SVC_PAGE_SIZE = 10;
 
   function exportMetricsCsv() {
     if (!metrics.length || !server) return;
@@ -757,6 +766,68 @@ export default function ServerDetail() {
   const avgWrite = (stats.writeSum / statCount).toFixed(1);
   const avgIops = Math.round(stats.iopsSum / statCount);
 
+  // ---- Compact services: search + status filter + pagination ----
+  const svcCounts = useMemo(() => {
+    let running = 0;
+    let stopped = 0;
+    let disabled = 0;
+    for (const s of services) {
+      if (!(s.enabled ?? true)) disabled += 1;
+      else if (s.status === "running") running += 1;
+      else if (s.status === "stopped") stopped += 1;
+    }
+    return { running, stopped, disabled, total: services.length };
+  }, [services]);
+
+  const filteredServices = useMemo(() => {
+    const q = svcQuery.trim().toLowerCase();
+    return services.filter((s) => {
+      if (svcStatus === "disabled" && (s.enabled ?? true)) return false;
+      if (svcStatus === "running" && (!(s.enabled ?? true) || s.status !== "running")) return false;
+      if (svcStatus === "stopped" && (!(s.enabled ?? true) || s.status !== "stopped")) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        String(s.port ?? "").includes(q)
+      );
+    });
+  }, [services, svcQuery, svcStatus]);
+
+  const svcTotalPages = Math.max(1, Math.ceil(filteredServices.length / SVC_PAGE_SIZE));
+  const safeSvcPage = Math.min(svcPage, svcTotalPages - 1);
+  const pagedServices = filteredServices.slice(
+    safeSvcPage * SVC_PAGE_SIZE,
+    safeSvcPage * SVC_PAGE_SIZE + SVC_PAGE_SIZE
+  );
+
+  // ---- Backups grouped by database ----
+  const backupGroups = useMemo(() => {
+    const list = snapMeta ?? [];
+    const q = backupQuery.trim().toLowerCase();
+    const byDb = new Map<string, ConfigSnapshotMeta[]>();
+    for (const m of list) {
+      if (q && !`${m.database}.${m.collection}`.toLowerCase().includes(q)) continue;
+      const arr = byDb.get(m.database) ?? [];
+      arr.push(m);
+      byDb.set(m.database, arr);
+    }
+    const groups = [...byDb.entries()].map(([database, items]) => {
+      items.sort((a, b) => a.collection.localeCompare(b.collection));
+      const totalDocs = items.reduce((n, x) => n + (x.count ?? 0), 0);
+      const lastReceived = items.reduce((max, x) => (x.received_at > max ? x.received_at : max), items[0]?.received_at ?? "");
+      return { database, items, totalDocs, lastReceived };
+    });
+    groups.sort((a, b) => (b.lastReceived > a.lastReceived ? 1 : b.lastReceived < a.lastReceived ? -1 : 0));
+    return groups;
+  }, [snapMeta, backupQuery]);
+
+  const backupDbCount = backupGroups.length;
+  const backupCollCount = backupGroups.reduce((n, g) => n + g.items.length, 0);
+
+  function toggleDb(database: string) {
+    setExpandedDbs((prev) => ({ ...prev, [database]: !prev[database] }));
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -834,6 +905,34 @@ export default function ServerDetail() {
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
+      {/* Section tabs — keeps long port & backup lists out of the overview scroll */}
+      <div className="sticky top-0 z-20 -mx-1 flex gap-1 overflow-x-auto bg-background/95 px-1 py-1 backdrop-blur">
+        {(
+          [
+            { id: "overview", label: "Overview" },
+            { id: "services", label: `Services (${svcCounts.total})` },
+            { id: "backups", label: `Backups (${backupCollCount})` },
+            { id: "keys", label: `Keys (${keys.length})` },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setActiveTab(t.id)}
+            className={cn(
+              "whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              activeTab === t.id
+                ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/30"
+                : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "overview" && (
+      <>
       <Card className="overflow-hidden">
         <CardHeader className="flex-row items-center gap-3 py-2.5">
           <div className="flex items-center gap-2">
@@ -1101,23 +1200,69 @@ export default function ServerDetail() {
           </Card>
         </div>
       )}
+      </>
+      )}
 
+      {activeTab === "services" && (
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle className="text-sm">Services</CardTitle>
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowAddService(!showAddService)}
-              className="h-8 gap-1 border-slate-700 text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add service
-            </Button>
-          )}
+        <CardHeader className="flex-col gap-3">
+          <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-sm">Services & ports ({filteredServices.length}/{svcCounts.total})</CardTitle>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                ● {svcCounts.running} running
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-300">
+                ● {svcCounts.stopped} stopped
+              </span>
+              {svcCounts.disabled > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-[11px] font-medium text-slate-400">
+                  ○ {svcCounts.disabled} disabled
+                </span>
+              )}
+            </div>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAddService(!showAddService)}
+                className="h-8 gap-1 border-slate-700 text-xs"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add service
+              </Button>
+            )}
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <div className="relative min-w-48 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+              <input
+                value={svcQuery}
+                onChange={(e) => { setSvcQuery(e.target.value); setSvcPage(0); }}
+                placeholder="Search name or port…"
+                className="h-8 w-full rounded-md border border-slate-700 bg-slate-950 pl-8 pr-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div className="flex gap-1">
+              {(["all", "running", "stopped", "disabled"] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => { setSvcStatus(f); setSvcPage(0); }}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs capitalize transition-colors",
+                    svcStatus === f
+                      ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/30"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  )}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-col gap-3">
           {showAddService && isAdmin && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-900/60 p-3">
               <input
@@ -1141,8 +1286,9 @@ export default function ServerDetail() {
               </Button>
             </div>
           )}
+          <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-800/60">
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 bg-slate-900">
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Port</TableHead>
@@ -1153,14 +1299,14 @@ export default function ServerDetail() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {services.length === 0 && (
+              {filteredServices.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={isAdmin ? 6 : 5} className="text-slate-500">
-                    No services reported yet.
+                    {services.length === 0 ? "No services reported yet." : "No services match search/filter."}
                   </TableCell>
                 </TableRow>
               )}
-              {services.map((s) => {
+              {pagedServices.map((s) => {
                 const isEnabled = s.enabled ?? true;
                 return (
                   <TableRow key={s.id} className={!isEnabled ? "opacity-60" : undefined}>
@@ -1208,9 +1354,32 @@ export default function ServerDetail() {
               })}
             </TableBody>
           </Table>
+          </div>
+          {svcTotalPages > 1 && (
+            <div className="flex items-center justify-between pt-1 text-xs text-slate-400">
+              <span>
+                Showing {safeSvcPage * SVC_PAGE_SIZE + 1}–
+                {Math.min((safeSvcPage + 1) * SVC_PAGE_SIZE, filteredServices.length)} of{" "}
+                {filteredServices.length}
+              </span>
+              <div className="flex gap-1">
+                <Button size="sm" variant="ghost" disabled={safeSvcPage === 0} onClick={() => setSvcPage(safeSvcPage - 1)}>
+                  Prev
+                </Button>
+                <span className="px-2 py-1 font-mono">
+                  {safeSvcPage + 1}/{svcTotalPages}
+                </span>
+                <Button size="sm" variant="ghost" disabled={safeSvcPage >= svcTotalPages - 1} onClick={() => setSvcPage(safeSvcPage + 1)}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+      )}
 
+      {activeTab === "keys" && (
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-sm">Agent API keys</CardTitle>
@@ -1280,6 +1449,7 @@ export default function ServerDetail() {
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {agentCfgOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -1701,30 +1871,63 @@ export default function ServerDetail() {
         </div>
       )}
 
-      {/* Site config backups (snapshots) */}
+      {/* Site config backups (snapshots) — grouped by database */}
+      {activeTab === "backups" && (
       <Card>
-        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-sm">Site config backups</CardTitle>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Latest site config snapshots uploaded by the agent.
-            </p>
+        <CardHeader className="flex-col gap-3">
+          <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm">
+                Site config backups{" "}
+                <span className="font-normal text-slate-500">
+                  ({backupDbCount} dbs · {backupCollCount} collections)
+                </span>
+              </CardTitle>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Grouped by database — expand a database to see its collections.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => { void loadAgentConfig(); setBackupCfgOpen(true); }}>
+                <Database className="mr-1 h-4 w-4 text-emerald-400" />
+                Backup settings
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void loadSnapshots()}>
+                Refresh
+              </Button>
+              <Button
+                size="sm"
+                disabled={!snapMeta || snapMeta.length === 0 || !!exporting}
+                onClick={() => void downloadAllConfigs()}
+              >
+                <Download className="mr-1 h-4 w-4" />
+                {exporting ?? "Download all (.zip)"}
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => { void loadAgentConfig(); setBackupCfgOpen(true); }}>
-              <Database className="mr-1 h-4 w-4 text-emerald-400" />
-              Backup settings
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => void loadSnapshots()}>
-              Refresh
-            </Button>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <div className="relative min-w-48 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+              <input
+                value={backupQuery}
+                onChange={(e) => setBackupQuery(e.target.value)}
+                placeholder="Search database.collection…"
+                className="h-8 w-full rounded-md border border-slate-700 bg-slate-950 pl-8 pr-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+              />
+            </div>
             <Button
+              variant="ghost"
               size="sm"
-              disabled={!snapMeta || snapMeta.length === 0 || !!exporting}
-              onClick={() => void downloadAllConfigs()}
+              onClick={() => {
+                const all: Record<string, boolean> = {};
+                for (const g of backupGroups) all[g.database] = true;
+                setExpandedDbs(all);
+              }}
             >
-              <Download className="mr-1 h-4 w-4" />
-              {exporting ?? "Download all (.zip)"}
+              Expand all
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setExpandedDbs({})}>
+              Collapse all
             </Button>
           </div>
         </CardHeader>
@@ -1739,51 +1942,79 @@ export default function ServerDetail() {
             <p className="text-sm text-slate-500">
               No config snapshots yet — the agent hasn’t synced any site configs.
             </p>
+          ) : backupGroups.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No backups match “{backupQuery}” — clear the search to see all databases.
+            </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Database</TableHead>
-                  <TableHead>Collection</TableHead>
-                  <TableHead>Docs</TableHead>
-                  <TableHead>Captured</TableHead>
-                  <TableHead>Received</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {snapMeta.map((meta) => (
-                  <>
-                    <TableRow
-                      key={meta.id}
-                      className={cn("cursor-pointer hover:bg-slate-800/50", expandedSnap === meta.id && "bg-slate-800/40")}
-                      onClick={() => toggleView(meta)}
+            <div className="flex flex-col gap-2">
+              {backupGroups.map((group) => {
+                const expanded = expandedDbs[group.database] ?? backupGroups.length <= 3;
+                return (
+                  <div key={group.database} className="overflow-hidden rounded-lg border border-slate-800/70">
+                    <button
+                      type="button"
+                      onClick={() => toggleDb(group.database)}
+                      className="flex w-full flex-wrap items-center gap-2 bg-slate-900/60 px-3 py-2 text-left transition-colors hover:bg-slate-800/60"
                     >
-                      <TableCell className="font-medium">{meta.database}</TableCell>
-                      <TableCell className="font-mono text-xs">{meta.collection}</TableCell>
-                      <TableCell>{meta.count}{meta.truncated && <span title="truncated"> +…</span>}</TableCell>
-                      <TableCell className="text-xs text-slate-400">{formatTime(meta.captured_at)}</TableCell>
-                      <TableCell className="text-xs text-slate-400">{formatTime(meta.received_at)}</TableCell>
-                      <TableCell className="text-right">
-                        <span className="inline-flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); toggleView(meta); }}>
-                            {expandedSnap === meta.id ? "Hide" : loadingSnapDocs === meta.id ? "…" : "View"}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void openHistory(meta); }} title="Version history">
-                            <Clock className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void copySnapshot(meta); }} title="Copy JSON">
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void downloadSnapshot(meta); }} title="Download JSON">
-                            <Download className="h-3.5 w-3.5" />
-                          </Button>
-                        </span>
-                      </TableCell>
-                    </TableRow>
+                      {expanded ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      )}
+                      <Database className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                      <span className="font-mono text-xs font-semibold text-slate-200">{group.database}</span>
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                        {group.items.length} collection{group.items.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-[11px] text-slate-500">{group.totalDocs} docs</span>
+                      <span className="ml-auto text-[11px] text-slate-500">
+                        last received {formatTime(group.lastReceived)}
+                      </span>
+                    </button>
+                    {expanded && (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Collection</TableHead>
+                          <TableHead>Docs</TableHead>
+                          <TableHead>Captured</TableHead>
+                          <TableHead>Received</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.items.map((meta) => (
+                          <>
+                            <TableRow
+                              key={meta.id}
+                              className={cn("cursor-pointer hover:bg-slate-800/50", expandedSnap === meta.id && "bg-slate-800/40")}
+                              onClick={() => toggleView(meta)}
+                            >
+                              <TableCell className="font-mono text-xs">{meta.collection}</TableCell>
+                              <TableCell>{meta.count}{meta.truncated && <span title="truncated"> +…</span>}</TableCell>
+                              <TableCell className="text-xs text-slate-400">{formatTime(meta.captured_at)}</TableCell>
+                              <TableCell className="text-xs text-slate-400">{formatTime(meta.received_at)}</TableCell>
+                              <TableCell className="text-right">
+                                <span className="inline-flex gap-1">
+                                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); toggleView(meta); }}>
+                                    {expandedSnap === meta.id ? "Hide" : loadingSnapDocs === meta.id ? "…" : "View"}
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void openHistory(meta); }} title="Version history">
+                                    <Clock className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void copySnapshot(meta); }} title="Copy JSON">
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void downloadSnapshot(meta); }} title="Download JSON">
+                                    <Download className="h-3.5 w-3.5" />
+                                  </Button>
+                                </span>
+                              </TableCell>
+                            </TableRow>
                     {historyFor && historyFor.rowId === meta.id && (
                       <TableRow key={`${meta.id}-history`}>
-                        <TableCell colSpan={6} className="bg-black/30 p-0">
+                        <TableCell colSpan={5} className="bg-black/30 p-0">
                           <div className="border-y border-slate-800 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             {meta.database}.{meta.collection} — version history
                           </div>
@@ -1828,7 +2059,7 @@ export default function ServerDetail() {
                     )}
                     {expandedSnap === meta.id && (
                       <TableRow key={`${meta.id}-json`}>
-                        <TableCell colSpan={6} className="p-0">
+                        <TableCell colSpan={5} className="p-0">
                           <div className="flex items-center justify-between border-y border-slate-800 bg-black/50 px-3 py-1.5">
                             <span className="font-mono text-[11px] text-slate-500">
                               {meta.database}.{meta.collection}.json · {meta.count} documents
@@ -1853,13 +2084,19 @@ export default function ServerDetail() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
+                          </>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
