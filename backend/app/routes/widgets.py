@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
-from app.schemas.widgets import WidgetHistoryPoint, WidgetSampleCreate, WidgetSampleRead
+from app.schemas.widgets import (
+    WidgetHistoryPoint,
+    WidgetSampleCreate,
+    WidgetSampleRead,
+    WidgetTemplateRead,
+    WidgetTemplateUpsert,
+)
 from app.services import authentication as auth
 from app.services.monitoring import authenticate_agent
 
@@ -91,6 +97,72 @@ async def ingest_widget_sample(
         room=f"server:{server['_id']}",
     )
     return {"success": True}
+
+
+def template_doc_to_read(doc: dict) -> WidgetTemplateRead:
+    return WidgetTemplateRead(
+        id=str(doc["_id"]),
+        name=doc["name"],
+        description=doc.get("description", ""),
+        database=doc["database"],
+        collection=doc["collection"],
+        enabled=bool(doc.get("enabled", True)),
+        poll_interval_seconds=int(doc.get("poll_interval_seconds", 60)),
+        window_minutes=int(doc.get("window_minutes", 60)),
+        group_by_field=doc.get("group_by_field", "upload_status"),
+        time_field=doc.get("time_field", "created_at"),
+        max_groups=int(doc.get("max_groups", 10)),
+        created_at=doc.get("created_at", now()),
+        updated_at=doc.get("updated_at", now()),
+    )
+
+
+@router.get("/templates", response_model=list[WidgetTemplateRead])
+async def list_widget_templates(
+    _: dict = Depends(auth.get_current_user),
+) -> list[WidgetTemplateRead]:
+    """Dashboard endpoint: reusable widget definitions shared across servers."""
+    docs = list(db.widget_templates().find({}).sort("name", 1).limit(100))
+    return [template_doc_to_read(d) for d in docs]
+
+
+@router.post(
+    "/templates",
+    response_model=WidgetTemplateRead,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def upsert_widget_template(payload: WidgetTemplateUpsert) -> WidgetTemplateRead:
+    """Dashboard endpoint (admin): create or replace a template by name."""
+    data = payload.model_dump()
+    existing = db.widget_templates().find_one({"name": data["name"]})
+    if existing:
+        db.widget_templates().update_one(
+            {"_id": existing["_id"]},
+            {"$set": {**data, "updated_at": now()}},
+        )
+        doc = db.widget_templates().find_one({"_id": existing["_id"]})
+        assert doc is not None
+        return template_doc_to_read(doc)
+    doc = {
+        "_id": new_id(),
+        **data,
+        "created_at": now(),
+        "updated_at": now(),
+    }
+    db.widget_templates().insert_one(doc)
+    return template_doc_to_read(doc)
+
+
+@router.delete(
+    "/templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def delete_widget_template(template_id: str) -> None:
+    """Dashboard endpoint (admin): delete a reusable widget template."""
+    res = db.widget_templates().delete_one({"_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
 
 @router.get("/servers/{server_id}", response_model=list[WidgetSampleRead])

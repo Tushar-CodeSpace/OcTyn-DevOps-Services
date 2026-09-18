@@ -16,7 +16,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample } from "@/lib/types";
+import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -174,6 +174,8 @@ export default function ServerDetail() {
   const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
   const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
   const [savingWidgets, setSavingWidgets] = useState(false);
+  const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
+  const [templatePick, setTemplatePick] = useState("");
   // Default overview chart for all data widgets (bar/pie/trend), user preference
   type WidgetChartMode = "bar" | "pie" | "trend";
   const WIDGET_CHART_KEY = "octyn:widget-default-chart";
@@ -498,7 +500,60 @@ export default function ServerDetail() {
     setWidgetDraft(
       (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }))
     );
+    setTemplatePick("");
+    apiFetch<WidgetTemplate[]>("/widgets/templates")
+      .then(setWidgetTemplates)
+      .catch(() => setWidgetTemplates([]));
     setWidgetCfgOpen(true);
+  }
+
+  function applyTemplate() {
+    const t = widgetTemplates?.find((x) => x.id === templatePick);
+    if (!t) return;
+    if (widgetDraft.some((w) => w.name.trim().toLowerCase() === t.name.trim().toLowerCase())) {
+      showToast({ severity: "info", title: "Already added", message: `"${t.name}" is already in this server's widgets.` });
+      return;
+    }
+    const { id: _tid, description: _desc, created_at: _ca, updated_at: _ua, ...spec } = t;
+    setWidgetDraft([...widgetDraft, { ...spec, enabled: true }]);
+    showToast({ severity: "info", title: "Template applied", message: `"${t.name}" added — press Save widgets to activate.` });
+  }
+
+  async function saveAsTemplate(w: CustomWidgetSpec) {
+    try {
+      const saved = await apiFetch<WidgetTemplate>("/widgets/templates", {
+        method: "POST",
+        body: JSON.stringify({ ...w, description: "" }),
+      });
+      setWidgetTemplates((prev) => {
+        const next = (prev ?? []).filter((x) => x.id !== saved.id);
+        return [...next, saved].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      showToast({ severity: "info", title: "Template saved", message: `"${saved.name}" is now reusable on other servers.` });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Save failed",
+        message: err instanceof Error ? err.message : undefined,
+      });
+    }
+  }
+
+  async function deleteTemplate() {
+    const t = widgetTemplates?.find((x) => x.id === templatePick);
+    if (!t || !confirm(`Delete template "${t.name}"? Servers already using it are unaffected.`)) return;
+    try {
+      await apiFetch(`/widgets/templates/${t.id}`, { method: "DELETE" });
+      setWidgetTemplates((prev) => (prev ?? []).filter((x) => x.id !== t.id));
+      setTemplatePick("");
+      showToast({ severity: "info", title: "Template deleted", message: `"${t.name}" removed from the library.` });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Delete failed",
+        message: err instanceof Error ? err.message : undefined,
+      });
+    }
   }
 
   async function saveWidgetCfg() {
@@ -2818,6 +2873,51 @@ export default function ServerDetail() {
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+                    <span className="text-xs text-slate-400">From template:</span>
+                    <select
+                      value={templatePick}
+                      onChange={(e) => setTemplatePick(e.target.value)}
+                      className="h-8 min-w-40 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                    >
+                      <option value="">
+                        {widgetTemplates === null
+                          ? "Loading templates…"
+                          : widgetTemplates.length === 0
+                            ? "No templates yet — save one below"
+                            : "Choose a template…"}
+                      </option>
+                      {(widgetTemplates ?? []).map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} · {t.database}.{t.collection}
+                        </option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="ghost" disabled={!templatePick} onClick={applyTemplate}>
+                      Apply
+                    </Button>
+                    {isAdmin && templatePick && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
+                        onClick={() => void deleteTemplate()}
+                        title="Delete this template from the library"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  {(() => {
+                    const picked = widgetTemplates?.find((x) => x.id === templatePick);
+                    if (!picked) return null;
+                    return (
+                      <p className="-mt-1 font-mono text-[11px] text-slate-500">
+                        {picked.database}.{picked.collection} · by {picked.group_by_field} · every{" "}
+                        {picked.poll_interval_seconds}s · last {picked.window_minutes}m
+                      </p>
+                    );
+                  })()}
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
                     <span className="text-xs text-slate-400">Default chart for overview cards:</span>
                     <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
                       {(["bar", "pie", "trend"] as const).map((m) => (
@@ -2974,16 +3074,28 @@ export default function ServerDetail() {
                           />
                           <span className="text-xs text-slate-300">Enabled</span>
                         </label>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!isAdmin}
-                          onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
-                          className="h-7 text-xs text-red-400 hover:text-red-300 disabled:opacity-30"
-                        >
-                          <Trash2 className="mr-1 h-3.5 w-3.5" />
-                          Remove
-                        </Button>
+                        <span className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!isAdmin || !w.name.trim() || !w.database.trim() || !w.collection.trim()}
+                            onClick={() => void saveAsTemplate(w)}
+                            className="h-7 text-xs text-emerald-300 hover:text-emerald-200 disabled:opacity-30"
+                            title="Save as a reusable template for other servers"
+                          >
+                            Save as template
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!isAdmin}
+                            onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
+                            className="h-7 text-xs text-red-400 hover:text-red-300 disabled:opacity-30"
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            Remove
+                          </Button>
+                        </span>
                       </div>
                     </div>
                   ))}

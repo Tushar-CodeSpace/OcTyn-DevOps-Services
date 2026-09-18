@@ -11,6 +11,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.agent_config import CustomWidgetSpec
+
 
 class WidgetSampleCreate(BaseModel):
     """One widget tally pushed by an agent (agent-authenticated)."""
@@ -50,3 +52,17 @@ class WidgetHistoryPoint(BaseModel):
     received_at: datetime
     total: int
     groups: dict[str, int]
+
+
+class WidgetTemplateUpsert(CustomWidgetSpec):
+    """Reusable widget definition shared across servers (upsert by name)."""
+
+    description: str = Field(default="", max_length=300)
+
+
+class WidgetTemplateRead(WidgetTemplateUpsert):
+    """Stored template with identity and timestamps."""
+
+    id: str
+    created_at: datetime
+    updated_at: datetime

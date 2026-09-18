@@ -53,6 +53,10 @@ def widget_data() -> Collection:
     return get_db()["widget_data"]
 
 
+def widget_templates() -> Collection:
+    return get_db()["widget_templates"]
+
+
 def audit_logs() -> Collection:
     return get_db()["audit_logs"]
 

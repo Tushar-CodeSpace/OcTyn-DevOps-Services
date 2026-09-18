@@ -31,6 +31,7 @@ def ensure_indexes() -> None:
     _ensure_index(db.metrics(), [("recorded_at", 1)], expireAfterSeconds=ttl_seconds)
     _ensure_index(db.widget_data(), [("server_id", 1), ("widget_name", 1), ("received_at", -1)])
     _ensure_index(db.widget_data(), [("received_at", 1)], expireAfterSeconds=ttl_seconds)
+    _ensure_index(db.widget_templates(), [("name", 1)], unique=True)
     _ensure_index(db.site_configs(), [("received_at", 1)], expireAfterSeconds=ttl_seconds)
     _ensure_index(db.terminal_commands(), [("created_at", 1)], expireAfterSeconds=ttl_seconds)
     _ensure_index(db.api_keys(), [("key_hash", 1)], unique=True)

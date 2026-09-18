@@ -213,6 +213,13 @@ export interface WidgetHistoryPoint {
   groups: Record<string, number>;
 }
 
+export interface WidgetTemplate extends CustomWidgetSpec {
+  id: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AgentConfig {
   config_sync_enabled: boolean;
   config_sync_hour: number;
