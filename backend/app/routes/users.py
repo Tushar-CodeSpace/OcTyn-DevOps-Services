@@ -2,12 +2,13 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.schemas.auth import AuditLogRead, UserCreate, UserRead, UserUpdate
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 
 router = APIRouter(
     prefix="/api/v1/users",
@@ -54,6 +55,7 @@ async def list_users(current: dict = Depends(auth.get_current_user)) -> list[Use
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
+    request: Request,
     current: dict = Depends(auth.require_admin),
 ) -> UserRead:
     if body.role == "super_admin" and auth.effective_role(current) != "super_admin":
@@ -73,6 +75,10 @@ async def create_user(
         "created_at": now(),
     }
     db.users().insert_one(doc)
+    audit_trail.record(
+        current, "user_create", request,
+        {"target": email, "name": doc["name"], "role": body.role},
+    )
     return user_doc_to_read(doc)
 
 
@@ -80,6 +86,7 @@ async def create_user(
 async def update_user(
     user_id: str,
     body: UserUpdate,
+    request: Request,
     current: dict = Depends(auth.require_admin),
 ) -> UserRead:
     doc = find_user_or_404(user_id)
@@ -109,12 +116,17 @@ async def update_user(
         updates["role"] = data["role"]
     if updates:
         db.users().update_one({"_id": doc["_id"]}, {"$set": updates})
+        audit_trail.record(
+            current, "user_update", request,
+            {"target": doc.get("email"), "keys": sorted(updates.keys()), "values": updates},
+        )
     return user_doc_to_read(db.users().find_one({"_id": doc["_id"]}))
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: str,
+    request: Request,
     current: dict = Depends(auth.require_admin),
 ) -> None:
     doc = find_user_or_404(user_id)
@@ -131,6 +143,10 @@ async def delete_user(
             status_code=status.HTTP_409_CONFLICT, detail="Cannot delete the last admin"
         )
     db.users().delete_one({"_id": doc["_id"]})
+    audit_trail.record(
+        current, "user_delete", request,
+        {"target": doc.get("email"), "role": auth.effective_role(doc)},
+    )
 
 
 def audit_doc_to_read(doc: dict) -> AuditLogRead:
@@ -147,7 +163,11 @@ def audit_doc_to_read(doc: dict) -> AuditLogRead:
 
 
 @router.get("/audit-logs", response_model=list[AuditLogRead])
-async def list_audit_logs(limit: int = 150) -> list[AuditLogRead]:
+async def list_audit_logs(
+    limit: int = 150,
+    _: dict = Depends(auth.require_super_admin),
+) -> list[AuditLogRead]:
+    """Super-admin only: who changed what, when, from where."""
     docs = list(db.audit_logs().find().sort("timestamp", -1).limit(limit))
     return [audit_doc_to_read(d) for d in docs]
 

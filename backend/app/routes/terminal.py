@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 
@@ -11,6 +11,7 @@ from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 from app.services.monitoring import authenticate_agent
 
 router = APIRouter(prefix="/api/v1/terminal", tags=["terminal"])
@@ -40,6 +41,7 @@ class AgentCommandResult(BaseModel):
 async def queue_command(
     server_id: str,
     body: CommandCreate,
+    request: Request,
     user: dict = Depends(auth.require_super_admin),
 ) -> dict:
     sid = parse_id(server_id)
@@ -60,6 +62,18 @@ async def queue_command(
         "created_by": user["_id"],
     }
     db.terminal_commands().insert_one(doc)
+    audit_trail.record(
+        user,
+        "terminal_command",
+        request,
+        {
+            "server": server.get("hostname") or server.get("name"),
+            "server_id": str(server["_id"]),
+            "command_id": command_id,
+            "command": body.command,
+            "timeout_seconds": body.timeout_seconds,
+        },
+    )
     emit(
         "terminal_queued",
         {"server_id": server_id, "command_id": command_id},

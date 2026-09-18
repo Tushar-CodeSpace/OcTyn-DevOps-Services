@@ -5,6 +5,7 @@ from app.database import models as db
 from app.database.connection import new_id
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, TokenResponse, UserRead
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -63,6 +64,7 @@ async def me(user: dict = Depends(auth.get_current_user)) -> UserRead:
 @router.post("/change-password")
 async def change_password(
     body: ChangePasswordRequest,
+    request: Request,
     current_user: dict = Depends(auth.get_current_user),
 ) -> dict:
     if not auth.verify_password(body.current_password, current_user["password_hash"]):
@@ -76,4 +78,5 @@ async def change_password(
 
     new_hash = auth.hash_password(body.new_password)
     db.users().update_one({"_id": current_user["_id"]}, {"$set": {"password_hash": new_hash}})
+    audit_trail.record(current_user, "password_change", request, None)
     return {"message": "Password changed successfully"}

@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.database import models as db
@@ -15,6 +15,7 @@ from app.database.connection import new_id, parse_id
 from app.realtime import emit
 from app.schemas.server import ServerCreate, ServerRead, ServerUpdate
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 
 router = APIRouter(
     prefix="/api/v1/servers",
@@ -73,9 +74,12 @@ async def list_servers(
     "",
     response_model=ServerRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def create_server(body: ServerCreate) -> ServerRead:
+async def create_server(
+    body: ServerCreate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> ServerRead:
     verify_site_exists(body.site_id)
     if db.servers().find_one({"hostname": body.hostname}):
         raise HTTPException(
@@ -87,6 +91,10 @@ async def create_server(body: ServerCreate) -> ServerRead:
         | {"_id": new_id(), "site_id": sid, "status": "unknown", "last_seen_at": None, "created_at": now(), "updated_at": now()}
     )
     db.servers().insert_one(doc)
+    audit_trail.record(
+        current, "server_create", request,
+        {"server": doc.get("hostname"), "name": doc.get("name"), "server_id": str(doc["_id"])},
+    )
     created = server_doc_to_read(doc)
     emit("server_created", created.model_dump(mode="json"))
     return created
@@ -100,9 +108,13 @@ async def get_server(server_id: str) -> ServerRead:
 @router.patch(
     "/{server_id}",
     response_model=ServerRead,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def update_server(server_id: str, body: ServerUpdate) -> ServerRead:
+async def update_server(
+    server_id: str,
+    body: ServerUpdate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> ServerRead:
     doc = find_server_or_404(server_id)
     updates: dict = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "site_id" in updates:
@@ -116,6 +128,15 @@ async def update_server(server_id: str, body: ServerUpdate) -> ServerRead:
     if updates:
         updates["updated_at"] = now()
         db.servers().update_one({"_id": doc["_id"]}, {"$set": updates})
+        audit_trail.record(
+            current, "server_update", request,
+            {
+                "server": doc.get("hostname"),
+                "server_id": str(doc["_id"]),
+                "keys": sorted(k for k in updates.keys() if k != "updated_at"),
+                "values": updates,
+            },
+        )
     updated = server_doc_to_read(db.servers().find_one({"_id": doc["_id"]}))
     emit("server_updated", updated.model_dump(mode="json"))
     return updated
@@ -124,9 +145,12 @@ async def update_server(server_id: str, body: ServerUpdate) -> ServerRead:
 @router.delete(
     "/{server_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def delete_server(server_id: str) -> None:
+async def delete_server(
+    server_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> None:
     doc = find_server_or_404(server_id)
     # Cascade: agent credentials, services, metrics, config overrides and alerts
     db.api_keys().delete_many({"server_id": doc["_id"]})
@@ -135,6 +159,10 @@ async def delete_server(server_id: str) -> None:
     db.alerts().delete_many({"server_id": doc["_id"]})
     db.server_configs().delete_many({"server_id": doc["_id"]})
     db.servers().delete_one({"_id": doc["_id"]})
+    audit_trail.record(
+        current, "server_delete", request,
+        {"server": doc.get("hostname"), "name": doc.get("name"), "server_id": str(doc["_id"])},
+    )
     emit("server_deleted", {"server_id": str(doc["_id"])})
 
 

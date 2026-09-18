@@ -32,8 +32,11 @@ const nav = [
 
 const adminNav = [
   { to: "/users", label: "Users & Roles", icon: Users },
-  { to: "/audit-logs", label: "Audit logs", icon: History },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+];
+
+const superAdminNav = [
+  { to: "/audit-logs", label: "Audit logs", icon: History },
 ];
 
 
@@ -88,7 +91,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const currentNavItem = location.pathname.startsWith("/servers/")
     ? { label: "Server details", icon: Activity }
-    : ([...nav, ...adminNav].find((n) => n.to === location.pathname) ?? {
+    : ([...nav, ...adminNav, ...superAdminNav].find((n) => n.to === location.pathname) ?? {
         label: "Dashboard",
         icon: LayoutDashboard,
       });
@@ -222,7 +225,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   </span>
                 )}
               </div>
-              {adminNav.map(({ to, label, icon: Icon }) => (
+              {(isSuperAdmin ? [...adminNav, ...superAdminNav] : adminNav).map(({ to, label, icon: Icon }) => (
                 <NavLink
                   key={to}
                   to={to}

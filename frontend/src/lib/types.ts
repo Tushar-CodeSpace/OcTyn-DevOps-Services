@@ -8,14 +8,64 @@ export interface User {
   created_at?: string | null;
 }
 
+export type AuditAction =
+  | "login"
+  | "logout"
+  | "password_change"
+  | "connectivity_lost"
+  | "connectivity_restored"
+  | "terminal_command"
+  | "config_update"
+  | "data_prune"
+  | "template_save"
+  | "template_delete"
+  | "service_add"
+  | "service_update"
+  | "service_remove"
+  | "server_create"
+  | "server_update"
+  | "server_delete"
+  | "site_create"
+  | "site_update"
+  | "site_delete"
+  | "user_create"
+  | "user_update"
+  | "user_delete"
+  | "api_key_create"
+  | "api_key_revoke"
+  | "api_key_delete";
+
 export interface AuditLog {
   id: string;
   user_id?: string;
   email: string;
-  action: "login" | "logout" | "connectivity_lost" | "connectivity_restored" | "terminal_command";
+  action: AuditAction;
   ip_address?: string;
   user_agent?: string;
-  details?: { target?: string; ip?: string; latency_ms?: number | null } | null;
+  details?: {
+    target?: string;
+    ip?: string;
+    latency_ms?: number | null;
+    area?: string;
+    kind?: string;
+    name?: string;
+    server?: string;
+    server_id?: string;
+    service?: string;
+    port?: number | null;
+    command?: string;
+    command_id?: string;
+    keys?: string[];
+    values?: Record<string, unknown>;
+    target_name?: string;
+    key_name?: string;
+    client?: string;
+    code?: string;
+    location?: string;
+    enabled?: boolean;
+    exit_code?: number | null;
+    summary?: string;
+  } | null;
   timestamp: string;
 }
 

@@ -3,12 +3,13 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.schemas.site import SiteCreate, SiteRead, SiteUpdate
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 
 router = APIRouter(
     prefix="/api/v1/sites",
@@ -52,13 +53,20 @@ async def list_sites() -> list[SiteRead]:
     "",
     response_model=SiteRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def create_site(body: SiteCreate) -> SiteRead:
+async def create_site(
+    body: SiteCreate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> SiteRead:
     if db.sites().find_one({"code": body.code}):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Site code already exists")
     doc = body.model_dump() | {"_id": new_id(), "created_at": now(), "updated_at": now()}
     db.sites().insert_one(doc)
+    audit_trail.record(
+        current, "site_create", request,
+        {"client": doc["client"], "code": doc["code"], "location": doc["location"]},
+    )
     return site_doc_to_read(doc)
 
 
@@ -70,9 +78,13 @@ async def get_site(site_id: str) -> SiteRead:
 @router.patch(
     "/{site_id}",
     response_model=SiteRead,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def update_site(site_id: str, body: SiteUpdate) -> SiteRead:
+async def update_site(
+    site_id: str,
+    body: SiteUpdate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> SiteRead:
     doc = find_site_or_404(site_id)
     updates: dict = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "code" in updates and updates["code"] != doc["code"]:
@@ -81,15 +93,22 @@ async def update_site(site_id: str, body: SiteUpdate) -> SiteRead:
     if updates:
         updates["updated_at"] = now()
         db.sites().update_one({"_id": doc["_id"]}, {"$set": updates})
+        audit_trail.record(
+            current, "site_update", request,
+            {"client": doc["client"], "code": doc["code"], "keys": sorted(updates.keys()), "values": updates},
+        )
     return site_doc_to_read(db.sites().find_one({"_id": doc["_id"]}))
 
 
 @router.delete(
     "/{site_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def delete_site(site_id: str) -> None:
+async def delete_site(
+    site_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> None:
     doc = find_site_or_404(site_id)
     if db.servers().count_documents({"site_id": doc["_id"]}) > 0:
         raise HTTPException(
@@ -97,6 +116,10 @@ async def delete_site(site_id: str) -> None:
             detail="Site has servers; delete or move them first",
         )
     db.sites().delete_one({"_id": doc["_id"]})
+    audit_trail.record(
+        current, "site_delete", request,
+        {"client": doc["client"], "code": doc["code"], "location": doc["location"]},
+    )
 
 
 from pydantic import BaseModel
@@ -115,8 +138,17 @@ async def get_disabled_clients() -> list[str]:
 
 @router.patch(
     "/clients/{client_name}/alerts",
-    dependencies=[Depends(auth.require_admin)],
 )
-async def toggle_client_alerts(client_name: str, body: ClientAlertPatch) -> dict:
+async def toggle_client_alerts(
+    client_name: str,
+    body: ClientAlertPatch,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> dict:
     """Enable or disable alerts for an entire client (all its sites)."""
-    return app_settings.set_client_alerts_enabled(client_name, body.enabled)
+    result = app_settings.set_client_alerts_enabled(client_name, body.enabled)
+    audit_trail.record(
+        current, "config_update", request,
+        {"area": "client-alerts", "target": client_name, "enabled": body.enabled},
+    )
+    return result

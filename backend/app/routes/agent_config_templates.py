@@ -2,12 +2,13 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id
 from app.schemas.agent_config import RuntimeTemplateRead, RuntimeTemplateUpsert
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 
 router = APIRouter(prefix="/api/v1/agent-config-templates", tags=["agent-config-templates"])
 
@@ -50,9 +51,17 @@ async def list_runtime_templates(
     response_model=RuntimeTemplateRead,
     dependencies=[Depends(auth.require_admin)],
 )
-async def upsert_runtime_template(payload: RuntimeTemplateUpsert) -> RuntimeTemplateRead:
+async def upsert_runtime_template(
+    payload: RuntimeTemplateUpsert,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> RuntimeTemplateRead:
     """Dashboard endpoint (admin): create or replace a template by name."""
     data = payload.model_dump()
+    audit_trail.record(
+        current, "template_save", request,
+        {"kind": "runtime", "name": data["name"]},
+    )
     existing = db.agent_config_templates().find_one({"name": data["name"]})
     if existing:
         db.agent_config_templates().update_one(
@@ -77,8 +86,17 @@ async def upsert_runtime_template(payload: RuntimeTemplateUpsert) -> RuntimeTemp
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(auth.require_admin)],
 )
-async def delete_runtime_template(template_id: str) -> None:
+async def delete_runtime_template(
+    template_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> None:
     """Dashboard endpoint (admin): delete a runtime template."""
-    res = db.agent_config_templates().delete_one({"_id": template_id})
-    if res.deleted_count == 0:
+    doc = db.agent_config_templates().find_one({"_id": template_id})
+    if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    db.agent_config_templates().delete_one({"_id": template_id})
+    audit_trail.record(
+        current, "template_delete", request,
+        {"kind": "runtime", "name": doc.get("name")},
+    )

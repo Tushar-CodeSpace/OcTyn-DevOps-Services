@@ -2,11 +2,12 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
+from app.services import audit as audit_trail
 from app.schemas.widgets import (
     WidgetHistoryPoint,
     WidgetSampleCreate,
@@ -131,9 +132,17 @@ async def list_widget_templates(
     response_model=WidgetTemplateRead,
     dependencies=[Depends(auth.require_admin)],
 )
-async def upsert_widget_template(payload: WidgetTemplateUpsert) -> WidgetTemplateRead:
+async def upsert_widget_template(
+    payload: WidgetTemplateUpsert,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> WidgetTemplateRead:
     """Dashboard endpoint (admin): create or replace a template by name."""
     data = payload.model_dump()
+    audit_trail.record(
+        current, "template_save", request,
+        {"kind": "widget", "name": data["name"], "database": data.get("database"), "collection": data.get("collection")},
+    )
     existing = db.widget_templates().find_one({"name": data["name"]})
     if existing:
         db.widget_templates().update_one(
@@ -158,11 +167,20 @@ async def upsert_widget_template(payload: WidgetTemplateUpsert) -> WidgetTemplat
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(auth.require_admin)],
 )
-async def delete_widget_template(template_id: str) -> None:
+async def delete_widget_template(
+    template_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> None:
     """Dashboard endpoint (admin): delete a reusable widget template."""
-    res = db.widget_templates().delete_one({"_id": template_id})
-    if res.deleted_count == 0:
+    doc = db.widget_templates().find_one({"_id": template_id})
+    if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    db.widget_templates().delete_one({"_id": template_id})
+    audit_trail.record(
+        current, "template_delete", request,
+        {"kind": "widget", "name": doc.get("name")},
+    )
 
 
 @router.get("/servers/{server_id}", response_model=list[WidgetSampleRead])

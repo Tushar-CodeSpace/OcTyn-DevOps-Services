@@ -47,7 +47,7 @@ export default function App() {
       <Route path="/alerts" element={<Protected><Alerts /></Protected>} />
       <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
       <Route path="/users" element={<Protected><AdminOnly><UsersPage /></AdminOnly></Protected>} />
-      <Route path="/audit-logs" element={<Protected><AdminOnly><AuditLogsPage /></AdminOnly></Protected>} />
+      <Route path="/audit-logs" element={<Protected><SuperAdminOnly><AuditLogsPage /></SuperAdminOnly></Protected>} />
       <Route path="/whatsapp" element={<Protected><AdminOnly><WhatsAppPage /></AdminOnly></Protected>} />
       <Route path="/servers/:id/terminal" element={<BareProtected><SuperAdminOnly><TerminalPage /></SuperAdminOnly></BareProtected>} />
       <Route path="*" element={<Navigate to="/" replace />} />

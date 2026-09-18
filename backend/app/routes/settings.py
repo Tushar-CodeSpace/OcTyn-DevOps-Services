@@ -2,11 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services import app_settings
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 from app.services import notifier
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -48,7 +49,8 @@ async def get_settings(_: dict = Depends(auth.get_current_user)) -> AlertSetting
 @router.patch("", response_model=AlertSettingsRead)
 async def update_settings(
     body: AlertSettingsUpdate,
-    _: dict = Depends(auth.require_admin),
+    request: Request,
+    current: dict = Depends(auth.require_admin),
 ) -> AlertSettingsRead:
     """Persist settings overrides. Admin role required."""
     alert_patch: dict[str, object] = {}
@@ -70,15 +72,30 @@ async def update_settings(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    audit_trail.record(
+        current,
+        "config_update",
+        request,
+        {"area": "platform-settings", "keys": sorted({**alert_patch, **sync_patch}.keys()), "values": {**alert_patch, **sync_patch}},
+    )
     merged = {**app_settings.get_alert_config(), **app_settings.get_config_sync_config()}
     return AlertSettingsRead(**merged)
 
 
 @router.post("/prune")
-async def trigger_data_pruning(_: dict = Depends(auth.require_admin)) -> dict:
+async def trigger_data_pruning(
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> dict:
     """Manually trigger instant data pruning of telemetry & logs older than retention period (7 days)."""
     from app.services.background import cleanup_expired_data
     result = cleanup_expired_data()
+    audit_trail.record(
+        current,
+        "data_prune",
+        request,
+        {"area": "data-prune", "retention_days": result.get("retention_days"), "result": result},
+    )
     return {
         "status": "success",
         "message": f"Successfully pruned data older than {result['retention_days']} days.",
@@ -129,7 +146,8 @@ async def get_whatsapp(_: dict = Depends(auth.get_current_user)) -> WhatsAppSett
 @router.patch("/whatsapp", response_model=WhatsAppSettingsRead)
 async def update_whatsapp(
     body: WhatsAppSettingsUpdate,
-    _: dict = Depends(auth.require_admin),
+    request: Request,
+    current: dict = Depends(auth.require_admin),
 ) -> WhatsAppSettingsRead:
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if "whatsapp_api_key" in patch and not patch["whatsapp_api_key"].strip():
@@ -142,6 +160,12 @@ async def update_whatsapp(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    audit_trail.record(
+        current,
+        "config_update",
+        request,
+        {"area": "whatsapp", "keys": sorted(patch.keys()), "values": patch},
+    )
     return _wa_read_model(dict(app_settings.get_notification_config()))
 
 

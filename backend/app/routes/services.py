@@ -2,13 +2,14 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
 from app.schemas.service import ServiceCreate, ServiceRead, ServiceReport, ServiceUpdate
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 from app.services.monitoring import authenticate_agent
 
 router = APIRouter(prefix="/api/v1", tags=["services"])
@@ -99,12 +100,17 @@ async def list_services(
     "/servers/{server_id}/services",
     response_model=ServiceRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def add_service_to_monitor(server_id: str, body: ServiceCreate) -> ServiceRead:
+async def add_service_to_monitor(
+    server_id: str,
+    body: ServiceCreate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> ServiceRead:
     """Admin endpoint: Add a new service to monitor for a server."""
     sid = parse_id(server_id)
-    if sid is None or db.servers().find_one({"_id": sid}) is None:
+    server = db.servers().find_one({"_id": sid}) if sid else None
+    if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
     raw_name = body.name.strip()
@@ -135,6 +141,15 @@ async def add_service_to_monitor(server_id: str, body: ServiceCreate) -> Service
     saved = db.services().find_one({"server_id": sid, "name": raw_name}) or doc
 
     _sync_monitored_services_to_config(server_id)
+    audit_trail.record(
+        current, "service_add", request,
+        {
+            "server": server.get("hostname") or server.get("name"),
+            "server_id": str(sid),
+            "service": raw_name,
+            "port": port,
+        },
+    )
     emit("service_update", {"server_id": str(sid)}, room=f"server:{sid}")
     return service_doc_to_read(saved)
 
@@ -142,9 +157,13 @@ async def add_service_to_monitor(server_id: str, body: ServiceCreate) -> Service
 @router.patch(
     "/services/{service_id}",
     response_model=ServiceRead,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def update_service_monitoring(service_id: str, body: ServiceUpdate) -> ServiceRead:
+async def update_service_monitoring(
+    service_id: str,
+    body: ServiceUpdate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> ServiceRead:
     """Admin endpoint: Enable/disable monitoring or update port for a service."""
     oid = parse_id(service_id)
     doc = db.services().find_one({"_id": oid}) if oid else None
@@ -163,6 +182,17 @@ async def update_service_monitoring(service_id: str, body: ServiceUpdate) -> Ser
 
     if updates:
         db.services().update_one({"_id": doc["_id"]}, {"$set": updates})
+        server = db.servers().find_one({"_id": doc["server_id"]})
+        audit_trail.record(
+            current, "service_update", request,
+            {
+                "server": (server or {}).get("hostname") or (server or {}).get("name"),
+                "server_id": str(doc["server_id"]),
+                "service": doc.get("name"),
+                "keys": sorted(updates.keys()),
+                "values": updates,
+            },
+        )
 
     updated = db.services().find_one({"_id": doc["_id"]}) or doc
     _sync_monitored_services_to_config(str(doc["server_id"]))
@@ -173,9 +203,12 @@ async def update_service_monitoring(service_id: str, body: ServiceUpdate) -> Ser
 @router.delete(
     "/services/{service_id}",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def delete_service_from_monitoring(service_id: str) -> dict:
+async def delete_service_from_monitoring(
+    service_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> dict:
     """Admin endpoint: Delete a service from the monitoring list."""
     oid = parse_id(service_id)
     doc = db.services().find_one({"_id": oid}) if oid else None
@@ -183,6 +216,16 @@ async def delete_service_from_monitoring(service_id: str) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
 
     db.services().delete_one({"_id": doc["_id"]})
+    server = db.servers().find_one({"_id": doc["server_id"]})
+    audit_trail.record(
+        current, "service_remove", request,
+        {
+            "server": (server or {}).get("hostname") or (server or {}).get("name"),
+            "server_id": str(doc["server_id"]),
+            "service": doc.get("name"),
+            "port": doc.get("port"),
+        },
+    )
     _sync_monitored_services_to_config(str(doc["server_id"]))
     emit("service_update", {"server_id": str(doc["server_id"])}, room=f"server:{doc['server_id']}")
     return {"success": True}

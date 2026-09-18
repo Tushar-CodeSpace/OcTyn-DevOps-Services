@@ -7,12 +7,13 @@ stored. Revoking sets status=revoked (keeps history).
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyRead
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 from app.services.monitoring import hash_api_key, now
 
 router = APIRouter(
@@ -45,9 +46,13 @@ def key_doc_to_read(doc: dict) -> ApiKeyRead:
     "/servers/{server_id}/api-keys",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def create_api_key(server_id: str, body: ApiKeyCreate) -> ApiKeyCreateResponse:
+async def create_api_key(
+    server_id: str,
+    body: ApiKeyCreate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> ApiKeyCreateResponse:
     server = find_server_or_404(server_id)
     raw_key = "cm-" + secrets.token_urlsafe(32)
     doc = {
@@ -60,6 +65,14 @@ async def create_api_key(server_id: str, body: ApiKeyCreate) -> ApiKeyCreateResp
         "last_used_at": None,
     }
     db.api_keys().insert_one(doc)
+    audit_trail.record(
+        current, "api_key_create", request,
+        {
+            "server": server.get("hostname") or server.get("name"),
+            "server_id": str(server["_id"]),
+            "key_name": body.name,
+        },
+    )
     read = key_doc_to_read(doc)
     return ApiKeyCreateResponse(**read.model_dump(), raw_key=raw_key)
 
@@ -80,9 +93,13 @@ async def list_api_keys(server_id: str) -> list[ApiKeyRead]:
 @router.delete(
     "/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(auth.require_admin)],
 )
-async def revoke_or_delete_api_key(key_id: str, force: bool = False) -> None:
+async def revoke_or_delete_api_key(
+    key_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+    force: bool = False,
+) -> None:
     oid = parse_id(key_id)
     doc = db.api_keys().find_one({"_id": oid}) if oid else None
     if doc is None:
@@ -90,5 +107,16 @@ async def revoke_or_delete_api_key(key_id: str, force: bool = False) -> None:
 
     if force or doc.get("status") == "revoked":
         db.api_keys().delete_one({"_id": doc["_id"]})
+        action = "api_key_delete"
     else:
         db.api_keys().update_one({"_id": doc["_id"]}, {"$set": {"status": "revoked"}})
+        action = "api_key_revoke"
+    server = db.servers().find_one({"_id": doc.get("server_id")})
+    audit_trail.record(
+        current, action, request,
+        {
+            "server": (server or {}).get("hostname") or (server or {}).get("name"),
+            "server_id": str(doc.get("server_id")),
+            "key_name": doc.get("name"),
+        },
+    )

@@ -39,6 +39,7 @@ def ensure_indexes() -> None:
     _ensure_index(db.api_keys(), [("server_id", 1)])
     _ensure_index(db.users(), [("email", 1)], unique=True)
     _ensure_index(db.services(), [("server_id", 1), ("name", 1)], unique=True)
+    _ensure_index(db.audit_logs(), [("timestamp", -1)])
     _ensure_index(db.alerts(), [("status", 1), ("created_at", -1)])
     _ensure_index(db.alerts(), [("server_id", 1), ("status", 1)])
     _ensure_index(

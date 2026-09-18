@@ -4,13 +4,14 @@
 - GET/PATCH /api/v1/agent-config/{server_id}  (dashboard, admin for writes) per-server overrides.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import parse_id
 from app.schemas.agent_config import AgentConfig, AgentConfigOverrideUpdate
 from app.services import app_settings
 from app.services import authentication as auth
+from app.services import audit as audit_trail
 from app.services.monitoring import authenticate_agent
 
 router = APIRouter(prefix="/api/v1", tags=["agent-config"])
@@ -43,14 +44,15 @@ async def get_server_agent_config(
 @router.patch(
     "/agent-config/{server_id}",
     response_model=AgentConfig,
-    dependencies=[Depends(auth.require_admin)],
 )
 async def update_server_agent_config(
     server_id: str,
     body: AgentConfigOverrideUpdate,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
 ) -> AgentConfig:
     """Dashboard endpoint: upsert per-server agent-config overrides."""
-    find_server_or_404(server_id)
+    server = find_server_or_404(server_id)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
         result = app_settings.update_agent_config(server_id, patch)
@@ -58,4 +60,16 @@ async def update_server_agent_config(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    audit_trail.record(
+        current,
+        "config_update",
+        request,
+        {
+            "area": "agent-config",
+            "target": server.get("hostname") or server.get("name"),
+            "server_id": str(server["_id"]),
+            "keys": sorted(patch.keys()),
+            "values": patch,
+        },
+    )
     return AgentConfig(**result)
