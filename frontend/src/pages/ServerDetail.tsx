@@ -55,6 +55,18 @@ function SectionHead({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
+const DARK_TOOLTIP = {
+  contentStyle: {
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: "12px",
+    color: "#e2e8f0",
+    fontSize: 12,
+  },
+  labelStyle: { color: "#94a3b8" },
+  itemStyle: { color: "#e2e8f0" },
+};
+
 function Spark({
   id,
   data,
@@ -147,26 +159,38 @@ export default function ServerDetail() {
   const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
   const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
   const [savingWidgets, setSavingWidgets] = useState(false);
-  // Per-widget overview chart mode (bar/pie/trend), persisted per server
+  // Default overview chart for all data widgets (bar/pie/trend), user preference
   type WidgetChartMode = "bar" | "pie" | "trend";
-  const chartStoreKey = `octyn:widget-charts:${id ?? "unknown"}`;
-  const [widgetChart, setWidgetChart] = useState<Record<string, WidgetChartMode>>(() => {
+  const WIDGET_CHART_KEY = "octyn:widget-default-chart";
+  const [defaultChart, setDefaultChart] = useState<WidgetChartMode>(() => {
     try {
-      const raw = JSON.parse(localStorage.getItem(chartStoreKey) ?? "{}") as Record<string, string>;
-      const clean: Record<string, WidgetChartMode> = {};
-      for (const [k, v] of Object.entries(raw)) {
-        if (v === "bar" || v === "pie" || v === "trend") clean[k] = v;
-      }
-      return clean;
+      const v = localStorage.getItem(WIDGET_CHART_KEY);
+      if (v === "bar" || v === "pie" || v === "trend") return v;
     } catch {
-      return {};
+      /* private mode etc. */
     }
+    return "bar";
   });
   const [widgetHistory, setWidgetHistory] = useState<Record<string, WidgetHistoryPoint[]>>({});
   const [loadingHist, setLoadingHist] = useState<Record<string, boolean>>({});
-  // Refs so the socket handler (stable closure) sees current chart modes
-  const chartModeRef = useRef(widgetChart);
-  chartModeRef.current = widgetChart;
+  // Ref so the socket handler (stable closure) sees the current default
+  const defaultChartRef = useRef(defaultChart);
+  defaultChartRef.current = defaultChart;
+
+  function chooseDefaultChart(mode: WidgetChartMode) {
+    setDefaultChart(mode);
+    try {
+      localStorage.setItem(WIDGET_CHART_KEY, mode);
+    } catch {
+      /* private mode etc. */
+    }
+  }
+
+  // Prefetch trend histories whenever Trend is the default
+  useEffect(() => {
+    if (defaultChart !== "trend") return;
+    for (const w of widgets ?? []) void loadWidgetHistory(w.widget_name);
+  }, [defaultChart, widgets]);
 
   function exportMetricsCsv() {
     if (!metrics.length || !server) return;
@@ -455,19 +479,6 @@ export default function ServerDetail() {
     }
   }
 
-  function pickChart(name: string, mode: "bar" | "pie" | "trend") {
-    setWidgetChart((prev) => {
-      const next = { ...prev, [name]: mode };
-      try {
-        localStorage.setItem(chartStoreKey, JSON.stringify(next));
-      } catch {
-        /* private mode etc. */
-      }
-      return next;
-    });
-    if (mode === "trend") void loadWidgetHistory(name);
-  }
-
   function openWidgetCfg() {
     setWidgetDraft(
       (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }))
@@ -526,6 +537,16 @@ export default function ServerDetail() {
     if (/(fail|error|expired|invalid|reject)/.test(l)) return "#f87171";
     if (/(pending|retry|warn|unknown)/.test(l)) return "#fbbf24";
     return "#38bdf8";
+  }
+
+  function widgetRangeLabel(w: { received_at: string; window_minutes: number }): string {
+    const end = new Date(w.received_at).getTime();
+    if (!isFinite(end)) return `last ${w.window_minutes}m → now`;
+    const from = new Date(end - w.window_minutes * 60000).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${from} → now`;
   }
 
   async function fetchSnapshotDocuments(snapshotId: string): Promise<Record<string, unknown>[]> {
@@ -723,7 +744,7 @@ export default function ServerDetail() {
         delete next[d.widget_name];
         return next;
       });
-      if (chartModeRef.current[d.widget_name] === "trend") void loadWidgetHistory(d.widget_name, true);
+      if (defaultChartRef.current === "trend") void loadWidgetHistory(d.widget_name, true);
     };
 
     socket.on("metric", onMetric);
@@ -1547,7 +1568,7 @@ export default function ServerDetail() {
                 <div>
                   <CardTitle className="text-sm">Data widgets ({entries.length})</CardTitle>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Live tallies from the site agent — pick Bar, Pie or Trend per widget.
+                    Live tallies from the site agent — default chart set in Configure widgets.
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => setActiveTab("widgets")}>
@@ -1560,7 +1581,7 @@ export default function ServerDetail() {
                 {entries.map(({ def, sample }) => {
                   const name = sample?.widget_name ?? def?.name ?? "?";
                   const gid = name.replace(/[^A-Za-z0-9_-]/g, "_");
-                  const mode = widgetChart[name] ?? "bar";
+                  const mode = defaultChart;
                   const state = sample ? widgetState(sample) : "stale";
                   const groups = Object.entries(sample?.groups ?? {}).sort((a, b) => b[1] - a[1]);
                   const total = sample?.total ?? 0;
@@ -1619,24 +1640,6 @@ export default function ServerDetail() {
                             {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
                           </span>
                         )}
-                      </div>
-
-                      <div className="inline-flex self-start rounded-lg border border-slate-700 bg-slate-900 p-0.5">
-                        {(["bar", "pie", "trend"] as const).map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => pickChart(name, m)}
-                            className={cn(
-                              "rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
-                              mode === m
-                                ? "bg-emerald-500/20 text-emerald-300"
-                                : "text-slate-400 hover:text-slate-200"
-                            )}
-                          >
-                            {m === "trend" ? "Trend" : m === "pie" ? "Pie" : "Bars"}
-                          </button>
-                        ))}
                       </div>
 
                       {!sample ? (
@@ -1769,8 +1772,9 @@ export default function ServerDetail() {
 
                       <div className="mt-auto flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
                         <span>
-                          {sample ? `total ${total.toLocaleString()} · updated ${formatTime(sample.received_at)}` : "no data yet"}
+                          {sample ? widgetRangeLabel(sample) : "no data yet"}
                         </span>
+                        {sample && <span>updated {formatTime(sample.received_at)}</span>}
                       </div>
                     </div>
                   );
@@ -1824,7 +1828,7 @@ export default function ServerDetail() {
                 domain={[0, (dataMax: number) => Math.min(100, Math.max(10, Math.ceil(dataMax * 1.15)))]}
                 tickFormatter={(v) => `${v}%`}
               />
-              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }} />
+              <Tooltip {...DARK_TOOLTIP} />
               <Area type="monotone" dataKey="cpu" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#cpuGrad)" name="CPU %" />
               <Area type="monotone" dataKey="memory" stroke="#a78bfa" strokeWidth={2} fillOpacity={1} fill="url(#memGrad)" name="Memory %" />
               <Area type="monotone" dataKey="disk" stroke="#fbbf24" strokeWidth={2} fillOpacity={1} fill="url(#diskGrad)" name="Disk %" />
@@ -1853,7 +1857,7 @@ export default function ServerDetail() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
                   <YAxis stroke="#64748b" fontSize={11} />
-                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }} />
+                  <Tooltip {...DARK_TOOLTIP} />
                   <Area type="monotone" dataKey="diskReadRate" stroke="#34d399" strokeWidth={2} fillOpacity={1} fill="url(#readGrad)" name="Read MB/s" />
                   <Area type="monotone" dataKey="diskWriteRate" stroke="#fbbf24" strokeWidth={2} fillOpacity={1} fill="url(#writeGrad)" name="Write MB/s" />
                 </AreaChart>
@@ -1879,7 +1883,7 @@ export default function ServerDetail() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
                   <YAxis stroke="#64748b" fontSize={11} />
-                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }} />
+                  <Tooltip {...DARK_TOOLTIP} />
                   <Area type="monotone" dataKey="sent" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#sentGrad)" name="Sent MB/s" />
                   <Area type="monotone" dataKey="received" stroke="#f472b6" strokeWidth={2} fillOpacity={1} fill="url(#recvGrad)" name="Received MB/s" />
                 </AreaChart>
@@ -2270,9 +2274,10 @@ export default function ServerDetail() {
                       </>
                     )}
 
-                    <div className="mt-auto flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
-                      <span>collected {formatTime(w.collected_at)}</span>
-                      <span>every {widgetIntervalSeconds(w.widget_name)}s</span>
+                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
+                      <span className="truncate">collected {formatTime(w.collected_at)}</span>
+                      <span className="shrink-0">{widgetRangeLabel(w)}</span>
+                      <span className="shrink-0">every {widgetIntervalSeconds(w.widget_name)}s</span>
                     </div>
                   </div>
                 );
@@ -2801,6 +2806,26 @@ export default function ServerDetail() {
                 <Skeleton className="h-28 w-full" />
               ) : (
                 <>
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+                    <span className="text-xs text-slate-400">Default chart for overview cards:</span>
+                    <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
+                      {(["bar", "pie", "trend"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => chooseDefaultChart(m)}
+                          className={cn(
+                            "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                            defaultChart === m
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {m === "trend" ? "Trend" : m === "pie" ? "Pie" : "Bars"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {widgetDraft.length === 0 && (
                     <p className="rounded-lg border border-dashed border-slate-700/80 p-4 text-xs text-slate-500">
                       No widgets configured. Add one below — e.g. name{" "}
