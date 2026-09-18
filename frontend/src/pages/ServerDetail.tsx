@@ -55,17 +55,32 @@ function SectionHead({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
-const DARK_TOOLTIP = {
-  contentStyle: {
-    background: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "12px",
-    color: "#e2e8f0",
-    fontSize: 12,
-  },
-  labelStyle: { color: "#94a3b8" },
-  itemStyle: { color: "#e2e8f0" },
-};
+function WidgetTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-xl">
+      {label != null && label !== "" && (
+        <p className="mb-1 font-mono text-[11px] text-slate-400">{label}</p>
+      )}
+      <div className="flex flex-col gap-0.5">
+        {payload.map((p: any, i: number) => (
+          <p key={i} className="flex items-center justify-between gap-4 text-slate-300">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: p.color || p.payload?.fill || "#94a3b8" }}
+              />
+              <span className="truncate">{p.name}</span>
+            </span>
+            <span className="font-mono font-semibold">
+              {typeof p.value === "number" ? p.value.toLocaleString() : p.value}
+            </span>
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function Spark({
   id,
@@ -1828,7 +1843,7 @@ export default function ServerDetail() {
                 domain={[0, (dataMax: number) => Math.min(100, Math.max(10, Math.ceil(dataMax * 1.15)))]}
                 tickFormatter={(v) => `${v}%`}
               />
-              <Tooltip {...DARK_TOOLTIP} />
+              <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
               <Area type="monotone" dataKey="cpu" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#cpuGrad)" name="CPU %" />
               <Area type="monotone" dataKey="memory" stroke="#a78bfa" strokeWidth={2} fillOpacity={1} fill="url(#memGrad)" name="Memory %" />
               <Area type="monotone" dataKey="disk" stroke="#fbbf24" strokeWidth={2} fillOpacity={1} fill="url(#diskGrad)" name="Disk %" />
@@ -1857,7 +1872,7 @@ export default function ServerDetail() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
                   <YAxis stroke="#64748b" fontSize={11} />
-                  <Tooltip {...DARK_TOOLTIP} />
+                  <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
                   <Area type="monotone" dataKey="diskReadRate" stroke="#34d399" strokeWidth={2} fillOpacity={1} fill="url(#readGrad)" name="Read MB/s" />
                   <Area type="monotone" dataKey="diskWriteRate" stroke="#fbbf24" strokeWidth={2} fillOpacity={1} fill="url(#writeGrad)" name="Write MB/s" />
                 </AreaChart>
@@ -1883,7 +1898,7 @@ export default function ServerDetail() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
                   <YAxis stroke="#64748b" fontSize={11} />
-                  <Tooltip {...DARK_TOOLTIP} />
+                  <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
                   <Area type="monotone" dataKey="sent" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#sentGrad)" name="Sent MB/s" />
                   <Area type="monotone" dataKey="received" stroke="#f472b6" strokeWidth={2} fillOpacity={1} fill="url(#recvGrad)" name="Received MB/s" />
                 </AreaChart>
