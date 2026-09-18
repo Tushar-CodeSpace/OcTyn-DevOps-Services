@@ -159,6 +159,7 @@ async def cancel_command(
         )
     else:
         new_status = current_status
+    cancelled_on = db.servers().find_one({"_id": command["server_id"]})
     db.audit_logs().insert_one(
         {
             "_id": new_id(),
@@ -168,6 +169,7 @@ async def cancel_command(
             "ip_address": None,
             "user_agent": None,
             "details": {
+                "server": (cancelled_on or {}).get("hostname") or (cancelled_on or {}).get("name"),
                 "server_id": server_id_str,
                 "command_id": str(cid),
                 "command": command["command"],
@@ -231,6 +233,7 @@ async def command_result(
     )
     server_id_str = str(server_id)
     if body.complete:
+        executed_on = db.servers().find_one({"_id": server_id})
         db.audit_logs().insert_one(
             {
                 "_id": new_id(),
@@ -240,6 +243,7 @@ async def command_result(
                 "ip_address": None,
                 "user_agent": "lite agent",
                 "details": {
+                    "server": (executed_on or {}).get("hostname") or (executed_on or {}).get("name"),
                     "server_id": server_id_str,
                     "command_id": body.command_id,
                     "command": command["command"],
