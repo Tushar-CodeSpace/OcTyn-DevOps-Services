@@ -1808,14 +1808,18 @@ export default function ServerDetail() {
 
       {/* Data widgets on overview — Bar / Pie / Trend per widget */}
       {(() => {
-        const defs = agentCfg?.custom_widgets ?? [];
-        const defByName = new Map(defs.map((d) => [d.name, d]));
-        const seen = new Set((widgets ?? []).map((s) => s.widget_name));
-        const entries: { def?: CustomWidgetSpec; sample?: WidgetSample }[] = [
-          ...(widgets ?? []).map((s) => ({ sample: s, def: defByName.get(s.widget_name) })),
-          ...defs.filter((d) => !seen.has(d.name)).map((d) => ({ def: d })),
-        ];
-        if (entries.length === 0) return null;
+         const defs = agentCfg?.custom_widgets ?? [];
+         const defByName = new Map(defs.map((d) => [d.name, d]));
+         const seen = new Set((widgets ?? []).map((s) => s.widget_name));
+         const entries: { def?: CustomWidgetSpec; sample?: WidgetSample }[] = [
+           ...(widgets ?? []).map((s) => ({ sample: s, def: defByName.get(s.widget_name) })),
+           ...defs.filter((d) => !seen.has(d.name)).map((d) => ({ def: d })),
+          ].sort((a, b) => {
+            const an = (a as { def?: CustomWidgetSpec; sample?: WidgetSample }).def?.name ?? ((a as { sample?: WidgetSample }).sample?.widget_name ?? "");
+            const bn = (b as { def?: CustomWidgetSpec; sample?: WidgetSample }).def?.name ?? ((b as { sample?: WidgetSample }).sample?.widget_name ?? "");
+            return an.localeCompare(bn);
+          });
+         if (entries.length === 0) return null;
         return (
           <Card>
             <CardHeader className="flex-col gap-1">
@@ -2516,7 +2520,7 @@ export default function ServerDetail() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {widgets.map((w) => {
+              {[...widgets].sort((a, b) => a.widget_name.localeCompare(b.widget_name)).map((w) => {
                 const state = widgetState(w);
                 const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
                 return (
