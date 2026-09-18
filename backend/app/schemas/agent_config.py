@@ -105,7 +105,6 @@ class RuntimeTemplateUpsert(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=300)
-    monitored_services: list[str] = Field(default_factory=list)
     monitoring_interval_seconds: int = Field(default=60, ge=1, le=3600)
     http_timeout_seconds: int = Field(default=10, ge=1, le=120)
     http_retry_count: int = Field(default=3, ge=0, le=10)

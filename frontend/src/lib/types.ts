@@ -224,7 +224,6 @@ export interface AgentRuntimeTemplate {
   id: string;
   name: string;
   description: string;
-  monitored_services: string[];
   monitoring_interval_seconds: number;
   http_timeout_seconds: number;
   http_retry_count: number;

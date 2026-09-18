@@ -21,7 +21,6 @@ def template_doc_to_read(doc: dict) -> RuntimeTemplateRead:
         id=str(doc["_id"]),
         name=doc["name"],
         description=doc.get("description", ""),
-        monitored_services=[str(s) for s in doc.get("monitored_services", [])],
         monitoring_interval_seconds=int(doc.get("monitoring_interval_seconds", 60)),
         http_timeout_seconds=int(doc.get("http_timeout_seconds", 10)),
         http_retry_count=int(doc.get("http_retry_count", 3)),
@@ -54,8 +53,6 @@ async def list_runtime_templates(
 async def upsert_runtime_template(payload: RuntimeTemplateUpsert) -> RuntimeTemplateRead:
     """Dashboard endpoint (admin): create or replace a template by name."""
     data = payload.model_dump()
-    # Normalize service/target lists the same way per-server overrides are stored.
-    data["monitored_services"] = [s.strip() for s in data["monitored_services"] if s.strip()]
     existing = db.agent_config_templates().find_one({"name": data["name"]})
     if existing:
         db.agent_config_templates().update_one(

@@ -307,7 +307,6 @@ export default function ServerDetail() {
       const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          monitored_services: agentCfg.monitored_services,
           monitoring_interval_seconds: agentCfg.monitoring_interval_seconds,
           http_timeout_seconds: agentCfg.http_timeout_seconds,
           http_retry_count: agentCfg.http_retry_count,
@@ -338,7 +337,6 @@ export default function ServerDetail() {
     if (!t || !agentCfg) return;
     setAgentCfg({
       ...agentCfg,
-      monitored_services: [...t.monitored_services],
       monitoring_interval_seconds: t.monitoring_interval_seconds,
       http_timeout_seconds: t.http_timeout_seconds,
       http_retry_count: t.http_retry_count,
@@ -359,7 +357,6 @@ export default function ServerDetail() {
         body: JSON.stringify({
           name,
           description: "",
-          monitored_services: agentCfg.monitored_services,
           monitoring_interval_seconds: agentCfg.monitoring_interval_seconds,
           http_timeout_seconds: agentCfg.http_timeout_seconds,
           http_retry_count: agentCfg.http_retry_count,
