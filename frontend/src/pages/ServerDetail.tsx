@@ -16,7 +16,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
+import type { AgentConfig, AgentRuntimeTemplate, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -176,6 +176,18 @@ export default function ServerDetail() {
   const [savingWidgets, setSavingWidgets] = useState(false);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
   const [templatePick, setTemplatePick] = useState("");
+  const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
+  const [runtimePick, setRuntimePick] = useState("");
+  const [runtimeTplName, setRuntimeTplName] = useState("");
+
+  // Load runtime templates whenever the Agent runtime modal opens
+  useEffect(() => {
+    if (!agentCfgOpen) return;
+    setRuntimePick("");
+    apiFetch<AgentRuntimeTemplate[]>("/agent-config-templates")
+      .then(setRuntimeTemplates)
+      .catch(() => setRuntimeTemplates([]));
+  }, [agentCfgOpen]);
   // Default overview chart for all data widgets (bar/pie/trend), user preference
   type WidgetChartMode = "bar" | "pie" | "trend";
   const WIDGET_CHART_KEY = "octyn:widget-default-chart";
@@ -318,6 +330,65 @@ export default function ServerDetail() {
       });
     } finally {
       setSavingCfg(false);
+    }
+  }
+
+  function applyRuntimeTemplate() {
+    const t = runtimeTemplates?.find((x) => x.id === runtimePick);
+    if (!t || !agentCfg) return;
+    setAgentCfg({
+      ...agentCfg,
+      monitored_services: [...t.monitored_services],
+      monitoring_interval_seconds: t.monitoring_interval_seconds,
+      http_timeout_seconds: t.http_timeout_seconds,
+      http_retry_count: t.http_retry_count,
+      config_poll_interval_seconds: t.config_poll_interval_seconds,
+      connectivity_poll_interval_seconds: t.connectivity_poll_interval_seconds,
+      connectivity_targets: t.connectivity_targets.map((x) => ({ ...x })),
+    });
+    showToast({ severity: "info", title: "Template applied", message: `"${t.name}" loaded — press Save agent config to activate.` });
+  }
+
+  async function saveAsRuntimeTemplate() {
+    if (!agentCfg) return;
+    const name = runtimeTplName.trim();
+    if (!name) return;
+    try {
+      const saved = await apiFetch<AgentRuntimeTemplate>("/agent-config-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          description: "",
+          monitored_services: agentCfg.monitored_services,
+          monitoring_interval_seconds: agentCfg.monitoring_interval_seconds,
+          http_timeout_seconds: agentCfg.http_timeout_seconds,
+          http_retry_count: agentCfg.http_retry_count,
+          config_poll_interval_seconds: agentCfg.config_poll_interval_seconds,
+          connectivity_poll_interval_seconds: agentCfg.connectivity_poll_interval_seconds,
+          connectivity_targets: agentCfg.connectivity_targets,
+        }),
+      });
+      setRuntimeTemplates((prev) => {
+        const next = (prev ?? []).filter((x) => x.id !== saved.id);
+        return [...next, saved].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setRuntimeTplName("");
+      showToast({ severity: "info", title: "Template saved", message: `"${saved.name}" is now reusable on other servers.` });
+    } catch (err) {
+      showToast({ severity: "critical", title: "Save failed", message: err instanceof Error ? err.message : undefined });
+    }
+  }
+
+  async function deleteRuntimeTemplate() {
+    const t = runtimeTemplates?.find((x) => x.id === runtimePick);
+    if (!t || !confirm(`Delete runtime template "${t.name}"? Servers already using it are unaffected.`)) return;
+    try {
+      await apiFetch(`/agent-config-templates/${t.id}`, { method: "DELETE" });
+      setRuntimeTemplates((prev) => (prev ?? []).filter((x) => x.id !== t.id));
+      setRuntimePick("");
+      showToast({ severity: "info", title: "Template deleted", message: `"${t.name}" removed from the library.` });
+    } catch (err) {
+      showToast({ severity: "critical", title: "Delete failed", message: err instanceof Error ? err.message : undefined });
     }
   }
 
@@ -2463,6 +2534,56 @@ export default function ServerDetail() {
               Centrally managed per-server overrides for this site's agent — no site redeploy needed.
               Agents reflect changes within a few seconds.
             </p>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+              <span className="text-xs text-slate-400">From template:</span>
+              <select
+                value={runtimePick}
+                onChange={(e) => setRuntimePick(e.target.value)}
+                className="h-8 min-w-40 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
+              >
+                <option value="">
+                  {runtimeTemplates === null
+                    ? "Loading templates…"
+                    : runtimeTemplates.length === 0
+                      ? "No templates yet — save one below"
+                      : "Choose a template…"}
+                </option>
+                {(runtimeTemplates ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} · every {t.monitoring_interval_seconds}s · {t.connectivity_targets.length} targets
+                  </option>
+                ))}
+              </select>
+              <Button size="sm" variant="ghost" disabled={!runtimePick} onClick={applyRuntimeTemplate}>
+                Apply
+              </Button>
+              {isAdmin && runtimePick && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
+                  onClick={() => void deleteRuntimeTemplate()}
+                  title="Delete this template from the library"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
+                <span className="text-xs text-slate-400">Save current as template:</span>
+                <input
+                  type="text"
+                  value={runtimeTplName}
+                  onChange={(e) => setRuntimeTplName(e.target.value)}
+                  placeholder="e.g. Fast checks"
+                  className="h-8 min-w-40 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                />
+                <Button size="sm" variant="ghost" disabled={!runtimeTplName.trim()} onClick={() => void saveAsRuntimeTemplate()}>
+                  Save
+                </Button>
+              </div>
+            )}
             <div className="flex flex-col gap-4 overflow-y-auto">
               {!agentCfg ? (
                 <Skeleton className="h-28 w-full" />

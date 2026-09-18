@@ -11,6 +11,7 @@ from app.database.indexes import ensure_indexes
 from app.realtime import init_loop, sio
 from app.routes import (
     agent_config,
+    agent_config_templates,
     agent_update,
     alerts,
     api_keys,
@@ -78,6 +79,7 @@ app.include_router(alerts.router)
 app.include_router(settings_routes.router)
 app.include_router(dashboard.router)
 app.include_router(agent_config.router)
+app.include_router(agent_config_templates.router)
 app.include_router(agent_update.router)
 app.include_router(connectivity.router)
 app.include_router(terminal.router)

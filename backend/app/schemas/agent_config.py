@@ -5,6 +5,7 @@ runtime knob lives here and is pulled from the hub on boot and whenever it
 changes in the dashboard.
 """
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -95,3 +96,27 @@ class AgentConfigOverrideUpdate(BaseModel):
         if v is not None and not (0 <= v <= 23):
             raise ValueError("config_sync_hour must be between 0 and 23")
         return v
+
+
+class RuntimeTemplateUpsert(BaseModel):
+    """Reusable agent-runtime settings snapshot shared across servers."""
+
+    model_config = {"extra": "forbid"}
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=300)
+    monitored_services: list[str] = Field(default_factory=list)
+    monitoring_interval_seconds: int = Field(default=60, ge=1, le=3600)
+    http_timeout_seconds: int = Field(default=10, ge=1, le=120)
+    http_retry_count: int = Field(default=3, ge=0, le=10)
+    config_poll_interval_seconds: int = Field(default=5, ge=1, le=300)
+    connectivity_poll_interval_seconds: int = Field(default=15, ge=1, le=3600)
+    connectivity_targets: list[ConnectivityTarget] = Field(default_factory=list)
+
+
+class RuntimeTemplateRead(RuntimeTemplateUpsert):
+    """Stored runtime template with identity and timestamps."""
+
+    id: str
+    created_at: datetime
+    updated_at: datetime

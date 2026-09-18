@@ -57,6 +57,10 @@ def widget_templates() -> Collection:
     return get_db()["widget_templates"]
 
 
+def agent_config_templates() -> Collection:
+    return get_db()["agent_config_templates"]
+
+
 def audit_logs() -> Collection:
     return get_db()["audit_logs"]
 

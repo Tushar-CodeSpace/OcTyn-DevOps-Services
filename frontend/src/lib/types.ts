@@ -220,6 +220,21 @@ export interface WidgetTemplate extends CustomWidgetSpec {
   updated_at: string;
 }
 
+export interface AgentRuntimeTemplate {
+  id: string;
+  name: string;
+  description: string;
+  monitored_services: string[];
+  monitoring_interval_seconds: number;
+  http_timeout_seconds: number;
+  http_retry_count: number;
+  config_poll_interval_seconds: number;
+  connectivity_poll_interval_seconds: number;
+  connectivity_targets: ConnectivityTarget[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AgentConfig {
   config_sync_enabled: boolean;
   config_sync_hour: number;
