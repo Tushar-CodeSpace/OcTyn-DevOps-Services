@@ -44,21 +44,21 @@ def compute_status(
     return "offline"
 
 
-def effective_status(heartbeat_status: str, has_active_warning: bool) -> str:
-    """Display status: heartbeat liveness upgraded by active warning alerts.
+def effective_status(heartbeat_status: str, has_active_alert: bool) -> str:
+    """Display status: heartbeat liveness upgraded by active warning/critical alerts.
 
     Priority: offline > unknown > warning(alerts) > online. A dead server never
-    looks healthier because of a lingering warning, and vice versa.
+    looks healthier because of a lingering alert, and vice versa.
     """
     if heartbeat_status in ("offline", "unknown"):
         return heartbeat_status
-    return "warning" if has_active_warning else heartbeat_status
+    return "warning" if has_active_alert else heartbeat_status
 
 
-def has_active_warning(server_id) -> bool:
-    """True when the server has at least one active warning-severity alert."""
+def has_active_alert(server_id) -> bool:
+    """True when the server has at least one active warning/critical alert."""
     doc = db.alerts().find_one(
-        {"server_id": server_id, "status": "active", "severity": "warning"},
+        {"server_id": server_id, "status": "active", "severity": {"$in": ["warning", "critical"]}},
         {"_id": 1},
     )
     return doc is not None

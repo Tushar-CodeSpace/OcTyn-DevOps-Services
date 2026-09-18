@@ -119,7 +119,7 @@ async def ingest_metric(
                 "last_seen_at": doc["recorded_at"],
                 "status": monitoring.effective_status(
                     monitoring.compute_status(doc["recorded_at"], doc["recorded_at"]),
-                    monitoring.has_active_warning(server["_id"]),
+                    monitoring.has_active_alert(server["_id"]),
                 ),
                 "updated_at": doc["recorded_at"],
             }

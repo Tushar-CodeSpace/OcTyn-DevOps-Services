@@ -20,17 +20,17 @@ def now() -> datetime:
 
 
 def sweep_server_health() -> int:
-    """Recompute status for every server from heartbeat age + active warnings."""
+    """Recompute status for every server from heartbeat age + active warning/critical alerts."""
     changed = 0
-    warning_servers = {
+    alert_servers = {
         a["server_id"]
         for a in db.alerts().find(
-            {"status": "active", "severity": "warning"}, {"server_id": 1}
+            {"status": "active", "severity": {"$in": ["warning", "critical"]}}, {"server_id": 1}
         )
     }
     for server in db.servers().find({}):
         status = compute_status(server.get("last_seen_at"))
-        status = effective_status(status, server["_id"] in warning_servers)
+        status = effective_status(status, server["_id"] in alert_servers)
         if status != server.get("status"):
             db.servers().update_one(
                 {"_id": server["_id"]},
