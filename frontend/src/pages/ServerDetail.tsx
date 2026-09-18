@@ -1685,9 +1685,7 @@ export default function ServerDetail() {
                                     <Cell key={d.name} fill={groupHex(d.name)} />
                                   ))}
                                 </Pie>
-                                <Tooltip
-                                  contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }}
-                                />
+                                <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
                               </PieChart>
                             </ResponsiveContainer>
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
@@ -1724,9 +1722,7 @@ export default function ServerDetail() {
                               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                               <XAxis dataKey="time" stroke="#64748b" fontSize={10} minTickGap={32} />
                               <YAxis stroke="#64748b" fontSize={10} width={36} />
-                              <Tooltip
-                                contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: "12px" }}
-                              />
+                              <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
                               <Area
                                 type="monotone"
                                 dataKey="total"
