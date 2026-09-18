@@ -1168,7 +1168,6 @@ export default function ServerDetail() {
   const memUsed =
     latest && latest.memory_total ? latest.memory_total - (latest.memory_available ?? 0) : null;
   const diskUsed = latest && latest.disk_total ? latest.disk_total - (latest.disk_free ?? 0) : null;
-  const apiErrRate = latest?.api_error_rate_percent ?? 0;
 
   const statusChecks: { label: string; detail: string; state: CheckState }[] = [
     {
@@ -1610,12 +1609,6 @@ export default function ServerDetail() {
             <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Disk IOPS</p>
               <p className="mt-0.5 truncate font-mono text-sm text-slate-200">avg {avgIops} · peak {stats.iopsMax} ops/s</p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">API health</p>
-              <p className={cn("mt-0.5 truncate font-mono text-sm", apiErrRate > 5 ? "text-red-400" : apiErrRate > 0 ? "text-amber-400" : "text-emerald-400")}>
-                {latest ? `${apiErrRate.toFixed(1)}% err` : "—"} · 4xx {latest?.api_requests_4xx ?? 0} / 5xx {latest?.api_requests_5xx ?? 0}
-              </p>
             </div>
             <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Network sent</p>
