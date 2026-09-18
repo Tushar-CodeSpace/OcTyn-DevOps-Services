@@ -6,6 +6,7 @@ import {
   AreaChart,
   CartesianGrid,
   Cell,
+  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -1846,13 +1847,26 @@ export default function ServerDetail() {
                     ...(pieOther > 0 ? [{ name: "Other", value: pieOther }] : []),
                   ];
                   const hist = widgetHistory[name] ?? [];
-                  const failedKey = Object.keys(hist[0]?.groups ?? sample?.groups ?? {}).find((k) =>
-                    /fail|error/i.test(k)
-                  );
+                  // Dynamic top groups across history (no hardcoded status names)
+                  const trendPeak: Record<string, number> = {};
+                  for (const p of hist) {
+                    for (const [k, v] of Object.entries(p.groups ?? {})) {
+                      trendPeak[k] = Math.max(trendPeak[k] ?? 0, v);
+                    }
+                  }
+                  if (sample) {
+                    for (const [k, v] of Object.entries(sample.groups ?? {})) {
+                      trendPeak[k] = Math.max(trendPeak[k] ?? 0, v);
+                    }
+                  }
+                  const trendKeys = Object.entries(trendPeak)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3)
+                    .map(([k]) => k);
                   const trendData = hist.map((p) => ({
                     time: trendTimeLabel(p.received_at),
                     total: p.total,
-                    failed: failedKey ? (p.groups[failedKey] ?? 0) : 0,
+                    groups: p.groups ?? {},
                   }));
                   return (
                     <div
@@ -1971,16 +1985,17 @@ export default function ServerDetail() {
                                 fill={`url(#wtot-${gid})`}
                                 name="Total"
                               />
-                              {failedKey && (
-                                <Area
+                              {trendKeys.map((k) => (
+                                <Line
+                                  key={k}
                                   type="monotone"
-                                  dataKey="failed"
-                                  stroke="#f87171"
+                                  dataKey={(row: any) => row.groups?.[k] ?? 0}
+                                  name={k}
+                                  stroke={groupHex(k)}
                                   strokeWidth={2}
-                                  fillOpacity={0}
-                                  name={failedKey}
+                                  dot={false}
                                 />
-                              )}
+                              ))}
                             </AreaChart>
                           </ResponsiveContainer>
                         )
