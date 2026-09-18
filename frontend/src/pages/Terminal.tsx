@@ -94,7 +94,7 @@ function getCompletions(currentInput: string, historyList: string[]) {
 
 export default function TerminalPage() {
     const { id } = useParams<{ id: string }>();
-    const { isSuperAdmin } = useAuth();
+    const { isAdmin } = useAuth();
     const [input, setInput] = useState("");
     const [output, setOutput] = useState("Connected to remote server.\n");
     const [running, setRunning] = useState(false);
@@ -154,7 +154,7 @@ export default function TerminalPage() {
     }, [running, nanoState]);
 
     useEffect(() => {
-        if (!id || !isSuperAdmin) return;
+        if (!id || !isAdmin) return;
         const socket = getSocket();
         const join = () => socket.emit("join", id);
         const onOutput = (event: TerminalOutput) => {
@@ -198,7 +198,7 @@ export default function TerminalPage() {
             socket.off("connect", join);
             socket.off("terminal_output", onOutput);
         };
-    }, [id, isSuperAdmin]);
+    }, [id, isAdmin]);
 
     async function handleSaveNano() {
         if (!nanoState || !id || savingNano) return;
@@ -367,8 +367,8 @@ export default function TerminalPage() {
         }
     }
 
-    if (!isSuperAdmin) {
-        return <div className="p-8 text-sm text-red-400">Super admin access required.</div>;
+    if (!isAdmin) {
+        return <div className="p-8 text-sm text-red-400">Admin access required.</div>;
     }
 
     const serverLabel = server?.name ?? (id ? `servers/${id}` : "unknown");

@@ -119,7 +119,7 @@ function Spark({
 
 export default function ServerDetail() {
   const { id } = useParams<{ id: string }>();
-  const { isAdmin, isSuperAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const [server, setServer] = useState<Server | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [metrics, setMetrics] = useState<Metric[]>([]);
@@ -1429,12 +1429,12 @@ export default function ServerDetail() {
             Agent runtime
           </Button>
 
-          {isSuperAdmin && (
+          {isAdmin && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => window.open(`/servers/${id}/terminal`, "_blank", "noopener,noreferrer")}
-              title="Open a super-admin terminal for this site server"
+              title="Open a terminal for this site server"
               aria-label="Open terminal"
               className="h-9 w-9 px-0"
             >

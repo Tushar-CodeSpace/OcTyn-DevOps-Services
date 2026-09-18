@@ -42,7 +42,7 @@ async def queue_command(
     server_id: str,
     body: CommandCreate,
     request: Request,
-    user: dict = Depends(auth.require_super_admin),
+    user: dict = Depends(auth.require_admin),
 ) -> dict:
     sid = parse_id(server_id)
     server = db.servers().find_one({"_id": sid}) if sid else None
@@ -103,7 +103,7 @@ async def command_status(
 async def cancel_command(
     server_id: str,
     command_id: str,
-    user: dict = Depends(auth.require_super_admin),
+    user: dict = Depends(auth.require_admin),
 ) -> dict:
     """Super-admin requests cancellation (Ctrl+C) of an in-flight command."""
     sid = parse_id(server_id)

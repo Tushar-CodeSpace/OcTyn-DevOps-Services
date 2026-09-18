@@ -49,7 +49,7 @@ export default function App() {
       <Route path="/users" element={<Protected><AdminOnly><UsersPage /></AdminOnly></Protected>} />
       <Route path="/audit-logs" element={<Protected><SuperAdminOnly><AuditLogsPage /></SuperAdminOnly></Protected>} />
       <Route path="/whatsapp" element={<Protected><AdminOnly><WhatsAppPage /></AdminOnly></Protected>} />
-      <Route path="/servers/:id/terminal" element={<BareProtected><SuperAdminOnly><TerminalPage /></SuperAdminOnly></BareProtected>} />
+      <Route path="/servers/:id/terminal" element={<BareProtected><AdminOnly><TerminalPage /></AdminOnly></BareProtected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
