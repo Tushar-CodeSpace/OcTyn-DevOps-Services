@@ -610,13 +610,33 @@ export default function ServerDetail() {
   }
 
   function widgetRangeLabel(w: { received_at: string; window_minutes: number }): string {
-    const end = new Date(w.received_at).getTime();
-    if (!isFinite(end)) return `last ${w.window_minutes}m → now`;
-    const from = new Date(end - w.window_minutes * 60000).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    return `${from} → now`;
+    const endMs = new Date(w.received_at).getTime();
+    if (!isFinite(endMs)) return `last ${w.window_minutes}m → now`;
+    const end = new Date(endMs);
+    const from = new Date(endMs - w.window_minutes * 60000);
+    const time = from.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const sameDay =
+      from.getFullYear() === end.getFullYear() &&
+      from.getMonth() === end.getMonth() &&
+      from.getDate() === end.getDate();
+    if (sameDay) return `${time} → now`;
+    const date = from.toLocaleDateString([], { day: "numeric", month: "numeric" });
+    return `${date}, ${time} → now`;
+  }
+
+  function trendTimeLabel(iso: string): string {
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return "";
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const today = new Date();
+    if (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    )
+      return time;
+    const date = d.toLocaleDateString([], { day: "numeric", month: "numeric" });
+    return `${date} ${time}`;
   }
 
   async function fetchSnapshotDocuments(snapshotId: string): Promise<Record<string, unknown>[]> {
@@ -1666,7 +1686,7 @@ export default function ServerDetail() {
                     /fail|error/i.test(k)
                   );
                   const trendData = hist.map((p) => ({
-                    time: new Date(p.received_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    time: trendTimeLabel(p.received_at),
                     total: p.total,
                     failed: failedKey ? (p.groups[failedKey] ?? 0) : 0,
                   }));
