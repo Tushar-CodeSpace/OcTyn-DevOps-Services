@@ -171,6 +171,18 @@ async def update_service_monitoring(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
 
     updates = {}
+    if body.name is not None:
+        new_name = body.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Name must not be blank")
+        if new_name != doc.get("name"):
+            clash = db.services().find_one({"server_id": doc["server_id"], "name": new_name})
+            if clash and str(clash["_id"]) != str(doc["_id"]):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"A service named {new_name!r} already exists on this server",
+                )
+            updates["name"] = new_name
     if body.enabled is not None:
         updates["enabled"] = body.enabled
         if not body.enabled:

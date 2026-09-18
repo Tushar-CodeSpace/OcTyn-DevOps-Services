@@ -30,3 +30,4 @@ class ServiceCreate(BaseModel):
 class ServiceUpdate(BaseModel):
     enabled: Optional[bool] = None
     port: Optional[int] = Field(default=None, ge=1, le=65535)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)

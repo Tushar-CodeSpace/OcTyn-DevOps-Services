@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, LayoutGrid, Loader2, MapPin, MinusCircle, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -156,6 +156,19 @@ export default function ServerDetail() {
   const [newServiceName, setNewServiceName] = useState("");
   const [newServicePort, setNewServicePort] = useState("");
   const [addingService, setAddingService] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [editServiceName, setEditServiceName] = useState("");
+  const [editServicePort, setEditServicePort] = useState("");
+  const [savingServiceEdit, setSavingServiceEdit] = useState(false);
+
+  // Server edit state
+  const [allSites, setAllSites] = useState<Site[]>([]);
+  const [serverEditOpen, setServerEditOpen] = useState(false);
+  const [editServerName, setEditServerName] = useState("");
+  const [editServerHostname, setEditServerHostname] = useState("");
+  const [editServerIp, setEditServerIp] = useState("");
+  const [editServerSiteId, setEditServerSiteId] = useState("");
+  const [savingServer, setSavingServer] = useState(false);
 
   // Tabbed layout + compact filter state (handy with many ports / backups)
   const [activeTab, setActiveTab] = useState<"overview" | "services" | "widgets" | "backups" | "keys">("overview");
@@ -277,6 +290,7 @@ export default function ServerDetail() {
       apiFetch<Site[]>("/sites"),
     ]);
     setSite(sites.find((x) => x.id === s.site_id) ?? null);
+    setAllSites(sites);
     setServer(s);
     setServices(svc);
     setKeys(k);
@@ -1016,6 +1030,84 @@ export default function ServerDetail() {
     }
   }
 
+  function startEditService(s: Service) {
+    setEditingServiceId(s.id);
+    setEditServiceName(s.name);
+    setEditServicePort(s.port != null ? String(s.port) : "");
+  }
+
+  async function saveServiceEdit() {
+    if (!id || !editingServiceId || savingServiceEdit) return;
+    const name = editServiceName.trim();
+    if (!name) {
+      showToast({ severity: "critical", title: "Invalid name", message: "Service name must not be blank." });
+      return;
+    }
+    const portRaw = editServicePort.trim();
+    const port = portRaw ? Number(portRaw) : null;
+    if (portRaw && (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535)) {
+      showToast({ severity: "critical", title: "Invalid port", message: "Port must be 1–65535 or blank." });
+      return;
+    }
+    setSavingServiceEdit(true);
+    try {
+      await apiFetch(`/services/${editingServiceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, port }),
+      });
+      showToast({ severity: "info", title: "Service Updated", message: `Saved "${name}"${port ? ` :${port}` : ""}` });
+      setEditingServiceId(null);
+      const updated = await apiFetch<Service[]>(`/servers/${id}/services`);
+      setServices(updated);
+    } catch (err) {
+      showToast({ severity: "critical", title: "Update Failed", message: err instanceof Error ? err.message : "Error" });
+    } finally {
+      setSavingServiceEdit(false);
+    }
+  }
+
+  function openServerEdit() {
+    if (!server) return;
+    setEditServerName(server.name);
+    setEditServerHostname(server.hostname);
+    setEditServerIp(server.ip_address ?? "");
+    setEditServerSiteId(server.site_id);
+    setServerEditOpen(true);
+  }
+
+  async function saveServerEdit() {
+    if (!id || savingServer) return;
+    const name = editServerName.trim();
+    const hostname = editServerHostname.trim();
+    if (!name || !hostname) {
+      showToast({ severity: "critical", title: "Invalid server", message: "Name and hostname must not be blank." });
+      return;
+    }
+    setSavingServer(true);
+    try {
+      const updated = await apiFetch<Server>(`/servers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name,
+          hostname,
+          ip_address: editServerIp.trim() ? editServerIp.trim() : null,
+          ...(server && editServerSiteId && editServerSiteId !== server.site_id
+            ? { site_id: editServerSiteId }
+            : {}),
+        }),
+      });
+      setServer(updated);
+      const matchedSite = allSites.find((x) => x.id === updated.site_id) ?? null;
+      setSite(matchedSite);
+      setServerEditOpen(false);
+      showToast({ severity: "info", title: "Server Updated", message: `Saved "${updated.name}".` });
+    } catch (err) {
+      showToast({ severity: "critical", title: "Update Failed", message: err instanceof Error ? err.message : "Error" });
+    } finally {
+      setSavingServer(false);
+    }
+  }
+
   // ---- Compact services: search + status filter + pagination ----
   // NOTE: hooks must stay above the `if (!server)` early return (React error #310).
   const svcCounts = useMemo(() => {
@@ -1315,6 +1407,17 @@ export default function ServerDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openServerEdit}
+              title="Edit server name, hostname, IP and site"
+            >
+              <Pencil className="mr-1.5 h-4 w-4 text-sky-400" />
+              Edit server
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -2196,7 +2299,7 @@ export default function ServerDetail() {
                 <TableHead>Status</TableHead>
                 <TableHead>Monitoring</TableHead>
                 <TableHead>Last checked</TableHead>
-                {isAdmin && <TableHead className="w-12"></TableHead>}
+                {isAdmin && <TableHead className="w-24"></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -2209,10 +2312,42 @@ export default function ServerDetail() {
               )}
               {pagedServices.map((s) => {
                 const isEnabled = s.enabled ?? true;
+                const editing = editingServiceId === s.id;
                 return (
                   <TableRow key={s.id} className={!isEnabled ? "opacity-60" : undefined}>
-                    <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell>{s.port ?? "—"}</TableCell>
+                    <TableCell className="font-medium">
+                      {editing ? (
+                        <input
+                          autoFocus
+                          value={editServiceName}
+                          onChange={(e) => setEditServiceName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveServiceEdit();
+                            if (e.key === "Escape") setEditingServiceId(null);
+                          }}
+                          className="h-7 w-full min-w-28 rounded-md border border-emerald-600 bg-slate-950 px-2 text-xs text-slate-200 outline-none"
+                        />
+                      ) : (
+                        s.name
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editing ? (
+                        <input
+                          value={editServicePort}
+                          onChange={(e) => setEditServicePort(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveServiceEdit();
+                            if (e.key === "Escape") setEditingServiceId(null);
+                          }}
+                          placeholder="—"
+                          type="number"
+                          className="h-7 w-20 rounded-md border border-emerald-600 bg-slate-950 px-2 text-xs text-slate-200 outline-none"
+                        />
+                      ) : (
+                        s.port ?? "—"
+                      )}
+                    </TableCell>
                     <TableCell>
                       <ServiceBadge status={!isEnabled ? "disabled" : s.status} />
                     </TableCell>
@@ -2239,15 +2374,50 @@ export default function ServerDetail() {
                     <TableCell>{formatTime(s.last_checked_at)}</TableCell>
                     {isAdmin && (
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-slate-400 hover:bg-red-500/10 hover:text-red-400"
-                          onClick={() => void deleteService(s.id, s.name)}
-                          title="Delete service"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {editing ? (
+                          <span className="inline-flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                              onClick={() => void saveServiceEdit()}
+                              disabled={savingServiceEdit}
+                              title="Save changes (Enter)"
+                            >
+                              <Save className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-700/40 hover:text-slate-200"
+                              onClick={() => setEditingServiceId(null)}
+                              title="Cancel (Esc)"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </span>
+                        ) : (
+                          <span className="inline-flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:bg-sky-500/10 hover:text-sky-300"
+                              onClick={() => startEditService(s)}
+                              title="Edit name / port"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:bg-red-500/10 hover:text-red-400"
+                              onClick={() => void deleteService(s.id, s.name)}
+                              title="Delete service"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </span>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>
@@ -2505,6 +2675,83 @@ export default function ServerDetail() {
           </Table>
         </CardContent>
       </Card>
+      )}
+
+      {serverEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-lg flex-col rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Pencil className="h-4 w-4 text-sky-400" />
+                Edit server
+              </CardTitle>
+              <button
+                onClick={() => setServerEditOpen(false)}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="-mt-1 text-xs text-slate-500">
+              Display name, hostname, IP address and site assignment.
+            </p>
+            <div className="flex flex-col gap-3 overflow-y-auto pt-1">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-slate-400">Display name</Label>
+                  <input
+                    type="text"
+                    value={editServerName}
+                    onChange={(e) => setEditServerName(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-3 text-xs text-slate-200 outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-slate-400">Hostname</Label>
+                  <input
+                    type="text"
+                    value={editServerHostname}
+                    onChange={(e) => setEditServerHostname(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-3 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-slate-400">IP address (optional)</Label>
+                  <input
+                    type="text"
+                    value={editServerIp}
+                    onChange={(e) => setEditServerIp(e.target.value)}
+                    placeholder="no IP"
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-3 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-slate-400">Site</Label>
+                  <select
+                    value={editServerSiteId}
+                    onChange={(e) => setEditServerSiteId(e.target.value)}
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 px-2 text-xs text-slate-200 outline-none focus:border-sky-500"
+                  >
+                    {allSites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.client} · {s.location}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button onClick={() => void saveServerEdit()} disabled={savingServer} size="sm">
+                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                  {savingServer ? "Saving…" : "Save server"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setServerEditOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {agentCfgOpen && (
