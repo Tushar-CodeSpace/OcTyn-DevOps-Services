@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
-from app.services import audit as audit_trail
+from app.services import audit as audit_trail, app_settings
 from app.schemas.widgets import (
     WidgetHistoryPoint,
     WidgetSampleCreate,
@@ -37,6 +37,8 @@ def widget_doc_to_read(doc: dict) -> WidgetSampleRead:
         window_minutes=int(doc["window_minutes"]),
         total=int(doc["total"]),
         groups={str(k): int(v) for k, v in (doc.get("groups") or {}).items()},
+        alert_threshold_percent=float(doc.get("alert_threshold_percent", 50.0)),
+        alert_window_minutes=int(doc.get("alert_window_minutes", 15)),
         collected_at=doc["collected_at"],
         received_at=doc["received_at"],
         error=doc.get("error"),
@@ -59,11 +61,26 @@ async def ingest_widget_sample(
 
     groups = {str(k)[:100]: max(0, int(v)) for k, v in (payload.groups or {}).items()}
     if len(groups) > MAX_GROUPS_PER_SAMPLE:
-        # Keep the largest buckets so a runaway group-by can't bloat the doc.
         groups = dict(sorted(groups.items(), key=lambda kv: kv[1], reverse=True)[:MAX_GROUPS_PER_SAMPLE])
     total = max(0, int(payload.total))
     if total < sum(groups.values()):
         total = sum(groups.values())
+
+    try:
+        agent_cfg = app_settings.get_agent_config(server["_id"])
+        custom_widgets = agent_cfg.get("custom_widgets", [])
+        matched_widget = next(
+            (w for w in custom_widgets
+             if w.get("name") == payload.widget_name.strip()
+             and w.get("database") == payload.database.strip()
+             and w.get("collection") == payload.collection.strip()),
+            {},
+        )
+    except Exception:
+        matched_widget = {}
+
+    alert_threshold = float(matched_widget.get("alert_threshold_percent", 50.0))
+    alert_window = int(matched_widget.get("alert_window_minutes", 15))
 
     doc = {
         "_id": new_id(),
@@ -74,6 +91,8 @@ async def ingest_widget_sample(
         "window_minutes": int(payload.window_minutes),
         "total": total,
         "groups": groups,
+        "alert_threshold_percent": alert_threshold,
+        "alert_window_minutes": alert_window,
         "collected_at": payload.collected_at,
         "received_at": now(),
         "error": (payload.error or "").strip()[:500] or None,
@@ -91,6 +110,8 @@ async def ingest_widget_sample(
             "window_minutes": doc["window_minutes"],
             "total": doc["total"],
             "groups": doc["groups"],
+            "alert_threshold_percent": doc["alert_threshold_percent"],
+            "alert_window_minutes": doc["alert_window_minutes"],
             "collected_at": doc["collected_at"].isoformat(),
             "received_at": doc["received_at"].isoformat(),
             "error": doc["error"],
@@ -113,6 +134,8 @@ def template_doc_to_read(doc: dict) -> WidgetTemplateRead:
         group_by_field=doc.get("group_by_field", "upload_status"),
         time_field=doc.get("time_field", "created_at"),
         max_groups=int(doc.get("max_groups", 10)),
+        alert_threshold_percent=float(doc.get("alert_threshold_percent", 50.0)),
+        alert_window_minutes=int(doc.get("alert_window_minutes", 15)),
         created_at=doc.get("created_at", now()),
         updated_at=doc.get("updated_at", now()),
     )

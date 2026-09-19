@@ -6,6 +6,7 @@
 """
 
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -138,26 +139,50 @@ async def trigger_agent_update(payload: Optional[TriggerUpdatePayload] = None):
     
     # Queue a terminal command for agents to execute self-update or flag update state
     updated_count = 0
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     now_utc = datetime.now(timezone.utc)
+    updating_until = now_utc + timedelta(seconds=180)
+    
+    # Record global update broadcast window so alert evaluator suppresses false offline alerts
+    db.settings().update_one(
+        {"_id": "agent_update_broadcast"},
+        {"$set": {"broadcast_at": now_utc, "updating_until": updating_until}},
+        upsert=True,
+    )
     
     for server in servers:
         sid = server["_id"]
         # Set agent config force_update flag in both settings and server_configs
         db.settings().update_one(
             {"key": f"agent_config:{sid}"},
-            {"$set": {"force_update": True, "updated_at": now_utc}},
+            {"$set": {"force_update": True, "updating_until": updating_until, "updated_at": now_utc}},
             upsert=True,
         )
         db.server_configs().update_one(
             {"server_id": sid},
-            {"$set": {"force_update": True, "updated_at": now_utc}},
+            {"$set": {"force_update": True, "updating_until": updating_until, "updated_at": now_utc}},
             upsert=True,
         )
         updated_count += 1
         
     return {
         "status": "success",
-        "message": f"Triggered update check for {updated_count} server(s)",
+        "message": f"Triggered update check for {updated_count} server(s) with 3-minute grace period",
         "targeted_servers": [str(s["_id"]) for s in servers],
     }
+
+
+def is_agent_update_in_progress(server_id=None) -> bool:
+    """True if central broadcast or per-server update was triggered within grace period (180s)."""
+    now_utc = datetime.now(timezone.utc)
+    doc = db.settings().find_one({"_id": "agent_update_broadcast"})
+    if doc and doc.get("updating_until") and doc["updating_until"] > now_utc:
+        return True
+    if server_id is not None:
+        from app.database.connection import parse_id
+        sid = parse_id(server_id) or server_id
+        cfg = db.server_configs().find_one({"server_id": sid})
+        if cfg and cfg.get("updating_until") and cfg["updating_until"] > now_utc:
+            return True
+    return False
+

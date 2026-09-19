@@ -24,19 +24,17 @@ class Settings(BaseSettings):
     api_key_header: str = "X-API-Key"
 
     # Server health thresholds (seconds since last_seen_at)
-    # Tuned for a 10s agent heartbeat: online = beat within 12s (one missed
-    # beat -> warning), offline after 22s of silence. Sweep runs every 5s,
-    # so a dead agent shows warning in ~15s and offline in ~25s.
-    health_online_max_seconds: int = 12
-    health_warning_max_seconds: int = 22
+    # Tuned for agent heartbeat: online within 15s, warning up to 30s.
+    health_online_max_seconds: int = 15
+    health_warning_max_seconds: int = 30
 
     # Alert thresholds (defaults; runtime-overridable via Settings UI / DB)
     alert_cpu_threshold_percent: float = 90.0
     alert_cpu_duration_seconds: int = 300
     alert_ram_threshold_percent: float = 80.0
     alert_disk_threshold_percent: float = 85.0
-    alert_integration_failure_threshold_percent: float = 50.0
-    alert_integration_window_minutes: int = 15
+    alert_offline_grace_seconds: int = 60
+    master_deploy_grace_seconds: int = 180
 
     # Background evaluator
     evaluator_interval_seconds: int = 5

@@ -26,7 +26,8 @@ H = {"Authorization": f"Bearer {r.json()['access_token']}"}
 r = client.get("/api/v1/settings", headers=H)
 assert r.status_code == 200, r.text
 base = r.json()
-assert base["ram_threshold_percent"] == 80.0, base  # new default from env/settings
+from app.config.settings import settings
+assert base["ram_threshold_percent"] == settings.alert_ram_threshold_percent, base  # env/settings default
 default_hour = base["config_sync_hour"]
 print("defaults ok:", base)
 
@@ -71,7 +72,7 @@ from app.database import models as db
 db.settings().delete_one({"_id": "alerts"})
 db.settings().delete_one({"_id": "sync"})
 r3 = client.get("/api/v1/settings", headers=H)
-assert r3.json()["ram_threshold_percent"] == 80.0
+assert r3.json()["ram_threshold_percent"] == settings.alert_ram_threshold_percent
 assert r3.json()["config_sync_hour"] == default_hour
 print("override removed -> back to defaults")
 

@@ -53,17 +53,10 @@ const FIELDS: {
     max: 100,
   },
   {
-    key: "alert_integration_failure_threshold_percent",
-    label: "Integration Failure Alert Threshold (%)",
-    hint: "Raise a warning when more than this percentage of integration log calls fail within the window.",
+    key: "alert_offline_grace_seconds",
+    label: "Offline Alert Grace Period (seconds)",
+    hint: "Wait this many seconds beyond the offline threshold before firing a Server Offline alert. Prevents false alerts during brief restarts and deploys.",
     min: 0,
-    max: 100,
-  },
-  {
-    key: "alert_integration_window_minutes",
-    label: "Integration Failure Window (minutes)",
-    hint: "Look back this many minutes of integration logs to calculate the failure rate for the alert.",
-    min: 1,
   },
   {
     key: "offline_threshold_seconds",

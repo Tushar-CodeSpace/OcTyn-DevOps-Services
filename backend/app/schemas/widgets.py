@@ -41,6 +41,8 @@ class WidgetSampleRead(BaseModel):
     window_minutes: int
     total: int
     groups: dict[str, int]
+    alert_threshold_percent: float = 50.0
+    alert_window_minutes: int = 15
     collected_at: datetime
     received_at: datetime
     error: Optional[str] = None
@@ -52,6 +54,8 @@ class WidgetHistoryPoint(BaseModel):
     received_at: datetime
     total: int
     groups: dict[str, int]
+    alert_threshold_percent: float = 50.0
+    alert_window_minutes: int = 15
 
 
 class WidgetTemplateUpsert(CustomWidgetSpec):

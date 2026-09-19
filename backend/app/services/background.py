@@ -28,8 +28,12 @@ def sweep_server_health() -> int:
             {"status": "active", "severity": {"$in": ["warning", "critical"]}}, {"server_id": 1}
         )
     }
+    cfg = app_settings.get_alert_config()
+    offline_timeout = int(cfg.get("offline_threshold_seconds", settings.health_warning_max_seconds))
+    grace = int(cfg.get("alert_offline_grace_seconds", settings.alert_offline_grace_seconds))
+    max_warn = offline_timeout + grace
     for server in db.servers().find({}):
-        status = compute_status(server.get("last_seen_at"))
+        status = compute_status(server.get("last_seen_at"), warning_max_seconds=max_warn)
         status = effective_status(status, server["_id"] in alert_servers)
         if status != server.get("status"):
             db.servers().update_one(

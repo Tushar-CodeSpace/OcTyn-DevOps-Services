@@ -46,6 +46,8 @@ class CustomWidgetSpec(BaseModel):
     group_by_field: str = Field(default="upload_status", min_length=1, max_length=200)
     time_field: str = Field(default="created_at", min_length=1, max_length=200)
     max_groups: int = Field(default=10, ge=1, le=50)
+    alert_threshold_percent: float = Field(default=50.0, ge=0.0, le=100.0)
+    alert_window_minutes: int = Field(default=15, ge=1, le=10080)
 
 
 class AgentConfig(BaseModel):

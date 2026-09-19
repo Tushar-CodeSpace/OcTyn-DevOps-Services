@@ -22,8 +22,7 @@ _ALERT_FIELDS: dict[str, tuple[type, float, Optional[float], Optional[float]]] =
     "disk_threshold_percent": (float, settings.alert_disk_threshold_percent, 0.0, 100.0),
     "api_error_threshold_percent": (float, 5.0, 0.0, 100.0),
     "offline_threshold_seconds": (int, float(settings.health_warning_max_seconds), 15.0, 3600.0),
-    "alert_integration_failure_threshold_percent": (float, settings.alert_integration_failure_threshold_percent, 0.0, 100.0),
-    "alert_integration_window_minutes": (int, settings.alert_integration_window_minutes, 1, None),
+    "alert_offline_grace_seconds": (int, settings.alert_offline_grace_seconds, 0, 300),
 }
 
 _NOTIF_DOC = "notifications"
@@ -339,6 +338,14 @@ def _sanitize_widget(item) -> dict:
     time_field = str(item.get("time_field", "created_at")).strip() or "created_at"
     enabled = item.get("enabled", True)
     enabled = enabled if isinstance(enabled, bool) else str(enabled).lower() in {"1", "true", "yes", "on"}
+    try:
+        alert_threshold = max(0.0, min(100.0, float(item.get("alert_threshold_percent", 50.0))))
+    except (TypeError, ValueError):
+        alert_threshold = 50.0
+    try:
+        alert_window = max(1, min(10080, int(item.get("alert_window_minutes", 15))))
+    except (TypeError, ValueError):
+        alert_window = 15
     return {
         "name": name[:100],
         "database": database[:100],
@@ -349,6 +356,8 @@ def _sanitize_widget(item) -> dict:
         "group_by_field": group_by[:200],
         "time_field": time_field[:200],
         "max_groups": max_groups,
+        "alert_threshold_percent": alert_threshold,
+        "alert_window_minutes": alert_window,
     }
 
 
@@ -356,6 +365,16 @@ def _sanitize_widget(item) -> dict:
 def _coerce_clamped_int(raw, key: str, lo: float, hi: float) -> int:
     try:
         value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key}: invalid number {raw!r}") from exc
+    if value < lo or value > hi:
+        raise ValueError(f"{key}: must be between {lo:g} and {hi:g}")
+    return value
+
+
+def _coerce_clamped_float(raw, key: str, lo: float, hi: float) -> float:
+    try:
+        value = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{key}: invalid number {raw!r}") from exc
     if value < lo or value > hi:
@@ -456,6 +475,8 @@ def _normalize_widgets(raw) -> list[dict]:
         if group_by.startswith("$") or time_field.startswith("$"):
             raise ValueError("custom_widgets: field paths must not start with '$'")
         enabled = item.get("enabled", True)
+        alert_thresh = _coerce_clamped_float(item.get("alert_threshold_percent", 50.0), "custom_widgets.alert_threshold_percent", 0.0, 100.0)
+        alert_window = _coerce_clamped_int(item.get("alert_window_minutes", 15), "custom_widgets.alert_window_minutes", 1, 10080)
         normalized.append({
             "name": name,
             "database": database,
@@ -466,6 +487,8 @@ def _normalize_widgets(raw) -> list[dict]:
             "group_by_field": group_by,
             "time_field": time_field,
             "max_groups": max_groups,
+            "alert_threshold_percent": alert_thresh,
+            "alert_window_minutes": alert_window,
         })
     return normalized
 

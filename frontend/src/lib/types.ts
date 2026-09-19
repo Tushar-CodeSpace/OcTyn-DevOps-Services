@@ -221,8 +221,7 @@ export interface AlertConfig {
   disk_threshold_percent: number;
   api_error_threshold_percent: number;
   offline_threshold_seconds?: number;
-  alert_integration_failure_threshold_percent: number;
-  alert_integration_window_minutes: number;
+  alert_offline_grace_seconds: number;
   config_sync_enabled: boolean;
   config_sync_hour: number;
   metrics_retention_days?: number;
@@ -243,6 +242,8 @@ export interface CustomWidgetSpec {
   group_by_field: string;
   time_field: string;
   max_groups: number;
+  alert_threshold_percent: number;
+  alert_window_minutes: number;
 }
 
 export interface WidgetSample {

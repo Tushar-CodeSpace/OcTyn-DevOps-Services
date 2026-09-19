@@ -3456,6 +3456,46 @@ export default function ServerDetail() {
                           />
                         </div>
                       </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-300 font-medium">Integration Failure Alert Threshold (%)</Label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            disabled={!isAdmin}
+                            value={w.alert_threshold_percent ?? 50}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, alert_threshold_percent: Number(e.target.value) };
+                              setWidgetDraft(next);
+                            }}
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                          <span className="text-[10px] text-slate-400">
+                            Raise a warning when more than this percentage of integration log calls fail within the window.
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-300 font-medium">Integration Failure Window (minutes)</Label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={10080}
+                            disabled={!isAdmin}
+                            value={w.alert_window_minutes ?? 15}
+                            onChange={(e) => {
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, alert_window_minutes: Number(e.target.value) };
+                              setWidgetDraft(next);
+                            }}
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                          <span className="text-[10px] text-slate-400">
+                            Look back this many minutes of integration logs to calculate the failure rate for the alert.
+                          </span>
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <label className="flex cursor-pointer select-none items-center gap-2">
                           <input
@@ -3514,6 +3554,8 @@ export default function ServerDetail() {
                               group_by_field: "upload_status",
                               time_field: "created_at",
                               max_groups: 10,
+                              alert_threshold_percent: 50,
+                              alert_window_minutes: 15,
                             },
                           ])
                         }

@@ -11,6 +11,7 @@ from app.services import app_settings, notifier
 from app.services.logging_setup import get_logger
 
 logger = get_logger(__name__)
+_BOOT_TIME: datetime = datetime.now(timezone.utc)
 
 
 def now() -> datetime:
@@ -131,6 +132,10 @@ def _resolve_alert(
     elif alert_type == "api_error_spike":
         val_str = f" ({current_value:.1f}%)" if current_value is not None else ""
         msg = f"API Error Rate on {hostname or machine or server_id} recovered to normal{val_str}"
+    elif alert_type.startswith("integration_error_spike"):
+        widget_label = alert_type.split(":", 1)[1] if ":" in alert_type else "Integration"
+        val_str = f" ({current_value:.1f}%)" if current_value is not None else ""
+        msg = f"Integration '{widget_label}' failure rate recovered to normal{val_str}"
     else:
         msg = f"Alert {alert_type} on {hostname or machine or server_id} resolved"
 
@@ -204,16 +209,54 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
                 return
 
     if status == "offline":
-        _open_alert(
-            "server_offline",
-            server_id,
-            "critical",
-            f"Server {hostname or machine or server_id} is offline "
-            f"(no heartbeat for >{offline_timeout}s)",
-            hostname=hostname,
-            machine=machine,
-            site_id=site_id,
-        )
+        # Master deploy / backend startup grace period (allow agents to reconnect after central deploy)
+        boot_elapsed = (now() - _BOOT_TIME).total_seconds()
+        startup_grace = int(getattr(settings, "master_deploy_grace_seconds", 180))
+        if boot_elapsed < startup_grace:
+            logger.debug(
+                "suppressing server_offline alert during backend startup grace",
+                extra={"extra_fields": {"server_id": str(server_id), "boot_elapsed": boot_elapsed, "grace": startup_grace}},
+            )
+            return
+
+        # Agent self-update grace period (allow remote agents to download release and restart systemd cleanly)
+        from app.routes.agent_update import is_agent_update_in_progress
+        if is_agent_update_in_progress(server_id):
+            logger.debug(
+                "suppressing server_offline alert during agent update grace window",
+                extra={"extra_fields": {"server_id": str(server_id)}},
+            )
+            return
+
+        last_seen = server.get("last_seen_at")
+        grace = int(cfg.get("alert_offline_grace_seconds", settings.alert_offline_grace_seconds))
+        effective_offline_limit = offline_timeout + grace
+        if last_seen:
+            offline_duration = (now() - last_seen).total_seconds()
+            if offline_duration >= effective_offline_limit:
+                _open_alert(
+                    "server_offline",
+                    server_id,
+                    "critical",
+                    f"Server {hostname or machine or server_id} is offline "
+                    f"(no heartbeat for >{effective_offline_limit}s)",
+                    hostname=hostname,
+                    machine=machine,
+                    site_id=site_id,
+                )
+            else:
+                _resolve_alert("server_offline", server_id, hostname=hostname, machine=machine, site_id=site_id)
+        else:
+            _open_alert(
+                "server_offline",
+                server_id,
+                "critical",
+                f"Server {hostname or machine or server_id} is offline "
+                f"(no heartbeat for >{effective_offline_limit}s)",
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+            )
     else:
         _resolve_alert("server_offline", server_id, hostname=hostname, machine=machine, site_id=site_id)
 
@@ -325,61 +368,83 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
     _check_integration_failure_rate(server_id, cfg, hostname, machine, site_id)
 
 
-def _check_integration_failure_rate(server_id: str, cfg: dict, hostname: Optional[str], machine: Optional[str], site_id: Optional[str]) -> None:
-    """Check if integration logs failure rate exceeds threshold over the configured window."""
-    from datetime import timedelta
+def _check_integration_failure_rate(
+    server_id: str,
+    cfg: dict,
+    hostname: Optional[str],
+    machine: Optional[str],
+    site_id: Optional[str],
+) -> None:
+    """Check if integration failure rate exceeds widget-specific thresholds."""
+    from app.database.connection import parse_id
 
-    threshold = float(cfg.get("alert_integration_failure_threshold_percent", settings.alert_integration_failure_threshold_percent))
-    window_min = int(cfg.get("alert_integration_window_minutes", settings.alert_integration_window_minutes))
-    cutoff = now() - timedelta(minutes=window_min)
-
-    pipeline = [
-        {"$match": {
-            "server_id": server_id,
-            "database": "data_uploader_service",
-            "collection": "integration_logs",
-            "received_at": {"$gte": cutoff},
-        }},
-        {"$group": {
-            "_id": None,
-            "total": {"$sum": "$total"},
-            "failed": {"$sum": {
-                "$add": [
-                    {"$ifNull": ["$groups.FAILED", 0]},
-                    {"$ifNull": ["$groups.ERROR", 0]},
-                    {"$ifNull": ["$groups.EXPIRED", 0]},
-                    {"$ifNull": ["$groups.INVALID", 0]},
-                    {"$ifNull": ["$groups.REJECT", 0]},
-                ]
-            }},
-        }},
-    ]
-
-    try:
-        result = list(db.widget_data().aggregate(pipeline, allowDiskUse=True))
-    except Exception as exc:
-        logger.warning("integration alert aggregation failed", extra={"extra_fields": {"server_id": server_id, "error": str(exc)}})
+    agent_cfg = app_settings.get_agent_config(str(server_id))
+    widgets = agent_cfg.get("custom_widgets", [])
+    if not widgets:
+        sid_filter = {"$in": [server_id, parse_id(server_id)]} if parse_id(server_id) else server_id
+        for active in db.alerts().find(
+            {"server_id": sid_filter, "type": {"$regex": "^integration_error_spike:"}, "status": "active"}
+        ):
+            _resolve_alert(active["type"], server_id, hostname=hostname, machine=machine, site_id=site_id)
         return
 
-    if not result or result[0].get("total", 0) == 0:
-        _resolve_alert("integration_error_spike", server_id, hostname=hostname, machine=machine, site_id=site_id)
-        return
+    for w in widgets:
+        w_name = w.get("name")
+        if not w_name:
+            continue
+        alert_key = f"integration_error_spike:{w_name}"
+        if not w.get("enabled", True):
+            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
+            continue
 
-    total = result[0]["total"]
-    failed = result[0]["failed"]
-    failure_rate = (failed / total) * 100 if total > 0 else 0.0
+        threshold = float(w.get("alert_threshold_percent", 50.0))
+        window_min = int(w.get("alert_window_minutes", 15))
 
-    if failure_rate >= threshold:
-        _open_alert(
-            "integration_error_spike",
-            server_id,
-            "warning",
-            f"Integration failure rate at {failure_rate:.1f}% ({failed}/{total} failed in {window_min}min)",
-            value=failure_rate,
-            threshold=threshold,
-            hostname=hostname,
-            machine=machine,
-            site_id=site_id,
+        sid_val = parse_id(server_id) or server_id
+        sample = db.widget_data().find_one(
+            {"$or": [{"server_id": sid_val}, {"server_id": str(server_id)}], "widget_name": w_name},
+            sort=[("received_at", -1)],
         )
-    else:
-        _resolve_alert("integration_error_spike", server_id, hostname=hostname, machine=machine, site_id=site_id, current_value=failure_rate)
+        if not sample:
+            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
+            continue
+
+        sample_time = sample.get("received_at") or sample.get("collected_at")
+        if sample_time and (now() - sample_time).total_seconds() > window_min * 60 * 2:
+            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
+            continue
+
+        total = int(sample.get("total", 0))
+        groups = sample.get("groups", {})
+        if total == 0:
+            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
+            continue
+
+        failed = sum(
+            int(count) for k, count in groups.items()
+            if any(term in str(k).upper() for term in ("FAIL", "ERR", "EXPIRE", "INVALID", "REJECT"))
+        )
+
+        failure_rate = (failed / total) * 100.0 if total > 0 else 0.0
+
+        if failure_rate >= threshold:
+            _open_alert(
+                alert_key,
+                server_id,
+                "warning",
+                f"Integration '{w_name}' failure rate at {failure_rate:.1f}% ({failed}/{total} failed in {window_min}min)",
+                value=failure_rate,
+                threshold=threshold,
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+            )
+        else:
+            _resolve_alert(
+                alert_key,
+                server_id,
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+                current_value=failure_rate,
+            )
