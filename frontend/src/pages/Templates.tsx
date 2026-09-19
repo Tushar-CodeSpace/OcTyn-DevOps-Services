@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Building2,
+  Check,
   Copy,
   Cpu,
   Database,
@@ -16,11 +18,12 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { showToast } from "@/components/ToastHost";
-import type { AgentRuntimeTemplate, ConnectivityTarget, WidgetTemplate } from "@/lib/types";
+import type { AgentRuntimeTemplate, ConnectivityTarget, Site, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type TabType = "runtime" | "widget";
 
@@ -33,6 +36,7 @@ const DEFAULT_RUNTIME_FORM = {
   config_poll_interval_seconds: 5,
   connectivity_poll_interval_seconds: 15,
   connectivity_targets: [] as ConnectivityTarget[],
+  target_site_ids: [] as string[],
 };
 
 const DEFAULT_WIDGET_FORM = {
@@ -48,6 +52,7 @@ const DEFAULT_WIDGET_FORM = {
   max_groups: 10,
   alert_threshold_percent: 50.0,
   alert_window_minutes: 15,
+  target_site_ids: [] as string[],
 };
 
 export default function TemplatesPage() {
@@ -57,6 +62,7 @@ export default function TemplatesPage() {
 
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[]>([]);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Runtime Modal state
@@ -73,6 +79,14 @@ export default function TemplatesPage() {
   const [widgetForm, setWidgetForm] = useState(DEFAULT_WIDGET_FORM);
   const [savingWidget, setSavingWidget] = useState(false);
 
+  // Assign Sites Quick Modal state
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignTemplateKind, setAssignTemplateKind] = useState<"runtime" | "widget">("runtime");
+  const [assignTemplateId, setAssignTemplateId] = useState<string>("");
+  const [assignTemplateName, setAssignTemplateName] = useState<string>("");
+  const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
+  const [savingAssignment, setSavingAssignment] = useState(false);
+
   useEffect(() => {
     if (isAdmin) {
       loadAllTemplates();
@@ -82,12 +96,14 @@ export default function TemplatesPage() {
   async function loadAllTemplates() {
     setLoading(true);
     try {
-      const [runtimes, widgets] = await Promise.all([
+      const [runtimes, widgets, sitesData] = await Promise.all([
         apiFetch<AgentRuntimeTemplate[]>("/agent-config-templates").catch(() => []),
         apiFetch<WidgetTemplate[]>("/widgets/templates").catch(() => []),
+        apiFetch<Site[]>("/sites").catch(() => []),
       ]);
       setRuntimeTemplates(runtimes);
       setWidgetTemplates(widgets);
+      setSites(sitesData);
     } catch {
       showToast({ severity: "critical", title: "Load error", message: "Failed to load templates." });
     } finally {
@@ -103,6 +119,7 @@ export default function TemplatesPage() {
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.description.toLowerCase().includes(q) ||
+        (t.used_by_sites || []).some((s) => s.client.toLowerCase().includes(q) || s.location.toLowerCase().includes(q)) ||
         t.connectivity_targets.some((ct) => ct.name.toLowerCase().includes(q) || ct.ip.toLowerCase().includes(q))
     );
   }, [runtimeTemplates, search]);
@@ -116,9 +133,66 @@ export default function TemplatesPage() {
         w.description.toLowerCase().includes(q) ||
         w.database.toLowerCase().includes(q) ||
         w.collection.toLowerCase().includes(q) ||
+        (w.used_by_sites || []).some((s) => s.client.toLowerCase().includes(q) || s.location.toLowerCase().includes(q)) ||
         w.group_by_field.toLowerCase().includes(q)
     );
   }, [widgetTemplates, search]);
+
+  // ===================== Site Assignment Handlers =====================
+
+  function openAssignSitesModal(template: AgentRuntimeTemplate | WidgetTemplate, kind: "runtime" | "widget") {
+    setAssignTemplateKind(kind);
+    setAssignTemplateId(template.id);
+    setAssignTemplateName(template.name);
+    const currentlyAssigned = (template.used_by_sites || []).map((s) => s.site_id);
+    setSelectedSiteIds(currentlyAssigned);
+    setAssignModalOpen(true);
+  }
+
+  async function saveSiteAssignment() {
+    setSavingAssignment(true);
+    try {
+      const endpoint =
+        assignTemplateKind === "runtime"
+          ? `/agent-config-templates/${assignTemplateId}/assign-sites`
+          : `/widgets/templates/${assignTemplateId}/assign-sites`;
+
+      const updated = await apiFetch<AgentRuntimeTemplate | WidgetTemplate>(endpoint, {
+        method: "POST",
+        body: JSON.stringify({ site_ids: selectedSiteIds }),
+      });
+
+      if (assignTemplateKind === "runtime") {
+        setRuntimeTemplates((prev) =>
+          prev.map((t) => (t.id === assignTemplateId ? (updated as AgentRuntimeTemplate) : t))
+        );
+      } else {
+        setWidgetTemplates((prev) =>
+          prev.map((w) => (w.id === assignTemplateId ? (updated as WidgetTemplate) : w))
+        );
+      }
+
+      const count = updated.used_by_sites?.length || 0;
+      const siteNames = (updated.used_by_sites || []).map((s) => s.client).join(", ");
+      showToast({
+        severity: "info",
+        title: "Sites assignment updated",
+        message:
+          count > 0
+            ? `"${assignTemplateName}" assigned to ${count} site(s) (${siteNames}). Updates will sync to these sites only.`
+            : `"${assignTemplateName}" is no longer assigned to any sites.`,
+      });
+      setAssignModalOpen(false);
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Assignment failed",
+        message: err instanceof Error ? err.message : "Failed to assign sites.",
+      });
+    } finally {
+      setSavingAssignment(false);
+    }
+  }
 
   // ===================== Runtime Template Handlers =====================
 
@@ -141,6 +215,7 @@ export default function TemplatesPage() {
       config_poll_interval_seconds: t.config_poll_interval_seconds,
       connectivity_poll_interval_seconds: t.connectivity_poll_interval_seconds,
       connectivity_targets: t.connectivity_targets || [],
+      target_site_ids: (t.used_by_sites || []).map((s) => s.site_id),
     });
     setNewTargetName("");
     setNewTargetIp("");
@@ -158,6 +233,7 @@ export default function TemplatesPage() {
       config_poll_interval_seconds: t.config_poll_interval_seconds,
       connectivity_poll_interval_seconds: t.connectivity_poll_interval_seconds,
       connectivity_targets: [...(t.connectivity_targets || [])],
+      target_site_ids: [],
     });
     setNewTargetName("");
     setNewTargetIp("");
@@ -177,10 +253,15 @@ export default function TemplatesPage() {
           body: JSON.stringify(runtimeForm),
         });
         setRuntimeTemplates((prev) => prev.map((t) => (t.id === editingRuntimeId ? updated : t)));
+        const count = updated.used_by_sites?.length || 0;
+        const sitesList = (updated.used_by_sites || []).map((s) => s.client).join(", ");
         showToast({
           severity: "info",
           title: "Template updated",
-          message: `"${updated.name}" saved & automatically synced to all linked site servers.`,
+          message:
+            count > 0
+              ? `"${updated.name}" saved & synced to ${count} site(s) only (${sitesList}).`
+              : `"${updated.name}" saved. (Not assigned to any sites yet).`,
         });
       } else {
         const created = await apiFetch<AgentRuntimeTemplate>("/agent-config-templates", {
@@ -211,7 +292,11 @@ export default function TemplatesPage() {
   }
 
   async function applyRuntimeToAll(t: AgentRuntimeTemplate) {
-    if (!confirm(`Apply runtime template "${t.name}" to ALL site servers across your fleet? All servers will immediately update to these monitoring and ping settings.`)) {
+    if (
+      !confirm(
+        `Apply runtime template "${t.name}" to ALL site servers across your fleet? All servers will immediately update to these monitoring and ping settings.`
+      )
+    ) {
       return;
     }
     try {
@@ -224,6 +309,7 @@ export default function TemplatesPage() {
         title: "Fleet synced",
         message: `Template "${t.name}" applied across ${res.applied_servers_count} site server(s).`,
       });
+      loadAllTemplates();
     } catch (err) {
       showToast({
         severity: "critical",
@@ -233,31 +319,12 @@ export default function TemplatesPage() {
     }
   }
 
-  async function applyWidgetToAll(w: WidgetTemplate) {
-    if (!confirm(`Deploy widget template "${w.name}" to ALL site servers across your fleet? All servers will automatically start collecting telemetry for this query.`)) {
-      return;
-    }
-    try {
-      const res = await apiFetch<{ success: boolean; applied_servers_count: number }>(
-        `/widgets/templates/${w.id}/apply-all`,
-        { method: "POST" }
-      );
-      showToast({
-        severity: "info",
-        title: "Fleet synced",
-        message: `Widget "${w.name}" applied across ${res.applied_servers_count} site server(s).`,
-      });
-    } catch (err) {
-      showToast({
-        severity: "critical",
-        title: "Sync failed",
-        message: err instanceof Error ? err.message : "Could not apply widget template across servers.",
-      });
-    }
-  }
-
   async function deleteRuntime(t: AgentRuntimeTemplate) {
-    if (!confirm(`Are you sure you want to delete runtime template "${t.name}"? Servers currently using these settings are unaffected.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete runtime template "${t.name}"? Servers currently using these settings are unaffected.`
+      )
+    ) {
       return;
     }
     try {
@@ -318,6 +385,7 @@ export default function TemplatesPage() {
       max_groups: w.max_groups,
       alert_threshold_percent: w.alert_threshold_percent ?? 50.0,
       alert_window_minutes: w.alert_window_minutes ?? 15,
+      target_site_ids: (w.used_by_sites || []).map((s) => s.site_id),
     });
     setWidgetModalOpen(true);
   }
@@ -337,6 +405,7 @@ export default function TemplatesPage() {
       max_groups: w.max_groups,
       alert_threshold_percent: w.alert_threshold_percent ?? 50.0,
       alert_window_minutes: w.alert_window_minutes ?? 15,
+      target_site_ids: [],
     });
     setWidgetModalOpen(true);
   }
@@ -358,10 +427,15 @@ export default function TemplatesPage() {
           body: JSON.stringify(widgetForm),
         });
         setWidgetTemplates((prev) => prev.map((w) => (w.id === editingWidgetId ? updated : w)));
+        const count = updated.used_by_sites?.length || 0;
+        const sitesList = (updated.used_by_sites || []).map((s) => s.client).join(", ");
         showToast({
           severity: "info",
           title: "Template updated",
-          message: `"${updated.name}" saved & automatically synced to all linked site servers.`,
+          message:
+            count > 0
+              ? `"${updated.name}" saved & synced to ${count} site(s) only (${sitesList}).`
+              : `"${updated.name}" saved. (Not assigned to any sites yet).`,
         });
       } else {
         const created = await apiFetch<WidgetTemplate>("/widgets/templates", {
@@ -391,8 +465,40 @@ export default function TemplatesPage() {
     }
   }
 
+  async function applyWidgetToAll(w: WidgetTemplate) {
+    if (
+      !confirm(
+        `Deploy widget template "${w.name}" to ALL site servers across your fleet? All servers will automatically start collecting telemetry for this query.`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await apiFetch<{ success: boolean; applied_servers_count: number }>(
+        `/widgets/templates/${w.id}/apply-all`,
+        { method: "POST" }
+      );
+      showToast({
+        severity: "info",
+        title: "Fleet synced",
+        message: `Widget "${w.name}" applied across ${res.applied_servers_count} site server(s).`,
+      });
+      loadAllTemplates();
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Sync failed",
+        message: err instanceof Error ? err.message : "Could not apply widget template across servers.",
+      });
+    }
+  }
+
   async function deleteWidget(w: WidgetTemplate) {
-    if (!confirm(`Are you sure you want to delete widget template "${w.name}"? Servers currently using this widget are unaffected.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete widget template "${w.name}"? Servers currently using this widget are unaffected.`
+      )
+    ) {
       return;
     }
     try {
@@ -427,7 +533,7 @@ export default function TemplatesPage() {
             Template Library
           </h1>
           <p className="text-sm text-slate-400">
-            Define reusable runtime settings and custom MongoDB data widgets to apply across any client site.
+            Define reusable runtime settings and custom MongoDB widgets. Templates sync strictly to the sites using them.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -466,9 +572,11 @@ export default function TemplatesPage() {
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Agent Runtime Templates
-            <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-              activeTab === "runtime" ? "bg-indigo-400/25 text-white" : "bg-slate-800 text-slate-400"
-            }`}>
+            <span
+              className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "runtime" ? "bg-indigo-400/25 text-white" : "bg-slate-800 text-slate-400"
+              }`}
+            >
               {runtimeTemplates.length}
             </span>
           </button>
@@ -482,9 +590,11 @@ export default function TemplatesPage() {
           >
             <Database className="h-3.5 w-3.5" />
             Custom Widget Templates
-            <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-              activeTab === "widget" ? "bg-emerald-400/25 text-white" : "bg-slate-800 text-slate-400"
-            }`}>
+            <span
+              className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                activeTab === "widget" ? "bg-emerald-400/25 text-white" : "bg-slate-800 text-slate-400"
+              }`}
+            >
               {widgetTemplates.length}
             </span>
           </button>
@@ -494,7 +604,7 @@ export default function TemplatesPage() {
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
           <Input
             type="text"
-            placeholder="Search templates..."
+            placeholder="Search templates or sites..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-8 pl-8 text-xs bg-slate-900/90 border-slate-800 text-slate-200 placeholder:text-slate-500 rounded-lg"
@@ -506,7 +616,7 @@ export default function TemplatesPage() {
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-44 rounded-xl border border-slate-800/60 bg-slate-900/40 animate-pulse" />
+            <div key={i} className="h-48 rounded-xl border border-slate-800/60 bg-slate-900/40 animate-pulse" />
           ))}
         </div>
       ) : activeTab === "runtime" ? (
@@ -516,7 +626,7 @@ export default function TemplatesPage() {
               <SlidersHorizontal className="h-10 w-10 text-slate-600 mb-3" />
               <p className="text-sm font-medium text-slate-300">No runtime templates found</p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Runtime templates allow you to define monitoring push intervals, HTTP timeouts, and device ping lists once, then apply them to any site server.
+                Runtime templates allow you to define monitoring intervals, timeouts, and ping targets once, and deploy them to specific client sites.
               </p>
               <Button onClick={openCreateRuntime} size="sm" variant="outline" className="mt-4 border-slate-700">
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -562,7 +672,9 @@ export default function TemplatesPage() {
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-500 block uppercase font-mono">HTTP Timeout</span>
-                      <span className="font-semibold text-slate-200">{t.http_timeout_seconds}s ({t.http_retry_count} retries)</span>
+                      <span className="font-semibold text-slate-200">
+                        {t.http_timeout_seconds}s ({t.http_retry_count} retries)
+                      </span>
                     </div>
                   </div>
 
@@ -589,12 +701,61 @@ export default function TemplatesPage() {
                     )}
                   </div>
 
+                  {/* Used by Sites Section */}
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800/80">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-indigo-400" />
+                        <span>Used in Sites ({t.used_by_sites?.length || 0}):</span>
+                      </span>
+                      {t.applied_servers_count !== undefined && t.applied_servers_count > 0 && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {t.applied_servers_count} {t.applied_servers_count === 1 ? "node" : "nodes"}
+                        </span>
+                      )}
+                    </div>
+
+                    {t.used_by_sites && t.used_by_sites.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-1">
+                        {t.used_by_sites.map((s) => (
+                          <span
+                            key={s.site_id}
+                            title={`Servers: ${s.servers.join(", ")}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-indigo-500/30 bg-indigo-950/40 px-2 py-0.5 text-[10px] text-indigo-200"
+                          >
+                            <Building2 className="h-2.5 w-2.5 text-indigo-400 shrink-0" />
+                            <span className="font-semibold text-slate-100">{s.client}</span>
+                            <span className="text-slate-400">· {s.location || s.code}</span>
+                            <span className="font-mono text-[9px] bg-indigo-900/60 px-1 rounded text-indigo-300">
+                              {s.server_count}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-lg border border-slate-800/60 bg-slate-950/40 px-2.5 py-1.5">
+                        <span className="text-[11px] text-slate-500 italic">Not linked to any sites</span>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Actions */}
                   <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 mt-1">
                     <span className="text-[10px] text-slate-500">
                       Updated {new Date(t.updated_at).toLocaleDateString()}
                     </span>
                     <div className="flex items-center gap-1">
+                      {/* Assign Sites Button */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openAssignSitesModal(t, "runtime")}
+                        title="Assign template to specific sites (updates sync to these sites only)"
+                        className="h-7 px-2 text-[11px] text-indigo-300 hover:text-white bg-indigo-950/30 hover:bg-indigo-900/40 border-indigo-500/30 gap-1"
+                      >
+                        <Building2 className="h-3 w-3 text-indigo-400" />
+                        <span>Assign Sites</span>
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -647,7 +808,7 @@ export default function TemplatesPage() {
               <Database className="h-10 w-10 text-slate-600 mb-3" />
               <p className="text-sm font-medium text-slate-300">No widget templates found</p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Widget templates define periodic count queries on site MongoDB collections (e.g. integration logs breakdown, telemetry tallies) to add to any server with 1 click.
+                Widget templates define periodic count queries on site MongoDB collections to deploy to specific client sites.
               </p>
               <Button onClick={openCreateWidget} size="sm" variant="outline" className="mt-4 border-slate-700">
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -721,8 +882,49 @@ export default function TemplatesPage() {
                       Failure Threshold:
                     </span>
                     <span className="font-semibold text-amber-300">
-                      {w.alert_threshold_percent ?? 50}% <span className="text-[10px] text-slate-400 font-normal">({w.alert_window_minutes ?? 15}m window)</span>
+                      {w.alert_threshold_percent ?? 50}%{" "}
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        ({w.alert_window_minutes ?? 15}m window)
+                      </span>
                     </span>
+                  </div>
+
+                  {/* Used by Sites Section */}
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800/80">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>Used in Sites ({w.used_by_sites?.length || 0}):</span>
+                      </span>
+                      {w.applied_servers_count !== undefined && w.applied_servers_count > 0 && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {w.applied_servers_count} {w.applied_servers_count === 1 ? "node" : "nodes"}
+                        </span>
+                      )}
+                    </div>
+
+                    {w.used_by_sites && w.used_by_sites.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-1">
+                        {w.used_by_sites.map((s) => (
+                          <span
+                            key={s.site_id}
+                            title={`Servers: ${s.servers.join(", ")}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2 py-0.5 text-[10px] text-emerald-200"
+                          >
+                            <Building2 className="h-2.5 w-2.5 text-emerald-400 shrink-0" />
+                            <span className="font-semibold text-slate-100">{s.client}</span>
+                            <span className="text-slate-400">· {s.location || s.code}</span>
+                            <span className="font-mono text-[9px] bg-emerald-900/60 px-1 rounded text-emerald-300">
+                              {s.server_count}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between rounded-lg border border-slate-800/60 bg-slate-950/40 px-2.5 py-1.5">
+                        <span className="text-[11px] text-slate-500 italic">Not linked to any sites</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}
@@ -731,6 +933,17 @@ export default function TemplatesPage() {
                       Updated {new Date(w.updated_at).toLocaleDateString()}
                     </span>
                     <div className="flex items-center gap-1">
+                      {/* Assign Sites Button */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openAssignSitesModal(w, "widget")}
+                        title="Assign widget to specific sites (updates sync to these sites only)"
+                        className="h-7 px-2 text-[11px] text-emerald-300 hover:text-white bg-emerald-950/30 hover:bg-emerald-900/40 border-emerald-500/30 gap-1"
+                      >
+                        <Building2 className="h-3 w-3 text-emerald-400" />
+                        <span>Assign Sites</span>
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -777,6 +990,147 @@ export default function TemplatesPage() {
         )
       )}
 
+      {/* ===================== Assign Sites Modal ===================== */}
+      {assignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={cn(
+                    "p-2 rounded-lg border",
+                    assignTemplateKind === "runtime"
+                      ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+                      : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                  )}
+                >
+                  <Building2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-100">Assign Template to Sites</h2>
+                  <p className="text-xs text-slate-400">
+                    Template: <strong className="text-slate-200">{assignTemplateName}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssignModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="py-4 text-xs flex flex-col gap-3 overflow-y-auto">
+              <div className="rounded-lg border border-sky-500/20 bg-sky-950/20 p-2.5 text-sky-300">
+                <span>
+                  Changes made to this template will automatically synchronize to servers in the selected sites only.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-400 px-0.5">
+                <span>Select Client Sites ({selectedSiteIds.length} of {sites.length} selected):</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedSiteIds(sites.map((s) => s.id))}
+                    className="text-sky-400 hover:underline text-[11px]"
+                  >
+                    Select All
+                  </button>
+                  <span>·</span>
+                  <button
+                    onClick={() => setSelectedSiteIds([])}
+                    className="text-slate-400 hover:underline text-[11px]"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                {sites.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-6 text-center">No client sites configured in fleet.</p>
+                ) : (
+                  sites.map((s) => {
+                    const isSelected = selectedSiteIds.includes(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => {
+                          setSelectedSiteIds((prev) =>
+                            prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id]
+                          );
+                        }}
+                        className={cn(
+                          "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all",
+                          isSelected
+                            ? "border-sky-500/40 bg-slate-800/90 text-slate-100 shadow-sm"
+                            : "border-slate-800/80 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                          <div
+                            className={cn(
+                              "flex h-4 w-4 items-center justify-center rounded border transition-colors shrink-0",
+                              isSelected
+                                ? "border-sky-500 bg-sky-600 text-white"
+                                : "border-slate-600 bg-slate-950 text-transparent"
+                            )}
+                          >
+                            <Check className="h-3 w-3" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-xs text-slate-200 truncate">{s.client}</span>
+                            <span className="text-[10px] text-slate-400 truncate">
+                              {s.location} ({s.code})
+                            </span>
+                          </div>
+                        </div>
+
+                        <span
+                          className={cn(
+                            "text-[10px] px-2 py-0.5 rounded-full border",
+                            isSelected
+                              ? "border-sky-500/40 bg-sky-950/40 text-sky-300"
+                              : "border-slate-800 bg-slate-900 text-slate-500"
+                          )}
+                        >
+                          {isSelected ? "Assigned" : "Unassigned"}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                Selected: <strong className="text-sky-300">{selectedSiteIds.length}</strong> site(s)
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAssignModalOpen(false)}
+                  className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={saveSiteAssignment}
+                  disabled={savingAssignment}
+                  className="bg-sky-600 hover:bg-sky-500 text-white"
+                >
+                  {savingAssignment ? "Saving..." : "Save Site Assignment"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===================== Runtime Template Modal ===================== */}
       {runtimeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -798,152 +1152,216 @@ export default function TemplatesPage() {
               <div className="grid grid-cols-1 gap-1.5">
                 <Label className="text-xs text-slate-300">Template Name *</Label>
                 <Input
-                  type="text"
-                  placeholder="e.g. High Frequency Production"
+                  placeholder="e.g. Standard Edge Agent Profile"
                   value={runtimeForm.name}
                   onChange={(e) => setRuntimeForm({ ...runtimeForm, name: e.target.value })}
-                  className="h-8 text-xs bg-slate-950 border-slate-700"
+                  className="bg-slate-950 border-slate-800 text-xs"
                 />
               </div>
 
               <div className="grid grid-cols-1 gap-1.5">
                 <Label className="text-xs text-slate-300">Description</Label>
                 <Input
-                  type="text"
-                  placeholder="e.g. Optimized for primary sorting lines with 10s pushes"
+                  placeholder="e.g. Applied to all standard site agents with 15s ping rate"
                   value={runtimeForm.description}
                   onChange={(e) => setRuntimeForm({ ...runtimeForm, description: e.target.value })}
-                  className="h-8 text-xs bg-slate-950 border-slate-700"
+                  className="bg-slate-950 border-slate-800 text-xs"
                 />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Monitoring Interval (s)</Label>
+              {/* Intervals Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-800/80 bg-slate-950/40 p-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Telemetry Push Interval (seconds)</Label>
                   <Input
                     type="number"
                     min={1}
                     max={3600}
                     value={runtimeForm.monitoring_interval_seconds}
-                    onChange={(e) => setRuntimeForm({ ...runtimeForm, monitoring_interval_seconds: parseInt(e.target.value) || 60 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) =>
+                      setRuntimeForm({ ...runtimeForm, monitoring_interval_seconds: Number(e.target.value) })
+                    }
+                    className="bg-slate-900 border-slate-800 text-xs"
                   />
+                  <span className="text-[10px] text-slate-500">How often agent sends CPU, RAM & Disk metrics</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Config Poller (s)</Label>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Config Poller Interval (seconds)</Label>
                   <Input
                     type="number"
                     min={1}
                     max={300}
                     value={runtimeForm.config_poll_interval_seconds}
-                    onChange={(e) => setRuntimeForm({ ...runtimeForm, config_poll_interval_seconds: parseInt(e.target.value) || 5 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) =>
+                      setRuntimeForm({ ...runtimeForm, config_poll_interval_seconds: Number(e.target.value) })
+                    }
+                    className="bg-slate-900 border-slate-800 text-xs"
                   />
+                  <span className="text-[10px] text-slate-500">How quickly agent pulls setting changes</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Ping Interval (s)</Label>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Device Ping Interval (seconds)</Label>
                   <Input
                     type="number"
                     min={1}
                     max={3600}
                     value={runtimeForm.connectivity_poll_interval_seconds}
-                    onChange={(e) => setRuntimeForm({ ...runtimeForm, connectivity_poll_interval_seconds: parseInt(e.target.value) || 15 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) =>
+                      setRuntimeForm({ ...runtimeForm, connectivity_poll_interval_seconds: Number(e.target.value) })
+                    }
+                    className="bg-slate-900 border-slate-800 text-xs"
                   />
+                  <span className="text-[10px] text-slate-500">How often agent tests local IP targets</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">HTTP Timeout (s)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={runtimeForm.http_timeout_seconds}
-                    onChange={(e) => setRuntimeForm({ ...runtimeForm, http_timeout_seconds: parseInt(e.target.value) || 10 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">HTTP Retry Count</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={10}
-                    value={runtimeForm.http_retry_count}
-                    onChange={(e) => setRuntimeForm({ ...runtimeForm, http_retry_count: parseInt(e.target.value) || 3 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
-                  />
+
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">HTTP Timeout (seconds)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={runtimeForm.http_timeout_seconds}
+                      onChange={(e) =>
+                        setRuntimeForm({ ...runtimeForm, http_timeout_seconds: Number(e.target.value) })
+                      }
+                      className="bg-slate-900 border-slate-800 text-xs w-24"
+                    />
+                    <span className="text-slate-400">Retries:</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={runtimeForm.http_retry_count}
+                      onChange={(e) =>
+                        setRuntimeForm({ ...runtimeForm, http_retry_count: Number(e.target.value) })
+                      }
+                      className="bg-slate-900 border-slate-800 text-xs w-20"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Connectivity Targets List */}
+              {/* Target Sites Selection inside Modal */}
               <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
-                <Label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                  <span>Realtime Ping Targets ({runtimeForm.connectivity_targets.length})</span>
-                  <span className="text-[11px] font-normal text-slate-500">e.g. PLC, Printer, Scanner</span>
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-indigo-400" />
+                    <span>Assign to Sites (Changes will sync to these sites only)</span>
+                  </Label>
+                  <span className="text-[10px] text-slate-400">
+                    {runtimeForm.target_site_ids.length} selected
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Select which client sites use this template. Any changes saved to this template will automatically synchronize to servers in these selected sites only.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                  {sites.map((s) => {
+                    const isChecked = runtimeForm.target_site_ids.includes(s.id);
+                    return (
+                      <label
+                        key={s.id}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs transition-colors",
+                          isChecked
+                            ? "border-indigo-500/50 bg-indigo-950/40 text-slate-100"
+                            : "border-slate-800 bg-slate-950/50 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setRuntimeForm((prev) => ({
+                                ...prev,
+                                target_site_ids: [...prev.target_site_ids, s.id],
+                              }));
+                            } else {
+                              setRuntimeForm((prev) => ({
+                                ...prev,
+                                target_site_ids: prev.target_site_ids.filter((id) => id !== s.id),
+                              }));
+                            }
+                          }}
+                          className="rounded border-slate-700 text-indigo-600 focus:ring-0"
+                        />
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold truncate">{s.client}</span>
+                          <span className="text-[10px] text-slate-500 truncate">
+                            {s.location} ({s.code})
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
 
-                <div className="flex gap-2">
+              {/* Ping Connectivity Targets */}
+              <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
+                <Label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Radio className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Connectivity Targets ({runtimeForm.connectivity_targets.length})</span>
+                </Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
-                    type="text"
-                    placeholder="Device Name (e.g. Weighscale PLC)"
+                    placeholder="Device name (e.g. PLC-1, Scanner)"
                     value={newTargetName}
                     onChange={(e) => setNewTargetName(e.target.value)}
-                    className="h-8 text-xs bg-slate-950 border-slate-700 w-1/2"
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                   <Input
-                    type="text"
                     placeholder="IP / Host (e.g. 192.168.1.50)"
                     value={newTargetIp}
                     onChange={(e) => setNewTargetIp(e.target.value)}
-                    className="h-8 text-xs bg-slate-950 border-slate-700 w-1/2"
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                   <Button
                     type="button"
-                    size="sm"
-                    variant="outline"
                     onClick={addTargetToRuntime}
-                    className="h-8 border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/10 shrink-0"
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white shrink-0"
                   >
-                    Add
+                    Add Target
                   </Button>
                 </div>
 
-                {runtimeForm.connectivity_targets.length > 0 ? (
-                  <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
-                    {runtimeForm.connectivity_targets.map((ct, idx) => (
-                      <div key={idx} className="flex items-center justify-between rounded bg-slate-900 px-2 py-1 text-xs">
-                        <span className="font-semibold text-slate-200">{ct.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-slate-400">{ct.ip}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeTargetFromRuntime(idx)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-500 italic">No targets added to this template.</p>
-                )}
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {runtimeForm.connectivity_targets.map((ct, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200"
+                    >
+                      <span className="font-semibold text-sky-300">{ct.name}:</span>
+                      <span className="font-mono text-slate-400">{ct.ip}</span>
+                      <button
+                        onClick={() => removeTargetFromRuntime(idx)}
+                        className="text-slate-400 hover:text-red-400 ml-1"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-end gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => setRuntimeModalOpen(false)}
-                disabled={savingRuntime}
+                className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
               >
                 Cancel
               </Button>
               <Button
                 size="sm"
-                onClick={() => void saveRuntime()}
+                onClick={saveRuntime}
                 disabled={savingRuntime}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white"
               >
@@ -973,129 +1391,125 @@ export default function TemplatesPage() {
 
             <div className="flex flex-col gap-4 py-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
+                <div className="grid grid-cols-1 gap-1.5">
                   <Label className="text-xs text-slate-300">Widget Name *</Label>
                   <Input
-                    type="text"
-                    placeholder="e.g. Integration Logs"
+                    placeholder="e.g. Integration Logs Status"
                     value={widgetForm.name}
                     onChange={(e) => setWidgetForm({ ...widgetForm, name: e.target.value })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="grid grid-cols-1 gap-1.5">
                   <Label className="text-xs text-slate-300">Status</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setWidgetForm({ ...widgetForm, enabled: !widgetForm.enabled })}
-                    className={`h-8 justify-start text-xs border-slate-700 ${
-                      widgetForm.enabled ? "text-emerald-400 bg-emerald-500/10" : "text-slate-400 bg-slate-950"
-                    }`}
-                  >
-                    {widgetForm.enabled ? "Active (Enabled)" : "Paused (Disabled)"}
-                  </Button>
+                  <label className="flex items-center gap-2 cursor-pointer pt-2">
+                    <input
+                      type="checkbox"
+                      checked={widgetForm.enabled}
+                      onChange={(e) => setWidgetForm({ ...widgetForm, enabled: e.target.checked })}
+                      className="rounded border-slate-700 text-emerald-600 focus:ring-0"
+                    />
+                    <span className="text-slate-300">Enabled for polling on agents</span>
+                  </label>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-1.5">
                 <Label className="text-xs text-slate-300">Description</Label>
                 <Input
-                  type="text"
-                  placeholder="e.g. Tracks SUCCESS vs FAILED upload calls over the last hour"
+                  placeholder="e.g. Periodic status breakdown for data uploader pipeline"
                   value={widgetForm.description}
                   onChange={(e) => setWidgetForm({ ...widgetForm, description: e.target.value })}
-                  className="h-8 text-xs bg-slate-950 border-slate-700"
+                  className="bg-slate-950 border-slate-800 text-xs"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-slate-300">Database Name *</Label>
+              {/* Database & Collection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-800/80 bg-slate-950/40 p-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">MongoDB Database *</Label>
                   <Input
-                    type="text"
                     placeholder="e.g. data_uploader_service"
                     value={widgetForm.database}
                     onChange={(e) => setWidgetForm({ ...widgetForm, database: e.target.value })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-slate-300">Collection Name *</Label>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">MongoDB Collection *</Label>
                   <Input
-                    type="text"
                     placeholder="e.g. integration_logs"
                     value={widgetForm.collection}
                     onChange={(e) => setWidgetForm({ ...widgetForm, collection: e.target.value })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-slate-300">Group By Field</Label>
                   <Input
-                    type="text"
                     placeholder="e.g. upload_status"
                     value={widgetForm.group_by_field}
                     onChange={(e) => setWidgetForm({ ...widgetForm, group_by_field: e.target.value })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs text-slate-300">Timestamp Field</Label>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Time Field</Label>
                   <Input
-                    type="text"
                     placeholder="e.g. created_at"
                     value={widgetForm.time_field}
                     onChange={(e) => setWidgetForm({ ...widgetForm, time_field: e.target.value })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Poll Interval (s)</Label>
+              {/* Intervals & Window */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Poll Interval (seconds)</Label>
                   <Input
                     type="number"
                     min={1}
                     max={3600}
                     value={widgetForm.poll_interval_seconds}
-                    onChange={(e) => setWidgetForm({ ...widgetForm, poll_interval_seconds: parseInt(e.target.value) || 60 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) =>
+                      setWidgetForm({ ...widgetForm, poll_interval_seconds: Number(e.target.value) })
+                    }
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Lookback Window (m)</Label>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Time Window (minutes)</Label>
                   <Input
                     type="number"
                     min={1}
                     max={10080}
                     value={widgetForm.window_minutes}
-                    onChange={(e) => setWidgetForm({ ...widgetForm, window_minutes: parseInt(e.target.value) || 60 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) =>
+                      setWidgetForm({ ...widgetForm, window_minutes: Number(e.target.value) })
+                    }
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] text-slate-400">Max Groups</Label>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">Max Groups</Label>
                   <Input
                     type="number"
                     min={1}
                     max={50}
                     value={widgetForm.max_groups}
-                    onChange={(e) => setWidgetForm({ ...widgetForm, max_groups: parseInt(e.target.value) || 10 })}
-                    className="h-8 text-xs bg-slate-950 border-slate-700"
+                    onChange={(e) => setWidgetForm({ ...widgetForm, max_groups: Number(e.target.value) })}
+                    className="bg-slate-950 border-slate-800 text-xs"
                   />
                 </div>
               </div>
 
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex flex-col gap-3">
+              {/* Failure Alert settings */}
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex flex-col gap-2.5">
                 <span className="font-semibold text-amber-300 flex items-center gap-1.5">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Integration Failure Alert Sensitivity
+                  <AlertTriangle className="h-4 w-4" />
+                  Integration Failure Alert Configuration
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
@@ -1105,39 +1519,98 @@ export default function TemplatesPage() {
                       min={0}
                       max={100}
                       value={widgetForm.alert_threshold_percent}
-                      onChange={(e) => setWidgetForm({ ...widgetForm, alert_threshold_percent: parseFloat(e.target.value) || 50.0 })}
-                      className="h-8 text-xs bg-slate-950 border-slate-700 text-amber-200"
+                      onChange={(e) =>
+                        setWidgetForm({ ...widgetForm, alert_threshold_percent: Number(e.target.value) })
+                      }
+                      className="bg-slate-950 border-slate-800 text-xs"
                     />
-                    <span className="text-[10px] text-slate-400">Raise warning when failure rate exceeds this %</span>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <Label className="text-[11px] text-slate-300">Alert Window (minutes)</Label>
+                    <Label className="text-[11px] text-slate-300">Failure Window (minutes)</Label>
                     <Input
                       type="number"
                       min={1}
                       max={10080}
                       value={widgetForm.alert_window_minutes}
-                      onChange={(e) => setWidgetForm({ ...widgetForm, alert_window_minutes: parseInt(e.target.value) || 15 })}
-                      className="h-8 text-xs bg-slate-950 border-slate-700 text-amber-200"
+                      onChange={(e) =>
+                        setWidgetForm({ ...widgetForm, alert_window_minutes: Number(e.target.value) })
+                      }
+                      className="bg-slate-950 border-slate-800 text-xs"
                     />
-                    <span className="text-[10px] text-slate-400">Look back this many minutes for failure calculation</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Target Sites Selection inside Modal */}
+              <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Assign to Sites (Changes will sync to these sites only)</span>
+                  </Label>
+                  <span className="text-[10px] text-slate-400">
+                    {widgetForm.target_site_ids.length} selected
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Select which client sites use this widget. Any changes saved to this template will automatically synchronize to servers in these selected sites only.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                  {sites.map((s) => {
+                    const isChecked = widgetForm.target_site_ids.includes(s.id);
+                    return (
+                      <label
+                        key={s.id}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs transition-colors",
+                          isChecked
+                            ? "border-emerald-500/50 bg-emerald-950/40 text-slate-100"
+                            : "border-slate-800 bg-slate-950/50 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setWidgetForm((prev) => ({
+                                ...prev,
+                                target_site_ids: [...prev.target_site_ids, s.id],
+                              }));
+                            } else {
+                              setWidgetForm((prev) => ({
+                                ...prev,
+                                target_site_ids: prev.target_site_ids.filter((id) => id !== s.id),
+                              }));
+                            }
+                          }}
+                          className="rounded border-slate-700 text-emerald-600 focus:ring-0"
+                        />
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold truncate">{s.client}</span>
+                          <span className="text-[10px] text-slate-500 truncate">
+                            {s.location} ({s.code})
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+            <div className="border-t border-slate-800 pt-3 flex items-center justify-end gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => setWidgetModalOpen(false)}
-                disabled={savingWidget}
+                className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
               >
                 Cancel
               </Button>
               <Button
                 size="sm"
-                onClick={() => void saveWidget()}
+                onClick={saveWidget}
                 disabled={savingWidget}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white"
               >

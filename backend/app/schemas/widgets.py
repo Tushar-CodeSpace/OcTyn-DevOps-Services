@@ -11,7 +11,12 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from app.schemas.agent_config import CustomWidgetSpec
+from app.schemas.agent_config import (
+    CustomWidgetSpec,
+    TemplateServerUsage,
+    TemplateSiteAssignRequest,
+    TemplateSiteUsage,
+)
 
 
 class WidgetSampleCreate(BaseModel):
@@ -62,11 +67,15 @@ class WidgetTemplateUpsert(CustomWidgetSpec):
     """Reusable widget definition shared across servers (upsert by name)."""
 
     description: str = Field(default="", max_length=300)
+    target_site_ids: Optional[list[str]] = None
 
 
 class WidgetTemplateRead(WidgetTemplateUpsert):
-    """Stored template with identity and timestamps."""
+    """Stored template with identity, timestamps, and site usage telemetry."""
 
     id: str
     created_at: datetime
     updated_at: datetime
+    used_by_sites: list[TemplateSiteUsage] = Field(default_factory=list)
+    used_by_servers: list[TemplateServerUsage] = Field(default_factory=list)
+    applied_servers_count: int = 0

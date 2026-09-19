@@ -80,10 +80,11 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
     - Endpoints support single deployment approval (`POST /api/v1/deployments/{id}/approve`), fleet-wide batch approval (`POST /api/v1/deployments/batch/{batch_id}/approve`), and rejection (`/reject`).
     - User accounts support `user_group: devops | developer | product | management` managed under `/users`.
 
-14. **Template Library Management (`/templates`) & Automated Fleet Propagation**:
+14. **Template Library Management (`/templates`) & Site-Scoped Propagation**:
     - Dedicated management interface accessible strictly to Admin and Super Admin accounts to create, edit, duplicate, and delete reusable **Agent Runtime Templates** and **Custom Widget Templates**.
-    - Modifying any template automatically updates all linked site servers in `db.server_configs()` and emits realtime sync events so agents pick up changes dynamically without manual site-by-site intervention.
-    - Supports 1-click fleet synchronization ("Sync All") to deploy or update templates across all servers simultaneously.
+    - **Site Usage Visibility**: Templates automatically track and display the exact client sites and edge nodes currently using them (`used_by_sites` with client name, location, code, and node counts).
+    - **Site-Scoped Synchronization**: When a template is linked to specific sites (e.g. Site B and Site Y only), modifying the template updates and emits realtime sync events strictly to servers in those assigned sites. Servers in other sites remain completely untouched.
+    - **Flexible Site Assignment**: Templates feature an **"Assign Sites"** selector dialog and in-form site checklists to assign or reassign templates to any combination of client sites with 1 click, alongside global fleet synchronization ("Sync All").
 
 15. **Server Agent Execution Logs (`/servers/:id` Logs Tab)**:
     - Dedicated **Logs** tab on Server Detail alongside Overview, Services, Widgets, Backups, and Keys.

@@ -108,6 +108,27 @@ class AgentConfigOverrideUpdate(BaseModel):
         return v
 
 
+class TemplateSiteUsage(BaseModel):
+    site_id: str
+    client: str
+    location: str
+    code: str
+    server_count: int
+    servers: list[str] = Field(default_factory=list)
+
+
+class TemplateServerUsage(BaseModel):
+    server_id: str
+    server_name: str
+    site_id: str
+    site_name: str
+
+
+class TemplateSiteAssignRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    site_ids: list[str] = Field(default_factory=list)
+
+
 class RuntimeTemplateUpsert(BaseModel):
     """Reusable agent-runtime settings snapshot shared across servers."""
 
@@ -121,11 +142,15 @@ class RuntimeTemplateUpsert(BaseModel):
     config_poll_interval_seconds: int = Field(default=5, ge=1, le=300)
     connectivity_poll_interval_seconds: int = Field(default=15, ge=1, le=3600)
     connectivity_targets: list[ConnectivityTarget] = Field(default_factory=list)
+    target_site_ids: Optional[list[str]] = None
 
 
 class RuntimeTemplateRead(RuntimeTemplateUpsert):
-    """Stored runtime template with identity and timestamps."""
+    """Stored runtime template with identity, timestamps, and site usage telemetry."""
 
     id: str
     created_at: datetime
     updated_at: datetime
+    used_by_sites: list[TemplateSiteUsage] = Field(default_factory=list)
+    used_by_servers: list[TemplateServerUsage] = Field(default_factory=list)
+    applied_servers_count: int = 0

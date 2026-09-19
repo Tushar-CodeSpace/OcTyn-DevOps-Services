@@ -281,11 +281,31 @@ export interface WidgetHistoryPoint {
   groups: Record<string, number>;
 }
 
+export interface TemplateSiteUsage {
+  site_id: string;
+  client: string;
+  location: string;
+  code: string;
+  server_count: number;
+  servers: string[];
+}
+
+export interface TemplateServerUsage {
+  server_id: string;
+  server_name: string;
+  site_id: string;
+  site_name: string;
+}
+
 export interface WidgetTemplate extends CustomWidgetSpec {
   id: string;
   description: string;
   created_at: string;
   updated_at: string;
+  used_by_sites?: TemplateSiteUsage[];
+  used_by_servers?: TemplateServerUsage[];
+  applied_servers_count?: number;
+  target_site_ids?: string[] | null;
 }
 
 export interface AgentRuntimeTemplate {
@@ -300,6 +320,10 @@ export interface AgentRuntimeTemplate {
   connectivity_targets: ConnectivityTarget[];
   created_at: string;
   updated_at: string;
+  used_by_sites?: TemplateSiteUsage[];
+  used_by_servers?: TemplateServerUsage[];
+  applied_servers_count?: number;
+  target_site_ids?: string[] | null;
 }
 
 export interface AgentConfig {

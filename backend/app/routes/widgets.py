@@ -121,10 +121,25 @@ async def ingest_widget_sample(
     return {"success": True}
 
 
-def template_doc_to_read(doc: dict) -> WidgetTemplateRead:
+from app.schemas.agent_config import TemplateSiteAssignRequest
+from app.services.template_usage import (
+    assign_widget_template_sites,
+    get_all_widget_template_usages,
+)
+
+
+def template_doc_to_read(doc: dict, usage_resolver=None) -> WidgetTemplateRead:
+    wid = str(doc["_id"])
+    wname = doc["name"]
+    if usage_resolver is not None:
+        used_sites, used_servers, applied_count = usage_resolver(wid, wname)
+    else:
+        resolver = get_all_widget_template_usages()
+        used_sites, used_servers, applied_count = resolver(wid, wname)
+
     return WidgetTemplateRead(
-        id=str(doc["_id"]),
-        name=doc["name"],
+        id=wid,
+        name=wname,
         description=doc.get("description", ""),
         database=doc["database"],
         collection=doc["collection"],
@@ -138,6 +153,9 @@ def template_doc_to_read(doc: dict) -> WidgetTemplateRead:
         alert_window_minutes=int(doc.get("alert_window_minutes", 15)),
         created_at=doc.get("created_at", now()),
         updated_at=doc.get("updated_at", now()),
+        used_by_sites=used_sites,
+        used_by_servers=used_servers,
+        applied_servers_count=applied_count,
     )
 
 
@@ -147,19 +165,25 @@ async def list_widget_templates(
 ) -> list[WidgetTemplateRead]:
     """Dashboard endpoint: reusable widget definitions shared across servers."""
     docs = list(db.widget_templates().find({}).sort("name", 1).limit(100))
-    return [template_doc_to_read(d) for d in docs]
+    resolver = get_all_widget_template_usages()
+    return [template_doc_to_read(d, usage_resolver=resolver) for d in docs]
 
 
 def propagate_widget_template(template_id: str, data: dict, old_name: str | None = None) -> int:
     """Propagate updated widget template to all servers currently configuring this widget."""
-    server_configs = list(db.server_configs().find({"custom_widgets": {"$exists": True, "$ne": []}}))
+    server_configs = list(db.server_configs().find({
+        "$or": [
+            {"custom_widgets": {"$exists": True, "$ne": []}},
+            {"widgets": {"$exists": True, "$ne": []}},
+        ]
+    }))
     count = 0
     names_to_match = {data["name"]}
     if old_name:
         names_to_match.add(old_name)
 
     for sc in server_configs:
-        widgets = sc.get("custom_widgets", [])
+        widgets = sc.get("custom_widgets") or sc.get("widgets") or []
         modified = False
         for w in widgets:
             if not isinstance(w, dict):
@@ -183,7 +207,7 @@ def propagate_widget_template(template_id: str, data: dict, old_name: str | None
         if modified:
             db.server_configs().update_one(
                 {"_id": sc["_id"]},
-                {"$set": {"custom_widgets": widgets, "updated_at": now()}},
+                {"$set": {"custom_widgets": widgets, "widgets": widgets, "updated_at": now()}},
             )
             sid = str(sc.get("server_id"))
             emit("agent_config_updated", {"server_id": sid}, room=f"server:{sid}")
@@ -204,27 +228,36 @@ async def upsert_widget_template(
 ) -> WidgetTemplateRead:
     """Dashboard endpoint (admin): create or replace a template by name."""
     data = payload.model_dump()
+    target_site_ids = data.pop("target_site_ids", None)
     audit_trail.record(
         current, "template_save", request,
         {"kind": "widget", "name": data["name"], "database": data.get("database"), "collection": data.get("collection")},
     )
     existing = db.widget_templates().find_one({"name": data["name"]})
     if existing:
+        tid = str(existing["_id"])
         db.widget_templates().update_one(
             {"_id": existing["_id"]},
             {"$set": {**data, "updated_at": now()}},
         )
-        propagate_widget_template(str(existing["_id"]), data, old_name=existing.get("name"))
+        if target_site_ids is not None:
+            assign_widget_template_sites(tid, target_site_ids)
+        else:
+            propagate_widget_template(tid, data, old_name=existing.get("name"))
         doc = db.widget_templates().find_one({"_id": existing["_id"]})
         assert doc is not None
         return template_doc_to_read(doc)
+    
+    tid = new_id()
     doc = {
-        "_id": new_id(),
+        "_id": tid,
         **data,
         "created_at": now(),
         "updated_at": now(),
     }
     db.widget_templates().insert_one(doc)
+    if target_site_ids is not None:
+        assign_widget_template_sites(str(tid), target_site_ids)
     return template_doc_to_read(doc)
 
 
@@ -239,22 +272,51 @@ async def update_widget_template(
     request: Request,
     current: dict = Depends(auth.require_admin),
 ) -> WidgetTemplateRead:
-    """Dashboard endpoint (admin): update a widget template by ID and auto-sync all linked servers."""
+    """Dashboard endpoint (admin): update a widget template by ID and auto-sync linked servers."""
     doc = db.widget_templates().find_one({"_id": template_id})
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
     data = payload.model_dump()
+    target_site_ids = data.pop("target_site_ids", None)
     old_name = doc.get("name")
     db.widget_templates().update_one(
         {"_id": template_id},
         {"$set": {**data, "updated_at": now()}},
     )
-    # Auto-propagate changes to all servers utilizing this widget template
-    propagate_widget_template(template_id, data, old_name=old_name)
+    if target_site_ids is not None:
+        assign_widget_template_sites(template_id, target_site_ids)
+    else:
+        propagate_widget_template(template_id, data, old_name=old_name)
 
     audit_trail.record(
         current, "template_save", request,
         {"kind": "widget", "id": template_id, "name": data["name"], "database": data.get("database"), "collection": data.get("collection")},
+    )
+    updated = db.widget_templates().find_one({"_id": template_id})
+    assert updated is not None
+    return template_doc_to_read(updated)
+
+
+@router.post(
+    "/templates/{template_id}/assign-sites",
+    response_model=WidgetTemplateRead,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def assign_widget_template_to_sites_endpoint(
+    template_id: str,
+    payload: TemplateSiteAssignRequest,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> WidgetTemplateRead:
+    """Dashboard endpoint (admin): assign this widget template to specific sites only."""
+    doc = db.widget_templates().find_one({"_id": template_id})
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+    count = assign_widget_template_sites(template_id, payload.site_ids)
+    audit_trail.record(
+        current, "template_assign_sites", request,
+        {"kind": "widget", "id": template_id, "name": doc["name"], "site_ids": payload.site_ids, "servers_updated": count},
     )
     updated = db.widget_templates().find_one({"_id": template_id})
     assert updated is not None
