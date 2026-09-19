@@ -34,8 +34,10 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
    - Maintain working directory (`_TERMINAL_CWD`) state across execution requests (`cd /`, `cd /home`, `cd ..`).
    - Single <kbd>Tab</kbd> press handles autocompletion and outputs suggestions directly to the output stream.
 
-4. **Device Connectivity**:
+4. **Device Connectivity & Warning Alerts**:
    - Device connectivity status pills on Server Detail are compact, responsive cards (`grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6`).
+   - When any device ping target fails (`reachable: False`), a `warning` alert (`device_unreachable:<target>`) is automatically opened, upgrading the server's effective status to `warning` and notifying via real-time sockets and WhatsApp.
+   - When the device recovers (`reachable: True`), the alert is automatically resolved (`device_unreachable:<target>_resolved`), restoring server status to `online`.
 
 5. **Agent CI/CD Auto-Updates**:
    - Remote site agents check `GET /api/v1/agent/release` on the Central Server. When code is pushed to GitHub `main`, central deployment triggers an update notification (`POST /api/v1/agent/trigger-update`), causing remote site agents to self-download the new release, compile-check (`py_compile`), replace themselves, and exit cleanly so systemd auto-restarts them.

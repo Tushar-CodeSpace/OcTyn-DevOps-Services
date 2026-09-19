@@ -148,6 +148,9 @@ def _resolve_alert(
         widget_label = alert_type.split(":", 1)[1] if ":" in alert_type else "Integration"
         val_str = f" ({current_value:.1f}%)" if current_value is not None else ""
         msg = f"Integration '{widget_label}' failure rate recovered to normal{val_str}"
+    elif alert_type.startswith("device_unreachable:"):
+        target_name = alert_type.split(":", 1)[1] if ":" in alert_type else "Device"
+        msg = f"Device '{target_name}' on {hostname or machine or server_id} is back ONLINE (connectivity restored)"
     else:
         msg = f"Alert {alert_type} on {hostname or machine or server_id} resolved"
 
@@ -288,6 +291,27 @@ def sweep_and_auto_resolve_alerts(cfg: Optional[dict] = None) -> int:
             widgets = agent_cfg.get("custom_widgets", [])
             matching_w = next((w for w in widgets if w.get("name") == w_name), None)
             if not matching_w or not matching_w.get("enabled", True):
+                _resolve_alert(alert_type, sid, hostname=hostname, machine=machine, site_id=site_id)
+                resolved_count += 1
+            continue
+
+        # 6. Device connectivity unreachable alert
+        if alert_type.startswith("device_unreachable:"):
+            tname = alert_type.split(":", 1)[1] if ":" in alert_type else ""
+            agent_cfg = app_settings.get_agent_config(str(sid))
+            configured_names = {
+                str(t["name"]) for t in agent_cfg.get("connectivity_targets", []) if t.get("name")
+            }
+            if tname not in configured_names:
+                _resolve_alert(alert_type, sid, hostname=hostname, machine=machine, site_id=site_id)
+                resolved_count += 1
+                continue
+
+            conn_doc = db.connectivity().find_one({
+                "$or": [{"server_id": sid}, {"server_id": str(sid)}, {"server_id": parse_id(sid)}],
+                "target_name": tname,
+            })
+            if conn_doc and conn_doc.get("reachable") is True:
                 _resolve_alert(alert_type, sid, hostname=hostname, machine=machine, site_id=site_id)
                 resolved_count += 1
             continue
@@ -482,6 +506,9 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
     # Integration Logs Failure Rate Monitoring
     _check_integration_failure_rate(server_id, cfg, hostname, machine, site_id)
 
+    # Device Connectivity Monitoring
+    _check_device_connectivity(server_id, hostname, machine, site_id)
+
 
 def _check_integration_failure_rate(
     server_id: str,
@@ -563,3 +590,99 @@ def _check_integration_failure_rate(
                 site_id=site_id,
                 current_value=failure_rate,
             )
+
+
+def _check_device_connectivity(
+    server_id,
+    hostname: Optional[str],
+    machine: Optional[str],
+    site_id,
+) -> None:
+    """Check device connectivity targets for the server and trigger warning alerts if unreachable."""
+    from app.database.connection import parse_id
+
+    agent_cfg = app_settings.get_agent_config(str(server_id))
+    configured_targets = {
+        str(t["name"]): str(t["ip"])
+        for t in agent_cfg.get("connectivity_targets", [])
+        if t.get("name") and t.get("ip")
+    }
+
+    sid_val = parse_id(server_id) or server_id
+    sid_filter = {"$in": [server_id, str(server_id), sid_val]} if sid_val else {"$in": [server_id, str(server_id)]}
+
+    conn_docs = list(db.connectivity().find({"server_id": sid_filter}))
+    latest_by_target: dict[str, dict] = {}
+    for cd in conn_docs:
+        tname = str(cd.get("target_name", ""))
+        if tname:
+            latest_by_target[tname] = cd
+
+    for tname, tip in configured_targets.items():
+        doc = latest_by_target.get(tname)
+        if doc is not None and doc.get("reachable") is False:
+            _open_alert(
+                f"device_unreachable:{tname}",
+                server_id,
+                "warning",
+                f"Device '{tname}' ({tip}) is unreachable (ping failed)",
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+            )
+        elif doc is not None and doc.get("reachable") is True:
+            _resolve_alert(
+                f"device_unreachable:{tname}",
+                server_id,
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+            )
+
+    for active in db.alerts().find(
+        {"server_id": sid_filter, "type": {"$regex": "^device_unreachable:"}, "status": "active"}
+    ):
+        tname = active["type"].split(":", 1)[1] if ":" in active["type"] else ""
+        if tname not in configured_targets:
+            _resolve_alert(
+                active["type"],
+                server_id,
+                hostname=hostname,
+                machine=machine,
+                site_id=site_id,
+            )
+
+
+def open_device_connectivity_alert(
+    server_id,
+    target_name: str,
+    ip: str,
+    hostname: Optional[str] = None,
+    machine: Optional[str] = None,
+    site_id=None,
+) -> None:
+    _open_alert(
+        f"device_unreachable:{target_name}",
+        server_id,
+        "warning",
+        f"Device '{target_name}' ({ip}) is unreachable (ping failed)",
+        hostname=hostname,
+        machine=machine,
+        site_id=site_id,
+    )
+
+
+def resolve_device_connectivity_alert(
+    server_id,
+    target_name: str,
+    hostname: Optional[str] = None,
+    machine: Optional[str] = None,
+    site_id=None,
+) -> None:
+    _resolve_alert(
+        f"device_unreachable:{target_name}",
+        server_id,
+        hostname=hostname,
+        machine=machine,
+        site_id=site_id,
+    )

@@ -51,19 +51,22 @@ def now() -> datetime:
 def sweep_server_health() -> int:
     """Recompute status for every server from heartbeat age + active warning/critical alerts."""
     changed = 0
-    alert_servers = {
-        a["server_id"]
-        for a in db.alerts().find(
-            {"status": "active", "severity": {"$in": ["warning", "critical"]}}, {"server_id": 1}
-        )
-    }
+    alert_servers = set()
+    for a in db.alerts().find(
+        {"status": "active", "severity": {"$in": ["warning", "critical"]}}, {"server_id": 1}
+    ):
+        sid = a.get("server_id")
+        if sid is not None:
+            alert_servers.add(sid)
+            alert_servers.add(str(sid))
     cfg = app_settings.get_alert_config()
     offline_timeout = int(cfg.get("offline_threshold_seconds", settings.health_warning_max_seconds))
     grace = int(cfg.get("alert_offline_grace_seconds", settings.alert_offline_grace_seconds))
     max_warn = offline_timeout + grace
     for server in db.servers().find({}):
         status = compute_status(server.get("last_seen_at"), warning_max_seconds=max_warn)
-        status = effective_status(status, server["_id"] in alert_servers)
+        has_alert = server["_id"] in alert_servers or str(server["_id"]) in alert_servers
+        status = effective_status(status, has_alert)
         if status != server.get("status"):
             db.servers().update_one(
                 {"_id": server["_id"]},

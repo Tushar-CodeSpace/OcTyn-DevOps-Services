@@ -156,7 +156,7 @@ uv run agent
 
 ### UI & Styling Standards
 - Primary styling uses Tailwind CSS 4 with custom dark mode theme (`bg-black`, `text-emerald-300`, `text-slate-200`).
-- **Device Connectivity**: Device status tiles are formatted as small, space-efficient, responsive grid cards showing glowing status indicators, host name, latency, IP, and timestamp.
+- **Device Connectivity & Warning Alerts**: Device status tiles are formatted as small, space-efficient, responsive grid cards showing glowing status indicators, host name, latency, IP, and timestamp. If any ping test fails (`reachable: False`), a `warning` alert is immediately triggered, elevating server status to `warning`. When the device recovers, the alert auto-resolves in Master Logs and restores the server status to `online`.
 - **Alert Controls**: Settings page features responsive Sub-Tiles for Client-level and Site-level alert enable/disable toggles with real-time search filtering.
 
 ### Software Deployments & 3-Team Approval Governance

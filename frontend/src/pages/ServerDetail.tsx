@@ -1738,7 +1738,7 @@ export default function ServerDetail() {
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden">
+      <Card className={cn("overflow-hidden transition-colors duration-200", connUnreachable > 0 && "border-amber-500/40 bg-amber-950/10")}>
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 py-2.5">
           <button
             type="button"
@@ -1751,16 +1751,16 @@ export default function ServerDetail() {
             ) : (
               <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
             )}
-            <Activity className="h-4 w-4 shrink-0 text-emerald-400" />
+            <Activity className={cn("h-4 w-4 shrink-0 transition-colors", connUnreachable > 0 ? "text-amber-400 animate-pulse" : "text-emerald-400")} />
             <CardTitle className="text-xs font-semibold text-slate-200">Device connectivity</CardTitle>
           </button>
-          <span className="font-mono text-[11px] text-slate-500">
+          <span className={cn("font-mono text-[11px]", connUnreachable > 0 ? "font-semibold text-amber-400" : "text-slate-500")}>
             {!connectivity
               ? "loading…"
               : connectivity.length === 0
                 ? "no targets"
                 : connUnreachable > 0
-                  ? `${connUnreachable} offline · ${reachableTargets.length}/${connectivity.length} reachable`
+                  ? `${connUnreachable} unreachable · ${reachableTargets.length}/${connectivity.length} reachable`
                   : `${connectivity.length}/${connectivity.length} reachable`}
           </span>
         </CardHeader>
@@ -1776,7 +1776,12 @@ export default function ServerDetail() {
               {connectivity.map((c) => (
                 <div
                   key={c.name + c.ip}
-                  className="flex flex-col justify-between rounded-lg border border-slate-800/80 bg-slate-950/60 p-2 transition-all duration-200 hover:border-slate-700/80"
+                  className={cn(
+                    "flex flex-col justify-between rounded-lg border p-2 transition-all duration-200",
+                    c.reachable === false
+                      ? "border-amber-500/50 bg-amber-950/25 shadow-[0_0_12px_rgba(245,158,11,0.15)] hover:border-amber-400/80"
+                      : "border-slate-800/80 bg-slate-950/60 hover:border-slate-700/80"
+                  )}
                 >
                   <div className="flex items-center justify-between gap-1">
                     <div className="flex items-center gap-1.5 min-w-0">
@@ -1785,7 +1790,7 @@ export default function ServerDetail() {
                       ) : c.reachable ? (
                         <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
                       ) : (
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]" />
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse" />
                       )}
                       <span className="truncate text-xs font-semibold text-slate-200" title={c.name}>
                         {c.name}
@@ -1797,7 +1802,7 @@ export default function ServerDetail() {
                           ? "text-slate-500"
                           : c.reachable
                           ? "text-emerald-400"
-                          : "text-red-400"
+                          : "text-amber-400"
                       }`}
                     >
                       {c.reachable === null
@@ -1806,7 +1811,7 @@ export default function ServerDetail() {
                         ? c.latency_ms != null
                           ? `${c.latency_ms}ms`
                           : "OK"
-                        : "OFFLINE"}
+                        : "UNREACHABLE"}
                     </span>
                   </div>
                   <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-slate-500">

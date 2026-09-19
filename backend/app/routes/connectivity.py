@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
-from app.services import app_settings
+from app.services import alerts, app_settings, monitoring
 from app.services import authentication as auth
 from app.services.monitoring import authenticate_agent
 
@@ -171,7 +171,46 @@ async def ingest_connectivity(
                 }
             )
 
+        if not new_reachable:
+            alerts.open_device_connectivity_alert(
+                server_id=server["_id"],
+                target_name=r.name,
+                ip=r.ip,
+                hostname=endpoint,
+                machine=server.get("name"),
+                site_id=server.get("site_id"),
+            )
+        else:
+            alerts.resolve_device_connectivity_alert(
+                server_id=server["_id"],
+                target_name=r.name,
+                hostname=endpoint,
+                machine=server.get("name"),
+                site_id=server.get("site_id"),
+            )
+
     server_id = str(server["_id"])
+    server_doc = db.servers().find_one({"_id": server["_id"]})
+    if server_doc:
+        curr_hb_status = monitoring.compute_status(server_doc.get("last_seen_at"))
+        eff_status = monitoring.effective_status(
+            curr_hb_status,
+            monitoring.has_active_alert(server["_id"]),
+        )
+        if eff_status != server_doc.get("status"):
+            db.servers().update_one({"_id": server["_id"]}, {"$set": {"status": eff_status, "updated_at": ts}})
+            emit("server_status", {"server_id": server_id, "status": eff_status, "hostname": server_doc.get("hostname")})
+            emit("server_updated", {
+                "id": server_id,
+                "site_id": str(server_doc.get("site_id", "")),
+                "name": server_doc.get("name"),
+                "hostname": server_doc.get("hostname"),
+                "status": eff_status,
+                "last_seen_at": server_doc.get("last_seen_at").isoformat() if server_doc.get("last_seen_at") else None,
+                "created_at": server_doc.get("created_at").isoformat() if server_doc.get("created_at") else None,
+                "updated_at": ts.isoformat(),
+            }, room=f"server:{server_id}")
+
     results = _server_connectivity(server_id)
     emit(
         "connectivity",

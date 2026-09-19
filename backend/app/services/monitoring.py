@@ -57,8 +57,11 @@ def effective_status(heartbeat_status: str, has_active_alert: bool) -> str:
 
 def has_active_alert(server_id) -> bool:
     """True when the server has at least one active warning/critical alert."""
+    from app.database.connection import parse_id
+    sid_val = parse_id(server_id)
+    sid_filter = {"$in": [server_id, str(server_id), sid_val]} if sid_val else {"$in": [server_id, str(server_id)]}
     doc = db.alerts().find_one(
-        {"server_id": server_id, "status": "active", "severity": {"$in": ["warning", "critical"]}},
+        {"server_id": sid_filter, "status": "active", "severity": {"$in": ["warning", "critical"]}},
         {"_id": 1},
     )
     return doc is not None
