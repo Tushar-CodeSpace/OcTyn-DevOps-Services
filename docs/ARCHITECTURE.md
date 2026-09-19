@@ -2,6 +2,12 @@
 
 This document describes the high-level architecture, data flows, background processes, and component interactions of **OcTyn DevOps Services**.
 
+> [!NOTE]
+> For complete technical specifications and feature breakdowns, see:
+> - [API Contract & REST Specifications](API_CONTRACT.md)
+> - [Master Server & Agent Features Guide](MASTER_SERVER_AND_AGENT_FEATURES.md)
+> - [How OcTyn DevOps Services Works](HOW_IT_WORKS.md)
+
 ---
 
 ## High-Level System Architecture

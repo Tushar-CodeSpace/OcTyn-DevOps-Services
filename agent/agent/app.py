@@ -20,6 +20,7 @@ from agent.mongo_backup import HAS_PYMONGO, sync_configs
 from agent.runner import cycle, start_config_poller
 from agent.terminal import start_terminal_poller
 from agent.transport import fetch_agent_config
+from agent.updater import check_and_apply_update
 from agent.widgets import start_widget_poller
 from agent.deployer import start_deployment_poller
 
@@ -52,11 +53,18 @@ def main() -> None:
     start_deployment_poller()
 
     last_config_sync_day = None
+    update_check_counter = 0
     while True:
         try:
             cycle()
         except Exception as exc:
             log(f"cycle error: {exc!r}")
+
+        # Check for updates every 6 cycles or when force_update flag is set
+        update_check_counter += 1
+        if update_check_counter >= 6 or bool(_RUNTIME_CONFIG.get("force_update", False)):
+            update_check_counter = 0
+            check_and_apply_update()
 
         now_local = datetime.now()
         if (

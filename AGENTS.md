@@ -2,7 +2,7 @@
 
 This file is the primary guidance document for AI Agents (Antigravity, Cursor, Windsurf, Claude Code, Copilot, etc.) working on **OcTyn DevOps Services**.
 
-For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.md), [docs/HOW_IT_WORKS.md](file:///d:/octyn_watcher/docs/HOW_IT_WORKS.md), and [docs/ARCHITECTURE.md](file:///d:/octyn_watcher/docs/ARCHITECTURE.md).
+For the detailed complete guide, see [docs/API_CONTRACT.md](file:///d:/octyn_watcher/docs/API_CONTRACT.md), [docs/MASTER_SERVER_AND_AGENT_FEATURES.md](file:///d:/octyn_watcher/docs/MASTER_SERVER_AND_AGENT_FEATURES.md), [docs/HOW_IT_WORKS.md](file:///d:/octyn_watcher/docs/HOW_IT_WORKS.md), and [docs/ARCHITECTURE.md](file:///d:/octyn_watcher/docs/ARCHITECTURE.md).
 
 ---
 

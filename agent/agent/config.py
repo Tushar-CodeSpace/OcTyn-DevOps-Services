@@ -46,7 +46,7 @@ else:
 API_KEY: str = _get_env_val("API_KEY")
 
 DEFAULT_BOOTSTRAP = {
-    "MONITORING_INTERVAL": 60,
+    "MONITORING_INTERVAL": 10,
     "HTTP_TIMEOUT_SECONDS": 10,
     "HTTP_RETRY_COUNT": 3,
     "CONFIG_POLL_INTERVAL_SECONDS": 5,
@@ -60,7 +60,7 @@ _RUNTIME_CONFIG: Dict[str, Any] = {
     "monitored_services": [],
     "config_collections": None,
     "connectivity_targets": [],
-    "monitoring_interval_seconds": 60,
+    "monitoring_interval_seconds": 10,
     "http_timeout_seconds": 10,
     "http_retry_count": 3,
     "config_poll_interval_seconds": 5,

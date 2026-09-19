@@ -1,6 +1,12 @@
-# How OcTyn DevOps Services Works (Basic Guide)
+# How OcTyn DevOps Services Works
 
-This document provides a simple, easy-to-understand guide to how **OcTyn DevOps Services** works under the hood.
+This document provides an overview of how **OcTyn DevOps Services** works under the hood.
+
+> [!NOTE]
+> For complete technical references, see:
+> - [API Contract & REST Specifications](API_CONTRACT.md)
+> - [Master Server & Agent Features Guide](MASTER_SERVER_AND_AGENT_FEATURES.md)
+> - [Architecture Deep Dive](ARCHITECTURE.md)
 
 ---
 
