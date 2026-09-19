@@ -63,6 +63,23 @@ class DeploymentLogEntry(BaseModel):
     level: str = "info"  # info, warn, error, success
 
 
+class DeploymentApprovalEntry(BaseModel):
+    user_id: str
+    email: str
+    user_group: str  # devops | developer | product
+    approved_at: datetime
+    notes: Optional[str] = ""
+
+
+class DeploymentApprovalRequest(BaseModel):
+    user_group: Optional[str] = None  # Defaults to user's assigned group
+    notes: Optional[str] = Field(default="", max_length=500)
+
+
+class DeploymentRejectRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class DeploymentRead(BaseModel):
     id: str
     batch_id: Optional[str] = None
@@ -71,7 +88,7 @@ class DeploymentRead(BaseModel):
     site_name: str
     software_id: str
     software_name: str
-    status: str  # pending, running, success, failed, cancelled
+    status: str  # pending_approval, pending, running, success, failed, cancelled, rejected
     components_selected: List[str]
     branches: Dict[str, str]
     client_name: Optional[str] = None
@@ -82,6 +99,9 @@ class DeploymentRead(BaseModel):
     duration_seconds: Optional[float] = None
     exit_code: Optional[int] = None
     logs: List[DeploymentLogEntry] = Field(default_factory=list)
+    approvals: List[DeploymentApprovalEntry] = Field(default_factory=list)
+    approval_required_groups: List[str] = Field(default_factory=lambda: ["devops", "developer", "product"])
+    rejection: Optional[Dict[str, Any]] = None
 
 
 class DeploymentLogStream(BaseModel):

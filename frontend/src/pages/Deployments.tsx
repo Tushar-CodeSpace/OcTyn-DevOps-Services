@@ -14,6 +14,8 @@ import {
   Rocket,
   Search,
   Server as ServerIcon,
+  ShieldAlert,
+  ShieldCheck,
   Square,
   StopCircle,
   Terminal as TerminalIcon,
@@ -43,7 +45,7 @@ type ActiveTab = "history" | "softwares";
 type DeployMode = "single" | "multi";
 
 export default function DeploymentsPage() {
-  const { isAdmin } = useAuth();
+  const { user: currentUser, isAdmin, isSuperAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>("history");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -94,6 +96,30 @@ export default function DeploymentsPage() {
   const [activeLogs, setActiveLogs] = useState<DeploymentLogEntry[]>([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const consoleBottomRef = useRef<HTMLDivElement>(null);
+
+  // Governance & Approvals
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalTarget, setApprovalTarget] = useState<{
+    id: string;
+    batch_id?: string;
+    software_name: string;
+    server_name: string;
+    isBatch: boolean;
+  } | null>(null);
+  const [selectedApprovalGroup, setSelectedApprovalGroup] = useState<string>("devops");
+  const [approvalNotes, setApprovalNotes] = useState<string>("");
+  const [submittingApproval, setSubmittingApproval] = useState(false);
+
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<{
+    id: string;
+    batch_id?: string;
+    software_name: string;
+    server_name: string;
+    isBatch: boolean;
+  } | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>("");
+  const [submittingReject, setSubmittingReject] = useState(false);
 
   // Load initial data
   const loadData = async () => {
@@ -213,14 +239,42 @@ export default function DeploymentsPage() {
       }
     };
 
+    const onDeploymentApproved = () => {
+      apiFetch<DeploymentRecord[]>("/api/v1/deployments?limit=150")
+        .then((res) => {
+          setDeployments(res || []);
+          if (activeDeployment) {
+            const updated = (res || []).find((r) => r.id === activeDeployment.id);
+            if (updated) setActiveDeployment(updated);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const onDeploymentRejected = () => {
+      apiFetch<DeploymentRecord[]>("/api/v1/deployments?limit=150")
+        .then((res) => {
+          setDeployments(res || []);
+          if (activeDeployment) {
+            const updated = (res || []).find((r) => r.id === activeDeployment.id);
+            if (updated) setActiveDeployment(updated);
+          }
+        })
+        .catch(() => {});
+    };
+
     socket.on("deployment_created", onDeploymentCreated);
     socket.on("deployment_status", onDeploymentStatus);
     socket.on("deployment_log", onDeploymentLog);
+    socket.on("deployment_approved", onDeploymentApproved);
+    socket.on("deployment_rejected", onDeploymentRejected);
 
     return () => {
       socket.off("deployment_created", onDeploymentCreated);
       socket.off("deployment_status", onDeploymentStatus);
       socket.off("deployment_log", onDeploymentLog);
+      socket.off("deployment_approved", onDeploymentApproved);
+      socket.off("deployment_rejected", onDeploymentRejected);
     };
   }, [activeDeployment]);
 
@@ -363,6 +417,140 @@ export default function DeploymentsPage() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to cancel deployment";
       showToast({ severity: "critical", title: "Cancel error", message: msg });
+    }
+  };
+
+  // Open Approval Modal
+  const handleOpenApproveModal = (d: DeploymentRecord, isBatch: boolean = false) => {
+    const approvals = d.approvals || [];
+    const approvedGroups = new Set(approvals.map((a) => a.user_group));
+    let prefillGroup = currentUser?.user_group || "";
+    if (isSuperAdmin || !prefillGroup || approvedGroups.has(prefillGroup)) {
+      if (!approvedGroups.has("devops")) prefillGroup = "devops";
+      else if (!approvedGroups.has("developer")) prefillGroup = "developer";
+      else if (!approvedGroups.has("product")) prefillGroup = "product";
+      else prefillGroup = "devops";
+    }
+    setSelectedApprovalGroup(prefillGroup);
+    setApprovalNotes("");
+    setApprovalTarget({
+      id: d.id,
+      batch_id: d.batch_id || undefined,
+      software_name: d.software_name,
+      server_name: d.server_name,
+      isBatch,
+    });
+    setApprovalModalOpen(true);
+  };
+
+  // Open Reject Modal
+  const handleOpenRejectModal = (d: DeploymentRecord, isBatch: boolean = false) => {
+    setRejectReason("");
+    setRejectTarget({
+      id: d.id,
+      batch_id: d.batch_id || undefined,
+      software_name: d.software_name,
+      server_name: d.server_name,
+      isBatch,
+    });
+    setRejectModalOpen(true);
+  };
+
+  // Submit Approval
+  const handleSubmitApproval = async () => {
+    if (!approvalTarget) return;
+    setSubmittingApproval(true);
+    try {
+      if (approvalTarget.isBatch && approvalTarget.batch_id) {
+        const res = await apiFetch<any>(
+          `/api/v1/deployments/batch/${approvalTarget.batch_id}/approve`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              user_group: isSuperAdmin ? selectedApprovalGroup : undefined,
+              notes: approvalNotes.trim() || undefined,
+            }),
+          }
+        );
+        showToast({
+          severity: "info",
+          title: "Fleet Batch Approved",
+          message: `${selectedApprovalGroup.toUpperCase()} sign-off recorded across ${res.count} deployments.`,
+        });
+      } else {
+        const res = await apiFetch<any>(
+          `/api/v1/deployments/${approvalTarget.id}/approve`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              user_group: isSuperAdmin ? selectedApprovalGroup : undefined,
+              notes: approvalNotes.trim() || undefined,
+            }),
+          }
+        );
+        showToast({
+          severity: "info",
+          title: "Sign-off Recorded",
+          message: `${selectedApprovalGroup.toUpperCase()} team approved deployment #${res.id.slice(-6)}.`,
+        });
+      }
+      setApprovalModalOpen(false);
+      loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to approve deployment";
+      showToast({ severity: "critical", title: "Approval failed", message: msg });
+    } finally {
+      setSubmittingApproval(false);
+    }
+  };
+
+  // Submit Reject
+  const handleSubmitReject = async () => {
+    if (!rejectTarget) return;
+    if (!rejectReason.trim()) {
+      showToast({ severity: "warning", title: "Reason required", message: "Please specify why deployment is rejected" });
+      return;
+    }
+    setSubmittingReject(true);
+    try {
+      if (rejectTarget.isBatch && rejectTarget.batch_id) {
+        const res = await apiFetch<any>(
+          `/api/v1/deployments/batch/${rejectTarget.batch_id}/reject`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              reason: rejectReason.trim(),
+            }),
+          }
+        );
+        showToast({
+          severity: "info",
+          title: "Fleet Batch Rejected",
+          message: `Fleet deployment cancelled across ${res.count} nodes.`,
+        });
+      } else {
+        const res = await apiFetch<any>(
+          `/api/v1/deployments/${rejectTarget.id}/reject`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              reason: rejectReason.trim(),
+            }),
+          }
+        );
+        showToast({
+          severity: "info",
+          title: "Deployment Rejected",
+          message: `Deployment #${res.id.slice(-6)} marked as rejected.`,
+        });
+      }
+      setRejectModalOpen(false);
+      loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reject deployment";
+      showToast({ severity: "critical", title: "Rejection failed", message: msg });
+    } finally {
+      setSubmittingReject(false);
     }
   };
 
@@ -558,12 +746,162 @@ export default function DeploymentsPage() {
   // Statistics
   const stats = useMemo(() => {
     const total = deployments.length;
+    const pendingApproval = deployments.filter((d) => d.status === "pending_approval").length;
     const running = deployments.filter((d) => d.status === "running" || d.status === "pending").length;
     const success = deployments.filter((d) => d.status === "success").length;
     const failed = deployments.filter((d) => d.status === "failed").length;
     const multiCount = new Set(deployments.filter((d) => d.batch_id).map((d) => d.batch_id)).size;
-    return { total, running, success, failed, multiCount };
+    return { total, pendingApproval, running, success, failed, multiCount };
   }, [deployments]);
+
+  // Render 3-Tier Governance Gate (DevOps, Developer, Product)
+  const renderApprovalPipeline = (d: DeploymentRecord) => {
+    const approvals = d.approvals || [];
+    const devopsApproval = approvals.find((a) => a.user_group === "devops");
+    const devApproval = approvals.find((a) => a.user_group === "developer");
+    const prodApproval = approvals.find((a) => a.user_group === "product");
+    const approvedCount = approvals.length;
+
+    return (
+      <div className="mt-3 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 p-3">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
+            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              3-Team Governance Gate ({approvedCount}/3 Approvals)
+            </span>
+          </div>
+          {d.status === "pending_approval" && (
+            <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 animate-pulse">
+              Awaiting mandatory sign-offs before agent execution
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {/* DevOps Gate */}
+          <div
+            className={`p-2 rounded-md border text-xs flex flex-col gap-1 ${
+              devopsApproval
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-600 dark:text-slate-400"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-semibold flex items-center gap-1.5">
+                🛠️ DevOps Team
+              </span>
+              {devopsApproval ? (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                  <CheckCircle2 className="h-3 w-3" /> Approved
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                  <Clock className="h-3 w-3" /> Pending
+                </span>
+              )}
+            </div>
+            {devopsApproval ? (
+              <div className="text-[11px] truncate" title={devopsApproval.email}>
+                by <span className="font-medium">{devopsApproval.email}</span>
+                {devopsApproval.notes && (
+                  <p className="italic text-[10px] opacity-80 mt-0.5 truncate">
+                    "{devopsApproval.notes}"
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-400">Requires 1 DevOps approval</div>
+            )}
+          </div>
+
+          {/* Developer Gate */}
+          <div
+            className={`p-2 rounded-md border text-xs flex flex-col gap-1 ${
+              devApproval
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-600 dark:text-slate-400"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-semibold flex items-center gap-1.5">
+                💻 Developer Team
+              </span>
+              {devApproval ? (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                  <CheckCircle2 className="h-3 w-3" /> Approved
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                  <Clock className="h-3 w-3" /> Pending
+                </span>
+              )}
+            </div>
+            {devApproval ? (
+              <div className="text-[11px] truncate" title={devApproval.email}>
+                by <span className="font-medium">{devApproval.email}</span>
+                {devApproval.notes && (
+                  <p className="italic text-[10px] opacity-80 mt-0.5 truncate">
+                    "{devApproval.notes}"
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-400">Requires 1 Developer approval</div>
+            )}
+          </div>
+
+          {/* Product Gate */}
+          <div
+            className={`p-2 rounded-md border text-xs flex flex-col gap-1 ${
+              prodApproval
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-600 dark:text-slate-400"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-semibold flex items-center gap-1.5">
+                📊 Product Team
+              </span>
+              {prodApproval ? (
+                <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                  <CheckCircle2 className="h-3 w-3" /> Approved
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                  <Clock className="h-3 w-3" /> Pending
+                </span>
+              )}
+            </div>
+            {prodApproval ? (
+              <div className="text-[11px] truncate" title={prodApproval.email}>
+                by <span className="font-medium">{prodApproval.email}</span>
+                {prodApproval.notes && (
+                  <p className="italic text-[10px] opacity-80 mt-0.5 truncate">
+                    "{prodApproval.notes}"
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-400">Requires 1 Product approval</div>
+            )}
+          </div>
+        </div>
+
+        {d.status === "rejected" && d.rejection && (
+          <div className="mt-2 rounded border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
+            <XCircle className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
+            <div>
+              <span className="font-semibold">
+                Deployment Rejected by {d.rejection.rejected_by} ({d.rejection.user_group || "governance"}):
+              </span>{" "}
+              <span>"{d.rejection.reason}"</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -622,7 +960,7 @@ export default function DeploymentsPage() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-6">
         <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -633,13 +971,23 @@ export default function DeploymentsPage() {
           </CardContent>
         </Card>
 
+        <Card className="border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Sign-Off Gate</span>
+              <ShieldAlert className={`h-4 w-4 text-amber-500 ${stats.pendingApproval > 0 ? "animate-pulse" : ""}`} />
+            </div>
+            <p className="mt-2 text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.pendingApproval}</p>
+          </CardContent>
+        </Card>
+
         <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">In Progress</span>
-              <RefreshCw className={`h-4 w-4 text-amber-500 ${stats.running > 0 ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 text-sky-500 ${stats.running > 0 ? "animate-spin" : ""}`} />
             </div>
-            <p className="mt-2 text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.running}</p>
+            <p className="mt-2 text-2xl font-bold text-sky-600 dark:text-sky-400">{stats.running}</p>
           </CardContent>
         </Card>
 
@@ -751,18 +1099,25 @@ export default function DeploymentsPage() {
               </div>
 
               {/* Status Filter */}
-              <div className="flex gap-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-lg">
-                {["all", "running", "success", "failed"].map((st) => (
+              <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-lg">
+                {[
+                  { key: "all", label: "All" },
+                  { key: "pending_approval", label: `Pending Approval (${stats.pendingApproval})` },
+                  { key: "running", label: "Running / Queued" },
+                  { key: "success", label: "Successful" },
+                  { key: "failed", label: "Failed" },
+                  { key: "rejected", label: "Rejected" },
+                ].map((item) => (
                   <button
-                    key={st}
-                    onClick={() => setStatusFilter(st)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md capitalize transition-colors ${
-                      statusFilter === st
+                    key={item.key}
+                    onClick={() => setStatusFilter(item.key)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                      statusFilter === item.key
                         ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs"
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
                     }`}
                   >
-                    {st}
+                    {item.label}
                   </button>
                 ))}
               </div>
@@ -813,107 +1168,168 @@ export default function DeploymentsPage() {
                 return (
                   <div
                     key={d.id}
-                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-700"
+                    className="flex flex-col p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-700"
                   >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                            d.status === "success"
-                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                              : d.status === "failed"
-                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                              : d.status === "running"
-                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 animate-pulse"
-                              : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                          }`}
-                        >
-                          {d.status === "success" && <CheckCircle2 className="h-3 w-3" />}
-                          {d.status === "failed" && <XCircle className="h-3 w-3" />}
-                          {d.status === "running" && <RefreshCw className="h-3 w-3 animate-spin" />}
-                          {d.status === "pending" && <Clock className="h-3 w-3" />}
-                          {d.status.toUpperCase()}
-                        </span>
-
-                        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                          {d.software_name}
-                        </h3>
-
-                        {d.batch_id && (
-                          <span className="inline-flex items-center gap-1 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-900/50 px-2 py-0.5 text-[11px] font-semibold">
-                            <Globe2 className="h-3 w-3" />
-                            Multi-Site Batch #{d.batch_id.slice(-6)}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              d.status === "success"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                : d.status === "failed"
+                                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                                : d.status === "running"
+                                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 animate-pulse"
+                                : d.status === "pending_approval"
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                : d.status === "rejected"
+                                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30"
+                                : "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                            }`}
+                          >
+                            {d.status === "success" && <CheckCircle2 className="h-3 w-3" />}
+                            {d.status === "failed" && <XCircle className="h-3 w-3" />}
+                            {d.status === "rejected" && <XCircle className="h-3 w-3" />}
+                            {d.status === "running" && <RefreshCw className="h-3 w-3 animate-spin" />}
+                            {d.status === "pending_approval" && <ShieldAlert className="h-3 w-3" />}
+                            {d.status === "pending" && <Clock className="h-3 w-3" />}
+                            {d.status === "pending_approval"
+                              ? `AWAITING SIGN-OFF (${(d.approvals || []).length}/3)`
+                              : d.status === "pending"
+                              ? "QUEUED (APPROVED)"
+                              : d.status.toUpperCase()}
                           </span>
-                        )}
 
-                        <span className="text-xs text-slate-400">#{d.id.slice(-6)}</span>
-                      </div>
+                          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                            {d.software_name}
+                          </h3>
 
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                        <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                          <ServerIcon className="h-3.5 w-3.5 text-slate-400" />
-                          {d.server_name} ({d.site_name})
-                        </span>
-                        {d.client_name && (
-                          <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5">
-                            Client: {d.client_name}
-                          </span>
-                        )}
-                        {d.machine_type && (
-                          <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5">
-                            Machine: {d.machine_type}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5 text-slate-400" />
-                          {new Date(d.started_at).toLocaleString()}
-                        </span>
-                        {d.duration_seconds && (
-                          <span>{d.duration_seconds.toFixed(1)}s elapsed</span>
-                        )}
-                        <span>by {d.triggered_by}</span>
-                      </div>
-
-                      {d.components_selected && d.components_selected.length > 0 && (
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <span className="text-xs text-slate-400">Components:</span>
-                          {d.components_selected.map((comp) => (
-                            <span
-                              key={comp}
-                              className="rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[11px] font-mono text-slate-600 dark:text-slate-300"
-                            >
-                              {comp}
+                          {d.batch_id && (
+                            <span className="inline-flex items-center gap-1 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-900/50 px-2 py-0.5 text-[11px] font-semibold">
+                              <Globe2 className="h-3 w-3" />
+                              Multi-Site Batch #{d.batch_id.slice(-6)}
                             </span>
-                          ))}
+                          )}
+
+                          <span className="text-xs text-slate-400">#{d.id.slice(-6)}</span>
                         </div>
-                      )}
-                    </div>
 
-                    <div className="mt-3 sm:mt-0 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant={isRunning ? "default" : "outline"}
-                        onClick={() => openLiveConsole(d)}
-                        className={`gap-1.5 text-xs ${
-                          isRunning ? "bg-blue-600 text-white" : ""
-                        }`}
-                      >
-                        <TerminalIcon className="h-3.5 w-3.5" />
-                        {isRunning ? "Live Console" : "View Logs"}
-                      </Button>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
+                            <ServerIcon className="h-3.5 w-3.5 text-slate-400" />
+                            {d.server_name} ({d.site_name})
+                          </span>
+                          {d.client_name && (
+                            <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5">
+                              Client: {d.client_name}
+                            </span>
+                          )}
+                          {d.machine_type && (
+                            <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5">
+                              Machine: {d.machine_type}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            {new Date(d.started_at).toLocaleString()}
+                          </span>
+                          {d.duration_seconds && (
+                            <span>{d.duration_seconds.toFixed(1)}s elapsed</span>
+                          )}
+                          <span>by {d.triggered_by}</span>
+                        </div>
 
-                      {isRunning && (
+                        {d.components_selected && d.components_selected.length > 0 && (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="text-xs text-slate-400">Components:</span>
+                            {d.components_selected.map((comp) => (
+                              <span
+                                key={comp}
+                                className="rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[11px] font-mono text-slate-600 dark:text-slate-300"
+                              >
+                                {comp}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-2 sm:mt-0 flex flex-wrap items-center gap-2 shrink-0">
+                        {d.status === "pending_approval" && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenApproveModal(d, false)}
+                              className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              Approve Sign-Off
+                            </Button>
+
+                            {d.batch_id && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenApproveModal(d, true)}
+                                className="gap-1.5 text-xs border-emerald-500/40 text-emerald-600 hover:bg-emerald-500/10"
+                              >
+                                <Globe2 className="h-3.5 w-3.5" />
+                                Approve Fleet
+                              </Button>
+                            )}
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenRejectModal(d, false)}
+                              className="gap-1 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 border-rose-200 dark:border-rose-900"
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                              Reject
+                            </Button>
+
+                            {d.batch_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenRejectModal(d, true)}
+                                className="gap-1 text-xs text-rose-500 hover:text-rose-700"
+                              >
+                                Reject Fleet
+                              </Button>
+                            )}
+                          </>
+                        )}
+
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() => handleCancelDeployment(d.id)}
-                          className="gap-1 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 border-rose-200 dark:border-rose-900"
+                          variant={isRunning ? "default" : "outline"}
+                          onClick={() => openLiveConsole(d)}
+                          className={`gap-1.5 text-xs ${
+                            isRunning ? "bg-blue-600 text-white" : ""
+                          }`}
                         >
-                          <StopCircle className="h-3.5 w-3.5" />
-                          Cancel
+                          <TerminalIcon className="h-3.5 w-3.5" />
+                          {isRunning ? "Live Console" : "View Logs"}
                         </Button>
-                      )}
+
+                        {isRunning && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCancelDeployment(d.id)}
+                            className="gap-1 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/20 border-rose-200 dark:border-rose-900"
+                          >
+                            <StopCircle className="h-3.5 w-3.5" />
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* 3-Tier Governance Gate */}
+                    {renderApprovalPipeline(d)}
                   </div>
                 );
               })}
@@ -1709,6 +2125,148 @@ export default function DeploymentsPage() {
         </div>
       )}
 
+      {/* Approval Modal */}
+      {approvalModalOpen && approvalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                <h3 className="text-base font-semibold text-slate-100">
+                  {approvalTarget.isBatch ? "Fleet Batch Sign-Off" : "Deployment Governance Sign-Off"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setApprovalModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <p>
+                Authorizing deployment for <span className="font-semibold text-slate-100">{approvalTarget.software_name}</span>{" "}
+                {approvalTarget.isBatch
+                  ? `across all nodes in fleet batch #${approvalTarget.batch_id?.slice(-6)}`
+                  : `on ${approvalTarget.server_name} (#${approvalTarget.id.slice(-6)})`}
+                .
+              </p>
+
+              <div>
+                <Label className="text-xs text-slate-400">Sign-Off Team / User Group</Label>
+                <select
+                  value={selectedApprovalGroup}
+                  disabled={!isSuperAdmin && Boolean(currentUser?.user_group)}
+                  onChange={(e) => setSelectedApprovalGroup(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500 font-medium"
+                >
+                  <option value="devops">🛠️ DevOps Team Approval</option>
+                  <option value="developer">💻 Developer Team Approval</option>
+                  <option value="product">📊 Product Team Approval</option>
+                </select>
+                {!isSuperAdmin && (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Signing as registered member of: <strong className="text-emerald-400 uppercase">{currentUser?.user_group || "devops"}</strong>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label className="text-xs text-slate-400">Approval Notes / Verification Log (Optional)</Label>
+                <Input
+                  placeholder="e.g. Staging tests passed, ready for production rollout."
+                  value={approvalNotes}
+                  onChange={(e) => setApprovalNotes(e.target.value)}
+                  className="mt-1 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setApprovalModalOpen(false)}
+                disabled={submittingApproval}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSubmitApproval}
+                disabled={submittingApproval}
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {submittingApproval ? "Recording..." : "Confirm Sign-Off"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {rejectModalOpen && rejectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-rose-900/50 bg-slate-900 p-6 shadow-2xl animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-rose-400" />
+                <h3 className="text-base font-semibold text-slate-100">
+                  {rejectTarget.isBatch ? "Reject Fleet Deployment" : "Reject Deployment"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setRejectModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <p>
+                Rejecting deployment for <span className="font-semibold text-slate-100">{rejectTarget.software_name}</span>.
+                This will abort deployment execution on the remote agent(s).
+              </p>
+
+              <div>
+                <Label className="text-xs text-slate-400">Rejection Reason *</Label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Explain why this deployment is rejected..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-700 bg-slate-800 p-2.5 text-xs text-slate-200 outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRejectModalOpen(false)}
+                disabled={submittingReject}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSubmitReject}
+                disabled={submittingReject || !rejectReason.trim()}
+                className="gap-1.5 bg-rose-600 hover:bg-rose-500 text-white"
+              >
+                <XCircle className="h-4 w-4" />
+                {submittingReject ? "Rejecting..." : "Reject Deployment"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Live Console Drawer / Modal */}
       {consoleOpen && activeDeployment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 backdrop-blur-xs">
@@ -1732,15 +2290,43 @@ export default function DeploymentsPage() {
                         ? "bg-emerald-500/20 text-emerald-400"
                         : activeDeployment.status === "failed"
                         ? "bg-rose-500/20 text-rose-400"
+                        : activeDeployment.status === "pending_approval"
+                        ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                        : activeDeployment.status === "rejected"
+                        ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
                         : "bg-blue-500/20 text-blue-400 animate-pulse"
                     }`}
                   >
-                    {activeDeployment.status.toUpperCase()}
+                    {activeDeployment.status === "pending_approval"
+                      ? `PENDING APPROVAL (${(activeDeployment.approvals || []).length}/3)`
+                      : activeDeployment.status.toUpperCase()}
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
+                {activeDeployment.status === "pending_approval" && (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={() => handleOpenApproveModal(activeDeployment, false)}
+                      className="gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2.5"
+                    >
+                      <ShieldCheck className="h-3 w-3" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleOpenRejectModal(activeDeployment, false)}
+                      className="gap-1 text-xs border-rose-900/60 text-rose-400 hover:bg-rose-950/30 h-7 px-2.5"
+                    >
+                      <XCircle className="h-3 w-3" />
+                      Reject
+                    </Button>
+                  </>
+                )}
+
                 <button
                   onClick={() => setAutoScroll(!autoScroll)}
                   className={`rounded px-2 py-1 text-[11px] font-mono transition-colors ${
@@ -1749,7 +2335,7 @@ export default function DeploymentsPage() {
                       : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
                   }`}
                 >
-                  Auto-Scroll: {autoScroll ? "ON" : "OFF"}
+                  Auto-scroll: {autoScroll ? "ON" : "OFF"}
                 </button>
                 <button
                   onClick={() => {
@@ -1764,7 +2350,7 @@ export default function DeploymentsPage() {
                 </button>
                 <button
                   onClick={() => setConsoleOpen(false)}
-                  className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                  className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -1821,6 +2407,11 @@ export default function DeploymentsPage() {
               <div>
                 Started: {new Date(activeDeployment.started_at).toLocaleTimeString()}
               </div>
+            </div>
+
+            {/* 3-Tier Governance Gate in Console */}
+            <div className="px-4 py-2 bg-zinc-950 border-b border-zinc-800">
+              {renderApprovalPipeline(activeDeployment)}
             </div>
 
             {/* Terminal Body */}

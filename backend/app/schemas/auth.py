@@ -30,6 +30,7 @@ class UserRead(BaseModel):
     email: EmailStr
     name: Optional[str] = None
     role: Role
+    user_group: Optional[str] = "developer"  # devops | developer | product | management | other
     created_at: Optional[datetime] = None
 
 
@@ -38,11 +39,13 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     name: Optional[str] = Field(default=None, max_length=120)
     role: Role = "viewer"
+    user_group: Optional[str] = Field(default="developer", max_length=50)
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=120)
     role: Optional[Role] = None
+    user_group: Optional[str] = Field(default=None, max_length=50)
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 

@@ -27,6 +27,7 @@ def user_doc_to_read(doc: dict) -> UserRead:
         email=doc["email"],
         name=doc.get("name"),
         role=auth.effective_role(doc),
+        user_group=doc.get("user_group") or "developer",
         created_at=doc.get("created_at"),
     )
 
@@ -72,12 +73,13 @@ async def create_user(
         "password_hash": auth.hash_password(body.password),
         "name": (body.name or "").strip() or None,
         "role": body.role,
+        "user_group": (body.user_group or "developer").lower().strip(),
         "created_at": now(),
     }
     db.users().insert_one(doc)
     audit_trail.record(
         current, "user_create", request,
-        {"target": email, "name": doc["name"], "role": body.role},
+        {"target": email, "name": doc["name"], "role": body.role, "user_group": doc["user_group"]},
     )
     return user_doc_to_read(doc)
 
@@ -105,6 +107,8 @@ async def update_user(
     if "name" in data:
         name = data["name"]
         updates["name"] = name.strip() if isinstance(name, str) and name.strip() else None
+    if "user_group" in data and data["user_group"] is not None:
+        updates["user_group"] = data["user_group"].lower().strip()
     if data.get("password"):
         updates["password_hash"] = auth.hash_password(data["password"])
     if data.get("role") and data["role"] != auth.effective_role(doc):

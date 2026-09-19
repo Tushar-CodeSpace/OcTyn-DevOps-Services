@@ -3,7 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RefreshTokenResponse, TokenResponse, UserRead
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
+    TokenResponse,
+    UserRead,
+)
 from app.services import authentication as auth
 from app.services import audit as audit_trail
 
@@ -71,14 +78,14 @@ async def logout(
     return {"message": "Logged out successfully"}
 
 
-
 @router.get("/me", response_model=UserRead)
 async def me(user: dict = Depends(auth.get_current_user)) -> UserRead:
     return UserRead(
-        id=user["_id"],
+        id=str(user["_id"]),
         email=user["email"],
         name=user.get("name"),
         role=auth.effective_role(user),
+        user_group=user.get("user_group") or "developer",
         created_at=user.get("created_at"),
     )
 
@@ -102,4 +109,4 @@ async def change_password(
     db.users().update_one({"_id": current_user["_id"]}, {"$set": {"password_hash": new_hash}})
     auth.revoke_refresh_tokens(current_user["_id"])
     audit_trail.record(current_user, "password_change", request, None)
-    return {"message": "Password changed successfully"}
+    return {"message": "Password changed successfully"}

@@ -5,6 +5,7 @@ export interface User {
   email: string;
   name: string | null;
   role: Role;
+  user_group?: string | null;
   created_at?: string | null;
 }
 
@@ -98,11 +99,13 @@ export interface UserCreate {
   password: string;
   name?: string;
   role: Role;
+  user_group?: string;
 }
 
 export interface UserUpdate {
   name?: string;
   role?: Role;
+  user_group?: string;
   password?: string;
 }
 
@@ -381,6 +384,14 @@ export interface DeploymentLogEntry {
   level: "info" | "warn" | "error" | "success";
 }
 
+export interface DeploymentApprovalEntry {
+  user_id: string;
+  email: string;
+  user_group: string; // "devops" | "developer" | "product"
+  approved_at: string;
+  notes?: string;
+}
+
 export interface DeploymentRecord {
   id: string;
   batch_id?: string | null;
@@ -389,7 +400,7 @@ export interface DeploymentRecord {
   site_name: string;
   software_id: string;
   software_name: string;
-  status: "pending" | "running" | "success" | "failed" | "cancelled";
+  status: "pending_approval" | "pending" | "running" | "success" | "failed" | "cancelled" | "rejected";
   components_selected: string[];
   branches: Record<string, string>;
   client_name?: string | null;
@@ -400,4 +411,12 @@ export interface DeploymentRecord {
   duration_seconds?: number | null;
   exit_code?: number | null;
   logs?: DeploymentLogEntry[];
+  approvals?: DeploymentApprovalEntry[];
+  approval_required_groups?: string[];
+  rejection?: {
+    rejected_by: string;
+    user_group: string;
+    reason: string;
+    at: string;
+  } | null;
 }

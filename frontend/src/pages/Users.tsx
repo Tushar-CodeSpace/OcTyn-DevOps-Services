@@ -20,6 +20,7 @@ export default function UsersPage() {
     password: "",
     name: "",
     role: "viewer" as Role,
+    user_group: "developer",
   });
   const [creatingUser, setCreatingUser] = useState(false);
 
@@ -50,15 +51,18 @@ export default function UsersPage() {
     try {
       const created = await apiFetch<User>("/users", {
         method: "POST",
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          ...newUser,
+          user_group: newUser.user_group || null,
+        }),
       });
       setUsers((prev) => [...prev, created]);
       setShowAddUser(false);
-      setNewUser({ email: "", password: "", name: "", role: "viewer" });
+      setNewUser({ email: "", password: "", name: "", role: "viewer", user_group: "developer" });
       showToast({
         severity: "info",
         title: "User created",
-        message: `Account ${created.email} (${created.role}) created successfully.`,
+        message: `Account ${created.email} (${created.role} - ${created.user_group || 'No Group'}) created successfully.`,
       });
     } catch (err) {
       showToast({
@@ -68,6 +72,27 @@ export default function UsersPage() {
       });
     } finally {
       setCreatingUser(false);
+    }
+  }
+
+  async function handleGroupChange(userId: string, newGroup: string) {
+    try {
+      const updated = await apiFetch<User>(`/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ user_group: newGroup || null }),
+      });
+      setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
+      showToast({
+        severity: "info",
+        title: "Team Group updated",
+        message: `User assigned to ${newGroup ? newGroup.toUpperCase() : "unassigned"}.`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Group update failed",
+        message: err instanceof Error ? err.message : undefined,
+      });
     }
   }
 
@@ -227,6 +252,20 @@ export default function UsersPage() {
                     <option value="admin">Admin (Operational Control)</option>
                   </select>
                 </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs text-slate-400">User Group / Team (Deployment Approvals)</Label>
+                  <select
+                    value={newUser.user_group}
+                    onChange={(e) => setNewUser({ ...newUser, user_group: e.target.value })}
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
+                  >
+                    <option value="devops">🛠️ DevOps Team (Deployment Approver)</option>
+                    <option value="developer">💻 Developer Team (Deployment Approver)</option>
+                    <option value="product">📊 Product Team (Deployment Approver)</option>
+                    <option value="management">👔 Management</option>
+                    <option value="">Unassigned</option>
+                  </select>
+                </div>
               </div>
               <div className="mt-1 flex justify-end gap-2">
                 <Button
@@ -252,6 +291,7 @@ export default function UsersPage() {
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400">
                     <th className="pb-2 font-medium">User</th>
+                    <th className="pb-2 font-medium">Governance Team</th>
                     <th className="pb-2 font-medium">Role</th>
                     <th className="pb-2 text-right font-medium">Actions</th>
                   </tr>
@@ -275,6 +315,19 @@ export default function UsersPage() {
                                 {u.name && <div className="text-[11px] text-slate-400">{u.name}</div>}
                               </div>
                             </div>
+                          </td>
+                          <td className="py-2.5">
+                            <select
+                              value={u.user_group || ""}
+                              onChange={(e) => handleGroupChange(u.id, e.target.value)}
+                              className="rounded border border-slate-700 bg-slate-900/90 px-2 py-0.5 text-xs text-slate-300 outline-none focus:border-emerald-500 font-medium"
+                            >
+                              <option value="devops">🛠️ DevOps Team</option>
+                              <option value="developer">💻 Developer Team</option>
+                              <option value="product">📊 Product Team</option>
+                              <option value="management">👔 Management</option>
+                              <option value="">Unassigned</option>
+                            </select>
                           </td>
                           <td className="py-2.5">
                             {String(u.role).toLowerCase() === "super_admin" ? (

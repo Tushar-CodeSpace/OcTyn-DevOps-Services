@@ -8,10 +8,13 @@ from app.database import models as db
 from app.database.connection import new_id, parse_id
 from app.realtime import emit
 from app.schemas.deployments import (
+    DeploymentApprovalEntry,
+    DeploymentApprovalRequest,
     DeploymentFinishPayload,
     DeploymentLogEntry,
     DeploymentLogStream,
     DeploymentRead,
+    DeploymentRejectRequest,
     DeploymentTriggerRequest,
     SoftwareCreate,
     SoftwareRead,
@@ -45,7 +48,9 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
     server = db.servers().find_one({"_id": parse_id(sid)}) if sid else None
     server_name = server["name"] if server else "Unknown Server"
     site = db.sites().find_one({"_id": server["site_id"]}) if server and server.get("site_id") else None
-    site_name = f"{site['client']} - {site['location']}" if site else "Unknown Site"
+    site_client = site.get("client") or site.get("client_name") or "" if site else ""
+    site_loc = site.get("location") or site.get("name") or "" if site else ""
+    site_name = f"{site_client} - {site_loc}".strip(" -") if (site_client or site_loc) else "Unknown Site"
 
     logs = [
         DeploymentLogEntry(
@@ -57,6 +62,17 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
         for l in doc.get("logs", [])
     ]
 
+    approvals = [
+        DeploymentApprovalEntry(
+            user_id=str(a.get("user_id", "")),
+            email=a.get("email", ""),
+            user_group=a.get("user_group", "developer"),
+            approved_at=a.get("approved_at", now()),
+            notes=a.get("notes", ""),
+        )
+        for a in doc.get("approvals", [])
+    ]
+
     return DeploymentRead(
         id=str(doc["_id"]),
         batch_id=str(doc["batch_id"]) if doc.get("batch_id") else None,
@@ -65,7 +81,7 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
         site_name=site_name,
         software_id=str(doc.get("software_id", "")),
         software_name=doc.get("software_name", "Software"),
-        status=doc.get("status", "pending"),
+        status=doc.get("status", "pending_approval"),
         components_selected=doc.get("components_selected", []),
         branches=doc.get("branches", {}),
         client_name=doc.get("client_name"),
@@ -76,6 +92,9 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
         duration_seconds=doc.get("duration_seconds"),
         exit_code=doc.get("exit_code"),
         logs=logs,
+        approvals=approvals,
+        approval_required_groups=doc.get("approval_required_groups", ["devops", "developer", "product"]),
+        rejection=doc.get("rejection"),
     )
 
 
@@ -288,18 +307,21 @@ async def trigger_deployment(
             "server_id": sid,
             "software_id": str(software["_id"]),
             "software_name": software["name"],
-            "status": "pending",
+            "status": "pending_approval",
             "components_selected": components,
             "branches": payload.branches or {},
             "client_name": client_name,
             "machine_type": machine_type,
             "triggered_by": current.get("email", "admin"),
+            "approvals": [],
+            "approval_required_groups": ["devops", "developer", "product"],
+            "rejection": None,
             "logs": [
                 {
                     "ts": now(),
-                    "stage": "QUEUE",
-                    "line": f"Deployment queued by {current.get('email')} for software '{software['name']}'" + (f" (Batch #{batch_id[:8]})" if batch_id else ""),
-                    "level": "info",
+                    "stage": "APPROVAL_REQUIRED",
+                    "line": f"Deployment queued by {current.get('email')} for software '{software['name']}'. Mandatory 3 approvals required: DevOps, Developer, and Product teams." + (f" (Batch #{batch_id[:8]})" if batch_id else ""),
+                    "level": "warn",
                 }
             ],
             "created_at": now(),
@@ -344,6 +366,213 @@ async def trigger_deployment(
         "deployments": created,
         "count": len(created),
     }
+
+
+@router.post("/{deployment_id}/approve", response_model=DeploymentRead)
+async def approve_deployment(
+    deployment_id: str,
+    payload: DeploymentApprovalRequest,
+    request: Request,
+    current: dict = Depends(auth.get_current_user),
+):
+    """Approve a deployment. Requires 3 distinct team approvals: DevOps, Developer, and Product."""
+    did = parse_id(deployment_id)
+    doc = db.deployments().find_one({"_id": did})
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    if doc.get("status") != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Deployment is in status '{doc.get('status')}', not awaiting approval",
+        )
+
+    # Determine caller's group
+    user_group = (payload.user_group or current.get("user_group") or "developer").lower().strip()
+    valid_groups = ["devops", "developer", "product"]
+    if user_group not in valid_groups:
+        if auth.effective_role(current) == "super_admin" and payload.user_group in valid_groups:
+            user_group = payload.user_group
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Approval requires membership in one of: DevOps, Developer, or Product. Current group: '{user_group}'",
+            )
+
+    existing_approvals = doc.get("approvals", [])
+    if any(a.get("user_group") == user_group for a in existing_approvals):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"The '{user_group}' team has already approved this deployment",
+        )
+
+    approval_entry = {
+        "user_id": str(current["_id"]),
+        "email": current.get("email", ""),
+        "user_group": user_group,
+        "approved_at": now(),
+        "notes": (payload.notes or "").strip(),
+    }
+    new_approvals = existing_approvals + [approval_entry]
+    approved_groups = {a.get("user_group") for a in new_approvals}
+    required_groups = set(doc.get("approval_required_groups", ["devops", "developer", "product"]))
+
+    all_approved = required_groups.issubset(approved_groups)
+    new_status = "pending" if all_approved else "pending_approval"
+
+    log_line = f"Approved by {current.get('email')} ({user_group.upper()} team)."
+    if approval_entry["notes"]:
+        log_line += f" Notes: {approval_entry['notes']}."
+    if all_approved:
+        log_line += " All 3 required approvals (DevOps, Developer, Product) secured! Dispatched for site agent execution."
+    else:
+        remaining = list(required_groups - approved_groups)
+        log_line += f" Still awaiting approval from: {', '.join(g.upper() for g in remaining)}."
+
+    new_log = {
+        "ts": now(),
+        "stage": "APPROVED" if all_approved else "APPROVAL_STEP",
+        "line": log_line,
+        "level": "success" if all_approved else "info",
+    }
+
+    db.deployments().update_one(
+        {"_id": did},
+        {
+            "$set": {"status": new_status, "approvals": new_approvals},
+            "$push": {"logs": new_log},
+        },
+    )
+
+    audit_trail.record(
+        current,
+        "deployment_approve",
+        request,
+        {
+            "deployment_id": str(did),
+            "user_group": user_group,
+            "all_approved": all_approved,
+            "status": new_status,
+        },
+    )
+
+    emit(
+        "deployment_approval",
+        {
+            "id": str(did),
+            "status": new_status,
+            "approvals": new_approvals,
+            "approved_groups": list(approved_groups),
+            "all_approved": all_approved,
+        },
+    )
+    if all_approved:
+        emit("deployment_status", {"id": str(did), "status": "pending"})
+
+    updated = db.deployments().find_one({"_id": did})
+    return _deployment_doc_to_read(updated)
+
+
+@router.post("/batch/{batch_id}/approve")
+async def approve_batch_deployments(
+    batch_id: str,
+    payload: DeploymentApprovalRequest,
+    request: Request,
+    current: dict = Depends(auth.get_current_user),
+):
+    """Approve all deployments in a multi-site batch for the caller's team."""
+    docs = list(db.deployments().find({"batch_id": batch_id, "status": "pending_approval"}))
+    if not docs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No pending approvals found for this batch")
+
+    results = []
+    for d in docs:
+        try:
+            res = await approve_deployment(str(d["_id"]), payload, request, current)
+            results.append(res)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_409_CONFLICT:
+                continue
+            raise exc
+
+    return {
+        "batch_id": batch_id,
+        "count": len(results),
+        "approved_count": len(results),
+        "deployments": results,
+    }
+
+
+@router.post("/{deployment_id}/reject", response_model=DeploymentRead)
+async def reject_deployment(
+    deployment_id: str,
+    payload: DeploymentRejectRequest,
+    request: Request,
+    current: dict = Depends(auth.get_current_user),
+):
+    """Reject a deployment and prevent agent execution."""
+    did = parse_id(deployment_id)
+    doc = db.deployments().find_one({"_id": did})
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    user_group = current.get("user_group") or "user"
+    rejection_info = {
+        "rejected_by": current.get("email"),
+        "user_group": user_group,
+        "reason": payload.reason.strip(),
+        "at": now().isoformat(),
+    }
+
+    log_entry = {
+        "ts": now(),
+        "stage": "REJECTED",
+        "line": f"Deployment REJECTED by {current.get('email')} ({user_group.upper()}): {payload.reason.strip()}",
+        "level": "error",
+    }
+
+    db.deployments().update_one(
+        {"_id": did},
+        {
+            "$set": {
+                "status": "rejected",
+                "finished_at": now(),
+                "rejection": rejection_info,
+            },
+            "$push": {"logs": log_entry},
+        },
+    )
+
+    audit_trail.record(
+        current,
+        "deployment_reject",
+        request,
+        {"deployment_id": str(did), "reason": payload.reason, "user_group": user_group},
+    )
+
+    emit("deployment_status", {"id": str(did), "status": "rejected"})
+    updated = db.deployments().find_one({"_id": did})
+    return _deployment_doc_to_read(updated)
+
+
+@router.post("/batch/{batch_id}/reject")
+async def reject_batch_deployments(
+    batch_id: str,
+    payload: DeploymentRejectRequest,
+    request: Request,
+    current: dict = Depends(auth.get_current_user),
+):
+    """Reject all deployments in a multi-site batch."""
+    docs = list(db.deployments().find({"batch_id": batch_id, "status": "pending_approval"}))
+    if not docs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No pending deployments found in this batch")
+
+    results = []
+    for d in docs:
+        res = await reject_deployment(str(d["_id"]), payload, request, current)
+        results.append(res)
+
+    return {"batch_id": batch_id, "count": len(results), "rejected_count": len(results)}
 
 
 @router.post("/{deployment_id}/cancel", dependencies=[Depends(auth.require_admin)])
