@@ -271,6 +271,11 @@ async def list_metrics(
                 "disk_free": {"$avg": "$disk_free"},
                 "network_bytes_sent": {"$last": "$network_bytes_sent"},
                 "network_bytes_received": {"$last": "$network_bytes_received"},
+                "disk_read_rate_mb": {"$avg": "$disk_read_rate_mb"},
+                "disk_write_rate_mb": {"$avg": "$disk_write_rate_mb"},
+                "disk_iops": {"$avg": "$disk_iops"},
+                "api_requests_total": {"$max": "$api_requests_total"},
+                "api_error_rate_percent": {"$avg": "$api_error_rate_percent"},
                 "uptime_seconds": {"$avg": "$uptime_seconds"},
             }
         },
@@ -293,6 +298,11 @@ async def list_metrics(
                 disk_free=float(b["disk_free"]),
                 network_bytes_sent=float(b["network_bytes_sent"]),
                 network_bytes_received=float(b["network_bytes_received"]),
+                disk_read_rate_mb=round(float(b.get("disk_read_rate_mb") or 0.0), 2),
+                disk_write_rate_mb=round(float(b.get("disk_write_rate_mb") or 0.0), 2),
+                disk_iops=round(float(b.get("disk_iops") or 0.0), 1),
+                api_requests_total=int(b.get("api_requests_total") or 0),
+                api_error_rate_percent=round(float(b.get("api_error_rate_percent") or 0.0), 2),
                 uptime_seconds=float(b["uptime_seconds"]),
                 recorded_at=ts,
             )
