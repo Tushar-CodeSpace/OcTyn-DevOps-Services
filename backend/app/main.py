@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -65,6 +65,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def normalize_duplicate_api_prefix(request: Request, call_next):
+    """Gracefully normalize URLs if a client accidentally prefixes /api/v1 twice."""
+    if request.url.path.startswith("/api/v1/api/v1/"):
+        request.scope["path"] = "/api/v1/" + request.url.path[len("/api/v1/api/v1/"):]
+    return await call_next(request)
 
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
