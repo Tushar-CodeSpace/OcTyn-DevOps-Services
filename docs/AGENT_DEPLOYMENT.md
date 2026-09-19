@@ -8,23 +8,28 @@ This guide explains how to **deploy the latest monitoring agent** on any remote 
 
 ### Option A: 1-Liner Automated Installer (Recommended)
 
-Run this single command on the remote site server (it creates `/opt/octyn-agent`, downloads `agent_lite.py`, generates `.env`, and sets up `octyn.service` automatically):
+Run this single command on the remote site server (it creates `/opt/octyn-agent`, installs `python3-pymongo`, downloads `agent_lite.py`, generates `.env`, and sets up `octyn.service` automatically):
 
 ```bash
 curl -fsSL "https://<CENTRAL_SERVER_DOMAIN_OR_IP>/api/v1/agent/download/installer" | sudo python3 -
 ```
 
-> **Important**: Ensure there is only a **single `/api/v1`** in the URL (e.g. `https://appstore.nidoworld.com/api/v1/agent/download/installer`, NOT `/api/v1/api/v1/`). Using `-fsSL` ensures curl will output error details if the URL is mistyped rather than silently failing.
+> **Important**:
+> - Ensure there is only a **single `/api/v1`** in the URL (e.g. `https://appstore.nidoworld.com/api/v1/agent/download/installer`, NOT `/api/v1/api/v1/`).
+> - The installer automatically detects and installs **`python3-pymongo`** (via `apt`, `dnf`, or `pip`) so that MongoDB configuration backups and custom data widgets work immediately without manual library setup.
 
 ---
 
 ### Option B: Manual Step-by-Step Installation
 
-#### Step 1: Create Installation Directory
+#### Step 1: Create Installation Directory & Install Dependencies
 ```bash
 sudo mkdir -p /opt/octyn-agent
 sudo chown -R $USER:$USER /opt/octyn-agent
 cd /opt/octyn-agent
+
+# Install pymongo for MongoDB config backups & custom widgets (Debian/Ubuntu)
+sudo apt update && sudo apt install -y python3-pymongo
 ```
 
 #### Step 2: Download the Latest Agent Script

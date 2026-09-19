@@ -136,11 +136,64 @@ def _parse_mongo_credentials(uri: str) -> Optional[Dict[str, str]]:
     return None
 
 
+def _ensure_pymongo() -> bool:
+    """Attempt on-the-fly installation of python3-pymongo if missing."""
+    global HAS_PYMONGO, MongoClient
+    if HAS_PYMONGO:
+        return True
+    try:
+        from pymongo import MongoClient as _MC
+        MongoClient = _MC
+        HAS_PYMONGO = True
+        return True
+    except ImportError:
+        pass
+
+    log("[CONFIG-SYNC] pymongo missing. Attempting automatic installation of python3-pymongo...")
+    import shutil
+    import subprocess
+    import sys
+    if shutil.which("apt-get"):
+        try:
+            subprocess.run(["apt-get", "update", "-qq"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            res = subprocess.run(
+                ["apt-get", "install", "-y", "--no-install-recommends", "python3-pymongo"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+            )
+            if res.returncode == 0:
+                from pymongo import MongoClient as _MC
+                MongoClient = _MC
+                HAS_PYMONGO = True
+                log("[CONFIG-SYNC] Successfully auto-installed python3-pymongo via apt.")
+                return True
+        except Exception:
+            pass
+
+    for pip_args in [["--break-system-packages"], []]:
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "pymongo"] + pip_args
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+            if res.returncode == 0:
+                from pymongo import MongoClient as _MC
+                MongoClient = _MC
+                HAS_PYMONGO = True
+                log("[CONFIG-SYNC] Successfully auto-installed pymongo via pip.")
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
 def sync_configs() -> None:
     """Snapshot mapped collections from the site MongoDB and push changes to hub."""
     if not HAS_PYMONGO:
-        log("[CONFIG-SYNC] Skipped: pymongo not installed")
-        return
+        if not _ensure_pymongo():
+            log("[CONFIG-SYNC] Skipped: pymongo not installed (run: sudo apt install -y python3-pymongo)")
+            return
 
     log("[CONFIG-SYNC] Backup trigger initiated. Pulling live config from central hub...")
     try:

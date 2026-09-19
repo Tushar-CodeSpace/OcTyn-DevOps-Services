@@ -39,6 +39,75 @@ def prompt(text: str, default: str = "") -> str:
         return default
 
 
+def ensure_pymongo() -> None:
+    """Ensure python3-pymongo / pymongo is installed for site MongoDB configuration backups."""
+    try:
+        import pymongo
+        print_step("pymongo is already installed.")
+        return
+    except ImportError:
+        pass
+
+    print_step("pymongo is required for database config backups. Checking package manager...")
+
+    # 1. Try apt-get (Debian / Ubuntu / Mint)
+    if shutil.which("apt-get"):
+        print_step("Installing python3-pymongo via apt-get...")
+        try:
+            subprocess.run(["apt-get", "update", "-qq"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            res = subprocess.run(
+                ["apt-get", "install", "-y", "--no-install-recommends", "python3-pymongo"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+            )
+            if res.returncode == 0:
+                print_step("Successfully installed python3-pymongo via apt.")
+                return
+            else:
+                print_warn(f"apt-get install python3-pymongo returned code {res.returncode}")
+        except Exception as exc:
+            print_warn(f"apt-get install python3-pymongo failed: {exc}")
+
+    # 2. Try dnf/yum (RHEL / CentOS / Alma / Rocky / Fedora)
+    for pkg_mgr in ["dnf", "yum"]:
+        if shutil.which(pkg_mgr):
+            print_step(f"Installing python3-pymongo via {pkg_mgr}...")
+            try:
+                res = subprocess.run(
+                    [pkg_mgr, "install", "-y", "python3-pymongo"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=120,
+                )
+                if res.returncode == 0:
+                    print_step(f"Successfully installed python3-pymongo via {pkg_mgr}.")
+                    return
+            except Exception as exc:
+                print_warn(f"{pkg_mgr} install python3-pymongo failed: {exc}")
+
+    # 3. Try python3 -m pip
+    print_step("Attempting pymongo installation via pip...")
+    for pip_args in [["--break-system-packages"], []]:
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "pymongo"] + pip_args
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+            if res.returncode == 0:
+                print_step("Successfully installed pymongo via pip.")
+                return
+        except Exception:
+            pass
+
+    # Final verification
+    try:
+        import pymongo
+        print_step("pymongo verified successfully.")
+    except ImportError:
+        print_warn("Could not install python3-pymongo automatically. If you plan to back up MongoDB, run: sudo apt install -y python3-pymongo")
+
+
 def main() -> None:
     # If piped via `curl ... | sudo python3 -`, re-open sys.stdin from /dev/tty for interactive input
     if not sys.stdin.isatty():
@@ -61,6 +130,9 @@ def main() -> None:
             sys.exit(1)
     else:
         print_step(f"Installation directory exists: {INSTALL_DIR}")
+
+    # 2. Ensure python3-pymongo is installed
+    ensure_pymongo()
 
     # 2. Collect configuration inputs
     default_api_url = os.environ.get("API_URL", "http://localhost:8000/api/v1")

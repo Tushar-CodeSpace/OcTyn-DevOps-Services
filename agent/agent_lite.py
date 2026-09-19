@@ -501,8 +501,9 @@ def push_widgets():
         log("[WIDGETS] Skipped: site MongoDB access is disabled in agent config")
         return
     if not HAS_PYMONGO:
-        log("[WIDGETS] Skipped: pymongo not installed")
-        return
+        if not _ensure_pymongo():
+            log("[WIDGETS] Skipped: pymongo not installed (run: sudo apt install -y python3-pymongo)")
+            return
     now_mono = time.monotonic()
     due = [w for w in widgets if now_mono - _WIDGET_LAST_RUN.get(w["name"], 0.0) >= w["poll_interval_seconds"]]
     if not due:
@@ -892,6 +893,56 @@ try:
 except ImportError:
     MongoClient = None
     HAS_PYMONGO = False
+
+
+def _ensure_pymongo():
+    """Attempt on-the-fly installation of python3-pymongo if missing."""
+    global HAS_PYMONGO, MongoClient
+    if HAS_PYMONGO:
+        return True
+    try:
+        from pymongo import MongoClient as _MC
+        MongoClient = _MC
+        HAS_PYMONGO = True
+        return True
+    except ImportError:
+        pass
+
+    log("[PYMONGO] pymongo missing. Attempting automatic installation of python3-pymongo...")
+    if shutil.which("apt-get"):
+        try:
+            subprocess.run(["apt-get", "update", "-qq"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            res = subprocess.run(
+                ["apt-get", "install", "-y", "--no-install-recommends", "python3-pymongo"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120,
+            )
+            if res.returncode == 0:
+                from pymongo import MongoClient as _MC
+                MongoClient = _MC
+                HAS_PYMONGO = True
+                log("[PYMONGO] Successfully auto-installed python3-pymongo via apt.")
+                return True
+        except Exception:
+            pass
+
+    for pip_args in [["--break-system-packages"], []]:
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "pymongo"] + pip_args
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+            if res.returncode == 0:
+                from pymongo import MongoClient as _MC
+                MongoClient = _MC
+                HAS_PYMONGO = True
+                log("[PYMONGO] Successfully auto-installed pymongo via pip.")
+                return True
+        except Exception:
+            pass
+
+    return False
+
 
 CONFIG_COLLECTION_MAP = {
     "analytic_service": ["analytic_config"],
@@ -1296,8 +1347,9 @@ def _parse_mongo_credentials(uri):
 def sync_configs():
     """Snapshot mapped collections from the site MongoDB and push changes."""
     if not HAS_PYMONGO:
-        log("[CONFIG-SYNC] Skipped: pymongo not installed (pip3 install pymongo)")
-        return
+        if not _ensure_pymongo():
+            log("[CONFIG-SYNC] Skipped: pymongo not installed (run: sudo apt install -y python3-pymongo)")
+            return
     from pymongo import MongoClient
 
     log("[CONFIG-SYNC] Backup trigger initiated. Pulling live config from central hub...")
