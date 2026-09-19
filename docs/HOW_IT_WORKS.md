@@ -263,4 +263,30 @@ Located under `/templates` (restricted to Administrators and Super Admins), the 
    - **Automated In-Place Updates**: When a custom widget template is modified, all servers currently configured with that widget have their database, collection, query grouping, poll frequencies, and alert thresholds updated in-place automatically.
    - **Fleet Sync ("Sync All")**: A 1-click action deploys or updates any widget template across all active site servers in the fleet (`POST /api/v1/widgets/templates/{id}/apply-all`).
 
+---
+
+## 13. How the Master Server Monitoring Works
+
+Located under `/master-server` on the main navigation bar, the **Master Server** dashboard provides complete operational visibility and maintenance controls for the central infrastructure hosting OcTyn DevOps Services:
+
+1. **Host & Operating System Resources**:
+   - Live host CPU utilization percentage, 1m/5m/15m load averages, and per-core CPU load bars.
+   - Physical memory (RAM) allocation, available memory, and swap space.
+   - Root disk and mounted partition storage tables.
+   - Network I/O counters (bytes sent / received) and active network interface IPs.
+
+2. **FastAPI Application Process Telemetry**:
+   - Monitors the primary backend process: PID, memory RSS, active thread count, and uptime.
+   - Tracks live Socket.IO connection sessions and room counts.
+   - Inspects the local agent release distribution file (`agent_lite.py` / `agent.tar.gz`).
+
+3. **MongoDB Storage & 7-Day Retention Telemetry**:
+   - Measures live database ping latency in milliseconds.
+   - Visualizes database data size, allocated disk storage, and index size.
+   - Features a comprehensive collection breakdown table detailing document counts, data sizes, storage sizes, index counts, and active 7-day TTL expiration policies (`recorded_at`, `received_at`, `created_at`).
+
+4. **On-Demand Disk Space Reclamation**:
+   - Administrators can trigger an on-demand retention sweep and collection compaction (`POST /api/v1/master-server/cleanup`) directly from the UI.
+   - Prunes metrics, configs, and logs older than the retention period (default 7 days) and runs MongoDB collection compaction (`compact`) to return filesystem space back to disk.
+
 

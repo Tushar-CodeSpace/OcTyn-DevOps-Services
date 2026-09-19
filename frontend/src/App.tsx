@@ -13,6 +13,7 @@ import WhatsAppPage from "@/pages/WhatsApp";
 import TerminalPage from "@/pages/Terminal";
 import TemplatesPage from "@/pages/Templates";
 import DeploymentsPage from "@/pages/Deployments";
+import MasterServerPage from "@/pages/MasterServer";
 import { useAuth } from "@/lib/auth";
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ export default function App() {
       <Route path="/servers/:id" element={<Protected><ServerDetail /></Protected>} />
       <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/alerts" element={<Protected><Alerts /></Protected>} />
+      <Route path="/master-server" element={<Protected><MasterServerPage /></Protected>} />
       <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
       <Route path="/users" element={<Protected><AdminOnly><UsersPage /></AdminOnly></Protected>} />
       <Route path="/templates" element={<Protected><AdminOnly><TemplatesPage /></AdminOnly></Protected>} />

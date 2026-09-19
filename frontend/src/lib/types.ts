@@ -433,4 +433,119 @@ export interface DeploymentRecord {
     reason: string;
     at: string;
   } | null;
+}
+
+export interface DiskPartitionInfo {
+  device: string;
+  mountpoint: string;
+  fstype: string;
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  percent: number;
+}
+
+export interface MongoCollectionStat {
+  name: string;
+  document_count: number;
+  size_bytes: number;
+  storage_size_bytes: number;
+  indexes_count: number;
+  ttl_info?: string | null;
+}
+
+export interface MasterServerStatus {
+  hostname: string;
+  platform_name: string;
+  platform_release: string;
+  platform_version: string;
+  architecture: string;
+  processor: string;
+  python_version: string;
+  boot_time: string;
+  uptime_seconds: number;
+  load_average: number[];
+
+  cpu_count_logical: number;
+  cpu_count_physical: number;
+  cpu_percent: number;
+  cpu_per_core: number[];
+  memory_total: number;
+  memory_used: number;
+  memory_available: number;
+  memory_percent: number;
+  swap_total: number;
+  swap_used: number;
+  swap_percent: number;
+
+  disk_total: number;
+  disk_used: number;
+  disk_free: number;
+  disk_percent: number;
+  partitions: DiskPartitionInfo[];
+
+  network_bytes_sent: number;
+  network_bytes_received: number;
+  network_interfaces: Record<string, string[]>;
+
+  process_pid: number;
+  process_uptime_seconds: number;
+  process_memory_rss: number;
+  process_cpu_percent: number;
+  process_threads: number;
+  socketio_clients_count: number;
+  socketio_rooms_count: number;
+  environment: string;
+  api_port: number;
+  retention_days: number;
+  evaluator_interval_seconds: number;
+
+  mongodb_status: string;
+  mongodb_ping_ms: number;
+  mongodb_version: string;
+  database_name: string;
+  data_size_bytes: number;
+  storage_size_bytes: number;
+  index_size_bytes: number;
+  collections_count: number;
+  objects_count: number;
+  collections: MongoCollectionStat[];
+
+  fleet_total_servers: number;
+  fleet_online_servers: number;
+  fleet_warning_servers: number;
+  fleet_offline_servers: number;
+  fleet_total_sites: number;
+  active_alerts_count: number;
+
+  agent_release_version: string;
+  agent_release_exists: boolean;
+  agent_release_size_bytes: number;
+}
+
+export interface MasterMetricsHistoryPoint {
+  timestamp: string;
+  cpu_percent: number;
+  memory_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  disk_percent: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+}
+
+export interface MasterCleanupResult {
+  success: boolean;
+  retention_days: number;
+  pruned: {
+    retention_days: number;
+    metrics: number;
+    site_configs: number;
+    terminal_commands: number;
+    agent_logs: number;
+    alerts: number;
+  };
+  compacted: string[];
+  compaction_errors: string[];
+  executed_at: string;
 }

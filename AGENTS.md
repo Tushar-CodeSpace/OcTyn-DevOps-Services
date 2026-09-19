@@ -94,6 +94,12 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
     - Main navigation displays **Master Logs** (`/alerts`).
     - Alerts automatically resolve in real time when underlying system conditions recover (heartbeats resume, CPU/RAM/Disk/error metrics fall below thresholds, services restart, or stale conditions clear). No manual resolution action is required.
 
+17. **Master Server Hub Monitoring (`/master-server`)**:
+    - Dedicated interface to monitor the central infrastructure host, FastAPI runtime process, and MongoDB telemetry.
+    - Features real-time CPU (total & per-core), RAM (used/available/swap), Root Disk partitions, Network I/O, backend process PID/threads/RSS, and connected Socket.IO clients.
+    - Inspects MongoDB ping latency, database storage allocation vs index size, and an interactive collection breakdown table with document counts and 7-day TTL expiration policies.
+    - Provides 1-click on-demand disk space reclamation ("Run Retention Cleanup & Compact") executing automated 7-day pruning and MongoDB collection compaction.
+
 
 ---
 

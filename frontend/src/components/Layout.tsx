@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   Rocket,
   Search,
+  Server,
   Settings as SettingsIcon,
   Users,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/alerts", label: "Master Logs", icon: Bell },
+  { to: "/master-server", label: "Master Server", icon: Server },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 

@@ -1,7 +1,8 @@
-"""Background jobs: health sweep, alert evaluation, retention cleanup."""
-
 import asyncio
+from collections import deque
 from datetime import datetime, timedelta, timezone
+import os
+import psutil
 
 from app.config.settings import settings
 from app.database import models as db
@@ -13,6 +14,34 @@ from app.services.monitoring import compute_status, effective_status
 logger = get_logger(__name__)
 
 _retention_days = settings.metrics_retention_days
+
+_MASTER_METRICS_HISTORY: deque = deque(maxlen=60)
+
+
+def record_master_metrics_snapshot() -> None:
+    """Sample current master server host metrics and keep last 60 data points (10 minutes)."""
+    try:
+        mem = psutil.virtual_memory()
+        try:
+            disk = psutil.disk_usage("/")
+        except Exception:
+            disk = psutil.disk_usage(".")
+        _MASTER_METRICS_HISTORY.append({
+            "timestamp": now().isoformat(),
+            "cpu_percent": float(psutil.cpu_percent(interval=None)),
+            "memory_percent": float(mem.percent),
+            "memory_used_mb": round(mem.used / (1024 * 1024), 1),
+            "memory_total_mb": round(mem.total / (1024 * 1024), 1),
+            "disk_percent": float(disk.percent),
+            "disk_used_gb": round(disk.used / (1024 * 1024 * 1024), 2),
+            "disk_total_gb": round(disk.total / (1024 * 1024 * 1024), 2),
+        })
+    except Exception:
+        pass
+
+
+def get_master_metrics_history() -> list[dict]:
+    return list(_MASTER_METRICS_HISTORY)
 
 
 def now() -> datetime:
@@ -109,12 +138,14 @@ async def run_background_loop() -> None:
     """Periodic evaluator: health sweep + alert evaluation + daily cleanup."""
     interval = settings.evaluator_interval_seconds
     logger.info("background loop started", extra={"extra_fields": {"interval_s": interval}})
-    last_cleanup = now().date()
+    # Take immediate initial snapshot on loop startup
+    record_master_metrics_snapshot()
     while True:
         try:
             await asyncio.sleep(interval)
             sweep_server_health()
             active = evaluate_all_alerts()
+            record_master_metrics_snapshot()
             if now().date() != last_cleanup:
                 cleanup_expired_data()
                 last_cleanup = now().date()

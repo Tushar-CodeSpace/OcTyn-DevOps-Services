@@ -20,6 +20,7 @@ from app.routes import (
     dashboard,
     deployments,
     health,
+    master_server,
     metrics,
     servers,
     services,
@@ -94,6 +95,7 @@ app.include_router(connectivity.router)
 app.include_router(terminal.router)
 app.include_router(widgets.router)
 app.include_router(deployments.router)
+app.include_router(master_server.router)
 
 # Entrypoint for uvicorn: app.main:socket_app
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
