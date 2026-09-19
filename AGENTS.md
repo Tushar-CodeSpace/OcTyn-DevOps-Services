@@ -80,8 +80,20 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
     - Endpoints support single deployment approval (`POST /api/v1/deployments/{id}/approve`), fleet-wide batch approval (`POST /api/v1/deployments/batch/{batch_id}/approve`), and rejection (`/reject`).
     - User accounts support `user_group: devops | developer | product | management` managed under `/users`.
 
-14. **Template Library Management (`/templates`)**:
+14. **Template Library Management (`/templates`) & Automated Fleet Propagation**:
     - Dedicated management interface accessible strictly to Admin and Super Admin accounts to create, edit, duplicate, and delete reusable **Agent Runtime Templates** and **Custom Widget Templates**.
+    - Modifying any template automatically updates all linked site servers in `db.server_configs()` and emits realtime sync events so agents pick up changes dynamically without manual site-by-site intervention.
+    - Supports 1-click fleet synchronization ("Sync All") to deploy or update templates across all servers simultaneously.
+
+15. **Server Agent Execution Logs (`/servers/:id` Logs Tab)**:
+    - Dedicated **Logs** tab on Server Detail alongside Overview, Services, Widgets, Backups, and Keys.
+    - Site agents buffer runtime logs in a thread-safe ring buffer and stream them during 10s metric heartbeats.
+    - Features live streaming (5s auto-refresh), severity filtering (All, Info, Warning, Error), text search, and on-demand host systemd journal inspection (`POST /api/v1/servers/{server_id}/logs/journal` running `journalctl -u octyn.service`).
+
+16. **Master Logs & Automatic Alert Resolution**:
+    - Main navigation displays **Master Logs** (`/alerts`).
+    - Alerts automatically resolve in real time when underlying system conditions recover (heartbeats resume, CPU/RAM/Disk/error metrics fall below thresholds, services restart, or stale conditions clear). No manual resolution action is required.
+
 
 ---
 

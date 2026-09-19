@@ -39,6 +39,7 @@ class MetricCreate(BaseModel):
     api_recent_errors: Optional[list[dict]] = Field(default=None)
 
     uptime_seconds: float = Field(ge=0)
+    logs: Optional[list[dict]] = Field(default=None)
 
 
 class MetricRead(MetricCreate):

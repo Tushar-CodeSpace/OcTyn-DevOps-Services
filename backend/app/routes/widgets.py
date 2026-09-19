@@ -150,6 +150,48 @@ async def list_widget_templates(
     return [template_doc_to_read(d) for d in docs]
 
 
+def propagate_widget_template(template_id: str, data: dict, old_name: str | None = None) -> int:
+    """Propagate updated widget template to all servers currently configuring this widget."""
+    server_configs = list(db.server_configs().find({"custom_widgets": {"$exists": True, "$ne": []}}))
+    count = 0
+    names_to_match = {data["name"]}
+    if old_name:
+        names_to_match.add(old_name)
+
+    for sc in server_configs:
+        widgets = sc.get("custom_widgets", [])
+        modified = False
+        for w in widgets:
+            if not isinstance(w, dict):
+                continue
+            is_match = (w.get("template_id") == template_id) or (w.get("name") in names_to_match)
+            if is_match:
+                w["name"] = data["name"]
+                w["database"] = data["database"]
+                w["collection"] = data["collection"]
+                w["poll_interval_seconds"] = int(data.get("poll_interval_seconds", 60))
+                w["window_minutes"] = int(data.get("window_minutes", 60))
+                w["group_by_field"] = data.get("group_by_field", "upload_status")
+                w["time_field"] = data.get("time_field", "created_at")
+                w["max_groups"] = int(data.get("max_groups", 10))
+                w["alert_threshold_percent"] = float(data.get("alert_threshold_percent", 50.0))
+                w["alert_window_minutes"] = int(data.get("alert_window_minutes", 15))
+                w["template_id"] = template_id
+                w["template_name"] = data["name"]
+                modified = True
+
+        if modified:
+            db.server_configs().update_one(
+                {"_id": sc["_id"]},
+                {"$set": {"custom_widgets": widgets, "updated_at": now()}},
+            )
+            sid = str(sc.get("server_id"))
+            emit("agent_config_updated", {"server_id": sid}, room=f"server:{sid}")
+            count += 1
+
+    return count
+
+
 @router.post(
     "/templates",
     response_model=WidgetTemplateRead,
@@ -172,6 +214,7 @@ async def upsert_widget_template(
             {"_id": existing["_id"]},
             {"$set": {**data, "updated_at": now()}},
         )
+        propagate_widget_template(str(existing["_id"]), data, old_name=existing.get("name"))
         doc = db.widget_templates().find_one({"_id": existing["_id"]})
         assert doc is not None
         return template_doc_to_read(doc)
@@ -196,15 +239,19 @@ async def update_widget_template(
     request: Request,
     current: dict = Depends(auth.require_admin),
 ) -> WidgetTemplateRead:
-    """Dashboard endpoint (admin): update a widget template by ID."""
+    """Dashboard endpoint (admin): update a widget template by ID and auto-sync all linked servers."""
     doc = db.widget_templates().find_one({"_id": template_id})
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
     data = payload.model_dump()
+    old_name = doc.get("name")
     db.widget_templates().update_one(
         {"_id": template_id},
         {"$set": {**data, "updated_at": now()}},
     )
+    # Auto-propagate changes to all servers utilizing this widget template
+    propagate_widget_template(template_id, data, old_name=old_name)
+
     audit_trail.record(
         current, "template_save", request,
         {"kind": "widget", "id": template_id, "name": data["name"], "database": data.get("database"), "collection": data.get("collection")},
@@ -212,6 +259,65 @@ async def update_widget_template(
     updated = db.widget_templates().find_one({"_id": template_id})
     assert updated is not None
     return template_doc_to_read(updated)
+
+
+@router.post(
+    "/templates/{template_id}/apply-all",
+    response_model=dict,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def apply_widget_template_to_all(
+    template_id: str,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> dict:
+    """Dashboard endpoint (admin): add or update this widget across ALL site servers."""
+    doc = db.widget_templates().find_one({"_id": template_id})
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+    widget_spec = {
+        "name": doc["name"],
+        "database": doc["database"],
+        "collection": doc["collection"],
+        "enabled": bool(doc.get("enabled", True)),
+        "poll_interval_seconds": int(doc.get("poll_interval_seconds", 60)),
+        "window_minutes": int(doc.get("window_minutes", 60)),
+        "group_by_field": doc.get("group_by_field", "upload_status"),
+        "time_field": doc.get("time_field", "created_at"),
+        "max_groups": int(doc.get("max_groups", 10)),
+        "alert_threshold_percent": float(doc.get("alert_threshold_percent", 50.0)),
+        "alert_window_minutes": int(doc.get("alert_window_minutes", 15)),
+        "template_id": template_id,
+        "template_name": doc["name"],
+    }
+
+    servers = list(db.servers().find({}))
+    count = 0
+    for s in servers:
+        sid = s["_id"]
+        sc = db.server_configs().find_one({"server_id": sid}) or {}
+        existing_widgets = list(sc.get("custom_widgets", []))
+        idx = next((i for i, w in enumerate(existing_widgets) if w.get("template_id") == template_id or w.get("name") == doc["name"]), -1)
+        if idx >= 0:
+            existing_enabled = existing_widgets[idx].get("enabled", True)
+            existing_widgets[idx] = {**widget_spec, "enabled": existing_enabled}
+        else:
+            existing_widgets.append(dict(widget_spec))
+
+        db.server_configs().update_one(
+            {"server_id": sid},
+            {"$set": {"custom_widgets": existing_widgets, "updated_at": now()}},
+            upsert=True,
+        )
+        emit("agent_config_updated", {"server_id": str(sid)}, room=f"server:{sid}")
+        count += 1
+
+    audit_trail.record(
+        current, "template_apply_all", request,
+        {"kind": "widget", "id": template_id, "name": doc["name"], "servers_updated": count},
+    )
+    return {"success": True, "applied_servers_count": count}
 
 
 @router.delete(

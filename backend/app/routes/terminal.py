@@ -270,3 +270,27 @@ async def command_result(
         room=f"server:{server_id_str}",
     )
     return {"success": True}
+
+
+@router.get("/{server_id}/commands/{command_id}")
+async def get_command_status(
+    server_id: str,
+    command_id: str,
+    user: dict = Depends(auth.get_current_user),
+) -> dict:
+    sid = parse_id(server_id)
+    cid = parse_id(command_id)
+    if sid is None or cid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Command not found")
+    command = db.terminal_commands().find_one({"_id": cid, "server_id": sid})
+    if command is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Command not found")
+    return {
+        "id": str(command["_id"]),
+        "status": command.get("status"),
+        "command": command.get("command"),
+        "output": command.get("output", ""),
+        "exit_code": command.get("exit_code"),
+        "timed_out": command.get("timed_out", False),
+        "created_at": command.get("created_at").isoformat() if command.get("created_at") else None,
+    }

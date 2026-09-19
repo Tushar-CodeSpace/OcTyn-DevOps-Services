@@ -80,6 +80,58 @@ async def ingest_metric(
     }
     db.metrics().insert_one(doc)
 
+    if payload.logs:
+        log_docs = []
+        for entry in payload.logs:
+            if isinstance(entry, dict):
+                msg = str(entry.get("message", "")).strip()
+                lvl = str(entry.get("level", "info")).lower()
+                ts = entry.get("timestamp")
+                if not ts:
+                    ts = now()
+                elif isinstance(ts, str):
+                    try:
+                        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except Exception:
+                        ts = now()
+                src = str(entry.get("source", "agent"))
+            else:
+                msg = str(entry).strip()
+                lvl = "info"
+                ts = now()
+                src = "agent"
+            if msg:
+                log_docs.append({
+                    "_id": new_id(),
+                    "server_id": server["_id"],
+                    "timestamp": ts,
+                    "level": lvl,
+                    "source": src,
+                    "message": msg,
+                    "created_at": now(),
+                })
+        if log_docs:
+            db.agent_logs().insert_many(log_docs)
+            emit(
+                "agent_logs",
+                {
+                    "server_id": str(server["_id"]),
+                    "logs": [
+                        {
+                            "id": d["_id"],
+                            "server_id": str(d["server_id"]),
+                            "timestamp": d["timestamp"].isoformat() if hasattr(d["timestamp"], "isoformat") else str(d["timestamp"]),
+                            "level": d["level"],
+                            "source": d["source"],
+                            "message": d["message"],
+                            "created_at": d["created_at"].isoformat(),
+                        }
+                        for d in log_docs
+                    ],
+                },
+                room=f"server:{server['_id']}",
+            )
+
     emit(
         "metric",
         {

@@ -1091,9 +1091,32 @@ def config_services():
     return SERVICES
 
 
-def log(msg):
+_PENDING_LOGS = []
+_LOG_LOCK = threading.Lock()
+
+
+def log(msg, level="info"):
     sys.stderr.write("%s %s\n" % (datetime.now(timezone.utc).strftime("%H:%M:%S"), msg))
     sys.stderr.flush()
+    msg_str = str(msg)
+    if level == "info":
+        upper = msg_str.upper()
+        if any(term in upper for term in ("ERROR", "FAIL", "CRITICAL", "EXCEPTION")):
+            level = "error"
+        elif any(term in upper for term in ("WARN", "RETRY", "TIMEOUT")):
+            level = "warning"
+    try:
+        with _LOG_LOCK:
+            if len(_PENDING_LOGS) >= 500:
+                _PENDING_LOGS.pop(0)
+            _PENDING_LOGS.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "level": level,
+                "message": msg_str,
+                "source": "agent",
+            })
+    except Exception:
+        pass
 
 
 def _encode_uri_password(uri: str) -> str:
@@ -1430,6 +1453,15 @@ def collect_metrics():
     sample.update(network())
     sample.update(disk_io())
     cpu_snapshot()  # baseline for the next cycle
+    logs_to_send = []
+    try:
+        with _LOG_LOCK:
+            logs_to_send = list(_PENDING_LOGS)
+            _PENDING_LOGS.clear()
+    except Exception:
+        pass
+    if logs_to_send:
+        sample["logs"] = logs_to_send
     return sample
 
 

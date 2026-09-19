@@ -60,17 +60,19 @@ def evaluate_all_alerts() -> int:
     cfg = app_settings.get_alert_config()
     for server in db.servers().find({}):
         alerts.evaluate_server(server, cfg)
+    alerts.sweep_and_auto_resolve_alerts(cfg)
     return db.alerts().count_documents({"status": "active"})
 
 
 def cleanup_expired_data() -> dict:
-    """Delete raw metrics, site configs, terminal logs, and resolved alerts older than retention period (default 7 days)."""
+    """Delete raw metrics, site configs, terminal logs, agent logs, and resolved alerts older than retention period (default 7 days)."""
     retention_days = app_settings.get_retention_days()
     cutoff = now() - timedelta(days=retention_days)
 
     deleted_metrics = db.metrics().delete_many({"recorded_at": {"$lt": cutoff}}).deleted_count
     deleted_configs = db.site_configs().delete_many({"received_at": {"$lt": cutoff}}).deleted_count
     deleted_commands = db.terminal_commands().delete_many({"created_at": {"$lt": cutoff}}).deleted_count
+    deleted_agent_logs = db.agent_logs().delete_many({"created_at": {"$lt": cutoff}}).deleted_count
     deleted_alerts = db.alerts().delete_many(
         {
             "$or": [
@@ -88,6 +90,7 @@ def cleanup_expired_data() -> dict:
                 "metrics": deleted_metrics,
                 "site_configs": deleted_configs,
                 "terminal_commands": deleted_commands,
+                "agent_logs": deleted_agent_logs,
                 "alerts": deleted_alerts,
             }
         },
@@ -97,6 +100,7 @@ def cleanup_expired_data() -> dict:
         "metrics": deleted_metrics,
         "site_configs": deleted_configs,
         "terminal_commands": deleted_commands,
+        "agent_logs": deleted_agent_logs,
         "alerts": deleted_alerts,
     }
 

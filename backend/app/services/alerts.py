@@ -21,9 +21,12 @@ def now() -> datetime:
 def _active_alert(
     alert_type: str, server_id, service_name: Optional[str] = None
 ) -> Optional[dict]:
+    from app.database.connection import parse_id
+    sid_val = parse_id(server_id)
+    sid_filter = {"$in": [server_id, str(server_id), sid_val]} if sid_val else {"$in": [server_id, str(server_id)]}
     query: dict = {
         "type": alert_type,
-        "server_id": server_id,
+        "server_id": sid_filter,
         "status": "active",
         "service_name": service_name,
     }
@@ -107,12 +110,21 @@ def _resolve_alert(
     current_value: Optional[float] = None,
 ) -> None:
     """Resolve an active alert, log the recovery/online event log, and send notifications."""
-    existing = _active_alert(alert_type, server_id, service_name)
+    from app.database.connection import parse_id
+    sid_val = parse_id(server_id)
+    sid_filter = {"$in": [server_id, str(server_id), sid_val]} if sid_val else {"$in": [server_id, str(server_id)]}
+    query = {
+        "type": alert_type,
+        "server_id": sid_filter,
+        "status": "active",
+        "service_name": service_name,
+    }
+    existing = db.alerts().find_one(query)
     if existing is None:
         return
     timestamp = now()
-    db.alerts().update_one(
-        {"_id": existing["_id"]},
+    db.alerts().update_many(
+        query,
         {"$set": {"status": "resolved", "resolved_at": timestamp}},
     )
 
@@ -179,6 +191,109 @@ def _resolve_alert(
         "alert resolved",
         extra={"extra_fields": {"type": alert_type, "server_id": str(server_id), "message": msg}},
     )
+
+
+def sweep_and_auto_resolve_alerts(cfg: Optional[dict] = None) -> int:
+    """Auto-resolve any active alerts where the underlying incident has recovered.
+
+    Ensures that active alerts are automatically cleared in real time without
+    requiring manual resolution by users.
+    """
+    if cfg is None:
+        cfg = app_settings.get_alert_config()
+
+    from app.database.connection import parse_id
+    from datetime import timedelta
+
+    active_alerts = list(db.alerts().find({"status": "active"}))
+    resolved_count = 0
+
+    all_servers = {}
+    for s in db.servers().find({}):
+        all_servers[str(s["_id"])] = s
+        all_servers[s["_id"]] = s
+
+    for alert in active_alerts:
+        sid = alert.get("server_id")
+        server = all_servers.get(str(sid)) or all_servers.get(sid)
+
+        # 1. If server was deleted, auto-resolve immediately
+        if not server:
+            db.alerts().update_one({"_id": alert["_id"]}, {"$set": {"status": "resolved", "resolved_at": now()}})
+            resolved_count += 1
+            continue
+
+        hostname = server.get("hostname")
+        machine = server.get("name")
+        site_id = server.get("site_id")
+        alert_type = alert.get("type", "")
+
+        # 2. Server offline alert: check if server has sent a heartbeat recently
+        if alert_type == "server_offline":
+            from app.services.monitoring import compute_status
+            offline_timeout = int(cfg.get("offline_threshold_seconds", settings.health_warning_max_seconds))
+            status = compute_status(server.get("last_seen_at"), warning_max_seconds=offline_timeout)
+            if status != "offline":
+                _resolve_alert("server_offline", sid, hostname=hostname, machine=machine, site_id=site_id)
+                resolved_count += 1
+            continue
+
+        # 3. Service stopped alert: check if service is now running or disabled/removed
+        if alert_type == "service_stopped":
+            s_name = alert.get("service_name")
+            if s_name:
+                service = db.services().find_one({
+                    "$or": [{"server_id": sid}, {"server_id": str(sid)}, {"server_id": parse_id(sid)}],
+                    "name": s_name,
+                })
+                if not service or service.get("status") not in ("stopped", "error"):
+                    _resolve_alert("service_stopped", sid, service_name=s_name, hostname=hostname, machine=machine, site_id=site_id)
+                    resolved_count += 1
+            continue
+
+        # 4. Metric threshold alerts (cpu_high, ram_high, disk_high, api_error_spike)
+        if alert_type in ("cpu_high", "ram_high", "disk_high", "api_error_spike"):
+            cutoff = now() - timedelta(minutes=5)
+            latest = db.metrics().find_one(
+                {"$or": [{"server_id": sid}, {"server_id": str(sid)}, {"server_id": parse_id(sid)}]},
+                sort=[("recorded_at", -1)],
+            )
+            if not latest or latest.get("recorded_at", now()) < cutoff:
+                _resolve_alert(alert_type, sid, hostname=hostname, machine=machine, site_id=site_id)
+                resolved_count += 1
+                continue
+
+            if alert_type == "cpu_high" and latest.get("cpu_percent", 0) < cfg.get("cpu_threshold_percent", 90):
+                _resolve_alert("cpu_high", sid, hostname=hostname, machine=machine, site_id=site_id, current_value=latest.get("cpu_percent"))
+                resolved_count += 1
+            elif alert_type == "ram_high" and latest.get("memory_percent", 0) < cfg.get("ram_threshold_percent", 90):
+                _resolve_alert("ram_high", sid, hostname=hostname, machine=machine, site_id=site_id, current_value=latest.get("memory_percent"))
+                resolved_count += 1
+            elif alert_type == "disk_high" and latest.get("disk_percent", 0) < cfg.get("disk_threshold_percent", 90):
+                _resolve_alert("disk_high", sid, hostname=hostname, machine=machine, site_id=site_id, current_value=latest.get("disk_percent"))
+                resolved_count += 1
+            elif alert_type == "api_error_spike":
+                api_5xx = latest.get("api_requests_5xx", 0) or 0
+                api_err_rate = float(latest.get("api_error_rate_percent", 0.0) or 0.0)
+                thresh = float(cfg.get("api_error_threshold_percent", 5.0) or 5.0)
+                if api_5xx == 0 and api_err_rate < thresh:
+                    _resolve_alert("api_error_spike", sid, hostname=hostname, machine=machine, site_id=site_id, current_value=api_err_rate)
+                    resolved_count += 1
+            continue
+
+        # 5. Integration failure rate alert
+        if alert_type.startswith("integration_error_spike:"):
+            w_name = alert_type.split(":", 1)[1]
+            agent_cfg = app_settings.get_agent_config(str(sid))
+            widgets = agent_cfg.get("custom_widgets", [])
+            matching_w = next((w for w in widgets if w.get("name") == w_name), None)
+            if not matching_w or not matching_w.get("enabled", True):
+                _resolve_alert(alert_type, sid, hostname=hostname, machine=machine, site_id=site_id)
+                resolved_count += 1
+            continue
+
+    return resolved_count
+
 
 
 def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:

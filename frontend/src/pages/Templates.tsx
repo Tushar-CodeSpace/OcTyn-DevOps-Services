@@ -177,7 +177,11 @@ export default function TemplatesPage() {
           body: JSON.stringify(runtimeForm),
         });
         setRuntimeTemplates((prev) => prev.map((t) => (t.id === editingRuntimeId ? updated : t)));
-        showToast({ severity: "info", title: "Template updated", message: `"${updated.name}" saved.` });
+        showToast({
+          severity: "info",
+          title: "Template updated",
+          message: `"${updated.name}" saved & automatically synced to all linked site servers.`,
+        });
       } else {
         const created = await apiFetch<AgentRuntimeTemplate>("/agent-config-templates", {
           method: "POST",
@@ -203,6 +207,52 @@ export default function TemplatesPage() {
       });
     } finally {
       setSavingRuntime(false);
+    }
+  }
+
+  async function applyRuntimeToAll(t: AgentRuntimeTemplate) {
+    if (!confirm(`Apply runtime template "${t.name}" to ALL site servers across your fleet? All servers will immediately update to these monitoring and ping settings.`)) {
+      return;
+    }
+    try {
+      const res = await apiFetch<{ success: boolean; applied_servers_count: number }>(
+        `/agent-config-templates/${t.id}/apply-all`,
+        { method: "POST" }
+      );
+      showToast({
+        severity: "info",
+        title: "Fleet synced",
+        message: `Template "${t.name}" applied across ${res.applied_servers_count} site server(s).`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Sync failed",
+        message: err instanceof Error ? err.message : "Could not apply template across servers.",
+      });
+    }
+  }
+
+  async function applyWidgetToAll(w: WidgetTemplate) {
+    if (!confirm(`Deploy widget template "${w.name}" to ALL site servers across your fleet? All servers will automatically start collecting telemetry for this query.`)) {
+      return;
+    }
+    try {
+      const res = await apiFetch<{ success: boolean; applied_servers_count: number }>(
+        `/widgets/templates/${w.id}/apply-all`,
+        { method: "POST" }
+      );
+      showToast({
+        severity: "info",
+        title: "Fleet synced",
+        message: `Widget "${w.name}" applied across ${res.applied_servers_count} site server(s).`,
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Sync failed",
+        message: err instanceof Error ? err.message : "Could not apply widget template across servers.",
+      });
     }
   }
 
@@ -308,7 +358,11 @@ export default function TemplatesPage() {
           body: JSON.stringify(widgetForm),
         });
         setWidgetTemplates((prev) => prev.map((w) => (w.id === editingWidgetId ? updated : w)));
-        showToast({ severity: "info", title: "Template updated", message: `"${updated.name}" saved.` });
+        showToast({
+          severity: "info",
+          title: "Template updated",
+          message: `"${updated.name}" saved & automatically synced to all linked site servers.`,
+        });
       } else {
         const created = await apiFetch<WidgetTemplate>("/widgets/templates", {
           method: "POST",
@@ -544,6 +598,16 @@ export default function TemplatesPage() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => applyRuntimeToAll(t)}
+                        title="Apply this template to ALL site servers across the fleet"
+                        className="h-7 px-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/40 border border-indigo-500/20"
+                      >
+                        <Radio className="h-3 w-3 mr-1 text-indigo-400" />
+                        <span className="text-[11px] font-medium">Sync All</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => duplicateRuntime(t)}
                         title="Duplicate this template"
                         className="h-7 px-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800"
@@ -667,6 +731,16 @@ export default function TemplatesPage() {
                       Updated {new Date(w.updated_at).toLocaleDateString()}
                     </span>
                     <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => applyWidgetToAll(w)}
+                        title="Apply this widget to ALL site servers across the fleet"
+                        className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-emerald-500/20"
+                      >
+                        <Database className="h-3 w-3 mr-1 text-emerald-400" />
+                        <span className="text-[11px] font-medium">Sync All</span>
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"

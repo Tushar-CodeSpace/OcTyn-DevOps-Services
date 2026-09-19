@@ -249,15 +249,18 @@ To ensure safe, compliant production releases, deployments enforce an enterprise
 
 ---
 
-## 12. How the Template Library Works
+## 12. How the Template Library & Automated Propagation Work
 
-Located under `/templates` (restricted to Administrators and Super Admins), the **Template Library** allows teams to standardize infrastructure and telemetry definitions:
+Located under `/templates` (restricted to Administrators and Super Admins), the **Template Library** allows teams to standardize infrastructure and telemetry definitions with zero manual site-by-site maintenance:
 
 1. **Agent Runtime Templates**:
    - Define reusable configurations for remote site agents, including monitoring intervals, timeout limits, retry policies, config polling frequencies, and ICMP ping target device lists.
-   - Apply templates directly to one or multiple remote servers.
+   - **Automated Fleet Propagation**: When any runtime template is edited, the central hub automatically identifies all servers linked to that template and updates their runtime configurations in `server_configs`, emitting realtime events. Remote site agents automatically receive the updated intervals and targets on their next 5s poll without requiring manual site-by-site re-application.
+   - **Fleet Sync ("Sync All")**: A 1-click action pushes any runtime template across the entire fleet (`POST /api/v1/agent-config-templates/{id}/apply-all`).
+
 2. **Custom Widget Templates**:
    - Define standardized MongoDB telemetry widgets: database name, collection, timestamp field, group-by keys, polling intervals, and widget-specific integration failure alert thresholds.
-   - Rapidly instantiate consistent monitoring widgets across newly registered servers.
+   - **Automated In-Place Updates**: When a custom widget template is modified, all servers currently configured with that widget have their database, collection, query grouping, poll frequencies, and alert thresholds updated in-place automatically.
+   - **Fleet Sync ("Sync All")**: A 1-click action deploys or updates any widget template across all active site servers in the fleet (`POST /api/v1/widgets/templates/{id}/apply-all`).
 
 

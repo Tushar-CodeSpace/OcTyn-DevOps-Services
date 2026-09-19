@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -17,7 +17,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
-import type { AgentConfig, AgentRuntimeTemplate, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
+import type { AgentConfig, AgentLog, AgentRuntimeTemplate, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
@@ -171,13 +171,25 @@ export default function ServerDetail() {
   const [editServerSiteId, setEditServerSiteId] = useState("");
   const [savingServer, setSavingServer] = useState(false);
 
-  // Tabbed layout + compact filter state (handy with many ports / backups)
-  const [activeTab, setActiveTab] = useState<"overview" | "services" | "widgets" | "backups" | "keys">("overview");
+  // Tabbed layout + compact filter state (handy with many ports / backups / logs)
+  const [activeTab, setActiveTab] = useState<"overview" | "services" | "widgets" | "backups" | "keys" | "logs">("overview");
   const [svcQuery, setSvcQuery] = useState("");
   const [svcStatus, setSvcStatus] = useState<"all" | "running" | "stopped" | "disabled">("all");
   const [svcPage, setSvcPage] = useState(0);
   const [backupQuery, setBackupQuery] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
+
+  // Agent Logs Tab State
+  const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
+  const [agentLogTotal, setAgentLogTotal] = useState(0);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [logSearch, setLogSearch] = useState("");
+  const [logLevel, setLogLevel] = useState<"all" | "info" | "warning" | "error">("all");
+  const [logAutoRefresh, setLogAutoRefresh] = useState(true);
+  const [fetchingJournal, setFetchingJournal] = useState(false);
+  const [journalOutput, setJournalOutput] = useState<string | null>(null);
+  const [journalOpen, setJournalOpen] = useState(false);
+
   // Collapsible overview sections (null = auto: expand only when attention needed)
   const [healthOpen, setHealthOpen] = useState<boolean | null>(null);
   const [connOpen, setConnOpen] = useState<boolean | null>(null);
@@ -298,6 +310,9 @@ export default function ServerDetail() {
     apiFetch<Alert[]>(`/alerts?server_id=${id}&status=active&limit=20`)
       .then(setAlerts)
       .catch(() => setAlerts([]));
+    apiFetch<{ total: number }>(`/servers/${id}/logs?limit=1`)
+      .then((r) => setAgentLogTotal(r.total || 0))
+      .catch(() => {});
     await loadMetrics();
   }
 
@@ -314,6 +329,102 @@ export default function ServerDetail() {
     );
     if (res) setConnectivity(res);
   }
+
+  const loadAgentLogs = useCallback(async () => {
+    if (!id) return;
+    setLoadingLogs(true);
+    try {
+      const params = new URLSearchParams();
+      if (logLevel !== "all") params.set("level", logLevel);
+      if (logSearch.trim()) params.set("search", logSearch.trim());
+      params.set("limit", "300");
+      const res = await apiFetch<{ server_id: string; total: number; logs: AgentLog[] }>(
+        `/servers/${id}/logs?${params.toString()}`
+      );
+      setAgentLogs(res.logs || []);
+      setAgentLogTotal(res.total || 0);
+    } catch (err) {
+      console.error("Failed to load agent logs:", err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [id, logLevel, logSearch]);
+
+  useEffect(() => {
+    if (activeTab === "logs") {
+      loadAgentLogs();
+    }
+  }, [activeTab, loadAgentLogs]);
+
+  useEffect(() => {
+    if (!logAutoRefresh || activeTab !== "logs") return;
+    const timer = setInterval(() => {
+      loadAgentLogs();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [logAutoRefresh, activeTab, loadAgentLogs]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const onNewLogs = (data: any) => {
+      if (data && String(data.server_id) === String(id)) {
+        if (activeTab === "logs") {
+          loadAgentLogs();
+        } else {
+          setAgentLogTotal((prev) => prev + (data.logs?.length || 1));
+        }
+      }
+    };
+    socket.on("agent_logs", onNewLogs);
+    return () => {
+      socket.off("agent_logs", onNewLogs);
+    };
+  }, [id, activeTab, loadAgentLogs]);
+
+  const handleFetchJournal = async () => {
+    if (!id) return;
+    setFetchingJournal(true);
+    setJournalOpen(true);
+    setJournalOutput("Queuing live journalctl inspection on remote agent host...");
+    try {
+      const res = await apiFetch<{ command_id: string; status: string }>(`/servers/${id}/logs/journal`, {
+        method: "POST",
+      });
+      showToast({ severity: "info", title: "Journal Requested", message: "Inspecting live systemd journal on host..." });
+      const cmdId = res.command_id;
+      let finished = false;
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 600));
+        const statusRes = await apiFetch<any>(`/terminal/${id}/commands/${cmdId}`).catch(() => null);
+        if (statusRes && statusRes.status && statusRes.status !== "queued" && statusRes.status !== "running") {
+          setJournalOutput(statusRes.output || "No output returned from journalctl command.");
+          finished = true;
+          break;
+        }
+      }
+      if (!finished) {
+        setJournalOutput("Journalctl command queued on agent. Will complete once edge agent finishes execution.");
+      }
+    } catch (err: any) {
+      setJournalOutput(`Failed to fetch journal: ${err?.message || "Unknown error"}`);
+      showToast({ severity: "critical", title: "Journal Failed", message: err?.message || "Could not fetch journal" });
+    } finally {
+      setFetchingJournal(false);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    if (!id) return;
+    if (!window.confirm("Are you sure you want to clear stored agent logs for this server?")) return;
+    try {
+      await apiFetch(`/servers/${id}/logs`, { method: "DELETE" });
+      setAgentLogs([]);
+      setAgentLogTotal(0);
+      showToast({ severity: "info", title: "Logs Cleared", message: "Agent logs cleared successfully" });
+    } catch (err: any) {
+      showToast({ severity: "critical", title: "Clear Failed", message: err?.message || "Could not clear logs" });
+    }
+  };
 
   async function saveAgentCfg() {
     if (!id || !agentCfg) return;
@@ -352,6 +463,8 @@ export default function ServerDetail() {
     if (!t || !agentCfg) return;
     setAgentCfg({
       ...agentCfg,
+      runtime_template_id: t.id,
+      runtime_template_name: t.name,
       monitoring_interval_seconds: t.monitoring_interval_seconds,
       http_timeout_seconds: t.http_timeout_seconds,
       http_retry_count: t.http_retry_count,
@@ -598,7 +711,7 @@ export default function ServerDetail() {
       return;
     }
     const { id: _tid, description: _desc, created_at: _ca, updated_at: _ua, ...spec } = t;
-    setWidgetDraft([...widgetDraft, { ...spec, enabled: true }]);
+    setWidgetDraft([...widgetDraft, { ...spec, enabled: true, template_id: t.id, template_name: t.name }]);
     showToast({ severity: "info", title: "Template applied", message: `"${t.name}" added — press Save widgets to activate.` });
   }
 
@@ -1483,6 +1596,7 @@ export default function ServerDetail() {
             { id: "widgets", label: `Widgets (${widgets?.length ?? 0})` },
             { id: "backups", label: `Backups (${backupCollCount})` },
             { id: "keys", label: `Keys (${keys.length})` },
+            { id: "logs", label: `Logs (${agentLogTotal})` },
           ] as const
         ).map((t) => (
           <button
@@ -3802,6 +3916,262 @@ export default function ServerDetail() {
         </CardContent>
       </Card>
       )}
+
+      {/* Agent Runtime Logs Section */}
+      {activeTab === "logs" && (
+        <Card className="border-slate-800/80 bg-slate-900/60 shadow-xl">
+          <CardHeader className="flex flex-col gap-4 border-b border-slate-800/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-sky-400" />
+                <CardTitle className="text-base font-bold text-slate-100">
+                  Agent Execution & Runtime Logs
+                </CardTitle>
+                <Badge variant="blue" className="ml-1 border-sky-500/30 bg-sky-500/10 text-sky-300 font-mono text-[11px]">
+                  {agentLogTotal} recorded
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-400">
+                Real-time activity logs, telemetry dispatches, config backups, and service checks from this server agent.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setLogAutoRefresh(!logAutoRefresh)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all",
+                  logAutoRefresh
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-sm shadow-emerald-500/10"
+                    : "border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200"
+                )}
+                title={logAutoRefresh ? "Pause live stream" : "Enable live stream"}
+              >
+                <span className={cn("h-2 w-2 rounded-full", logAutoRefresh ? "bg-emerald-400 animate-pulse" : "bg-slate-500")} />
+                Live Stream {logAutoRefresh ? "(5s)" : "(Paused)"}
+              </button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleFetchJournal}
+                disabled={fetchingJournal}
+                className="gap-1.5 border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 text-xs"
+              >
+                {fetchingJournal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TerminalSquare className="h-3.5 w-3.5" />}
+                Fetch Host Journal
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  loadAgentLogs();
+                  showToast({ severity: "info", title: "Refreshed", message: "Agent logs refreshed" });
+                }}
+                disabled={loadingLogs}
+                className="gap-1 text-xs"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", loadingLogs && "animate-spin")} />
+                Refresh
+              </Button>
+
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearLogs}
+                  className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-4 pt-4">
+            {/* Filter bar & Quick Actions */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Level selector */}
+                <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                  {(["all", "info", "warning", "error"] as const).map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setLogLevel(lvl)}
+                      className={cn(
+                        "rounded-md px-2.5 py-0.5 text-xs font-medium transition-all capitalize",
+                        logLevel === lvl
+                          ? "bg-sky-600 font-bold text-white shadow-sm"
+                          : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search query */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search logs by keyword..."
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    className="h-8 rounded-lg border border-slate-700/60 bg-slate-900/90 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 w-56 sm:w-64 font-mono"
+                  />
+                  {logSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setLogSearch("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    const text = agentLogs
+                      .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.source || "agent"}] ${l.message}`)
+                      .join("\n");
+                    await navigator.clipboard.writeText(text);
+                    showToast({ severity: "info", title: "Copied", message: `Copied ${agentLogs.length} log lines to clipboard` });
+                  }}
+                  className="gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy Visible
+                </Button>
+              </div>
+            </div>
+
+            {/* Optional Host Systemd Journal Collapsible */}
+            {journalOpen && journalOutput && (
+              <div className="rounded-xl border border-sky-500/30 bg-slate-950 p-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-4 w-4 text-sky-400" />
+                    <span className="text-xs font-bold text-sky-300">
+                      Host Systemd Service Journal (journalctl)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(journalOutput);
+                        showToast({ severity: "info", title: "Copied Journal" });
+                      }}
+                      className="rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    >
+                      <Copy className="h-3 w-3 inline mr-1" /> Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setJournalOpen(false)}
+                      className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <pre className="max-h-64 overflow-auto rounded bg-black/60 p-3 font-mono text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">
+                  {journalOutput}
+                </pre>
+              </div>
+            )}
+
+            {/* Main Log Console Stream */}
+            <div className="overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/95 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <div className="flex items-center gap-4">
+                  <span className="w-32">Timestamp (UTC)</span>
+                  <span className="w-16">Level</span>
+                  <span className="w-20">Source</span>
+                  <span>Event Message</span>
+                </div>
+                <div>{agentLogs.length} entries shown</div>
+              </div>
+
+              <div className="max-h-[560px] overflow-y-auto p-2 font-mono text-xs divide-y divide-slate-900/80 space-y-1">
+                {loadingLogs && agentLogs.length === 0 ? (
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 py-2 px-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 flex-1" />
+                    </div>
+                  ))
+                ) : agentLogs.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500">
+                    <FileText className="mx-auto h-8 w-8 text-slate-600 mb-2 opacity-50" />
+                    <p className="font-semibold text-slate-400">No agent logs recorded yet</p>
+                    <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+                      Logs will stream automatically as the agent pushes metrics and performs background checks. You can also click &ldquo;Fetch Host Journal&rdquo; to pull the remote host systemd logs directly.
+                    </p>
+                  </div>
+                ) : (
+                  agentLogs.map((log) => {
+                    const lvl = (log.level || "info").toLowerCase();
+                    const isErr = lvl === "error";
+                    const isWarn = lvl === "warning" || lvl === "warn";
+
+                    return (
+                      <div
+                        key={log.id}
+                        className={cn(
+                          "flex items-start gap-4 rounded px-2.5 py-1.5 transition-colors hover:bg-slate-900/70",
+                          isErr && "bg-red-950/20 text-red-200",
+                          isWarn && "bg-amber-950/20 text-amber-200"
+                        )}
+                      >
+                        <span className="w-32 shrink-0 text-[11px] text-slate-500">
+                          {log.timestamp ? formatTime(log.timestamp) : "—"}
+                        </span>
+
+                        <span className="w-16 shrink-0">
+                          <span
+                            className={cn(
+                              "inline-block rounded px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider",
+                              isErr
+                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                : isWarn
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                            )}
+                          >
+                            {lvl}
+                          </span>
+                        </span>
+
+                        <span className="w-20 shrink-0 text-[11px] text-slate-400 truncate">
+                          {log.source || "agent"}
+                        </span>
+
+                        <span className="flex-1 break-words font-mono text-slate-200 leading-relaxed text-[11px]">
+                          {log.message}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
     </div>
   );
 }

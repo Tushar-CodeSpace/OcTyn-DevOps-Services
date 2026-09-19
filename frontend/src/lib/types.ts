@@ -176,6 +176,16 @@ export interface Alert {
   resolved_at: string | null;
 }
 
+export interface AgentLog {
+  id: string;
+  server_id: string;
+  timestamp: string;
+  level: "info" | "warning" | "error" | "debug";
+  source?: string;
+  message: string;
+  created_at: string;
+}
+
 export interface ApiKey {
   id: string;
   server_id: string;
@@ -247,6 +257,8 @@ export interface CustomWidgetSpec {
   max_groups: number;
   alert_threshold_percent: number;
   alert_window_minutes: number;
+  template_id?: string | null;
+  template_name?: string | null;
 }
 
 export interface WidgetSample {
@@ -305,6 +317,8 @@ export interface AgentConfig {
   mongo_config_enabled: boolean;
   mongo_uri: string;
   mongo_auth_source: string;
+  runtime_template_id?: string | null;
+  runtime_template_name?: string | null;
 }
 
 export interface ConnectivityTarget {

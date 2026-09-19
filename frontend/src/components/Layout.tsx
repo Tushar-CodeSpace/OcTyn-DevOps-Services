@@ -28,7 +28,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/alerts", label: "Alert logs", icon: Bell },
+  { to: "/alerts", label: "Master Logs", icon: Bell },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 

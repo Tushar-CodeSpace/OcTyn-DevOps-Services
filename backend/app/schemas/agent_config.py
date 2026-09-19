@@ -48,6 +48,8 @@ class CustomWidgetSpec(BaseModel):
     max_groups: int = Field(default=10, ge=1, le=50)
     alert_threshold_percent: float = Field(default=50.0, ge=0.0, le=100.0)
     alert_window_minutes: int = Field(default=15, ge=1, le=10080)
+    template_id: Optional[str] = None
+    template_name: Optional[str] = None
 
 
 class AgentConfig(BaseModel):
@@ -72,6 +74,10 @@ class AgentConfig(BaseModel):
     mongo_auth_source: str = "admin"
     trigger_sync_id: Optional[str] = ""
 
+    # linked runtime template
+    runtime_template_id: Optional[str] = ""
+    runtime_template_name: Optional[str] = ""
+
 
 class AgentConfigOverrideUpdate(BaseModel):
     model_config = {"extra": "forbid"}
@@ -91,6 +97,8 @@ class AgentConfigOverrideUpdate(BaseModel):
     mongo_uri: Optional[str] = None
     mongo_auth_source: Optional[str] = None
     trigger_sync_id: Optional[str] = None
+    runtime_template_id: Optional[str] = None
+    runtime_template_name: Optional[str] = None
 
     @field_validator("config_sync_hour")
     @classmethod

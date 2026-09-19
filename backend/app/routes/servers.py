@@ -257,13 +257,119 @@ async def ping_server(server_id: str, body: PingRequest) -> dict:
     override (e.g. when the stored IP is stale or you want to probe a
     specific host/port address).
     """
-    doc = find_server_or_404(server_id)
-    target = (body.target or "").strip()
-    if not target:
-        target = (doc.get("ip_address") or "").strip()
-    if not target:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No IP address set for this server; provide a target",
-        )
     return _run_ping(target)
+
+
+@router.get(
+    "/{server_id}/logs",
+    dependencies=[Depends(auth.get_current_user)],
+)
+async def get_server_agent_logs(
+    server_id: str,
+    level: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    limit: int = Query(default=300, ge=1, le=1000),
+) -> dict:
+    """Fetch stored agent logs for a specific server."""
+    doc = find_server_or_404(server_id)
+    sid = doc["_id"]
+
+    query: dict = {"$or": [{"server_id": sid}, {"server_id": str(sid)}]}
+    if level and level.lower() != "all":
+        query["level"] = level.lower()
+    if search and search.strip():
+        query["message"] = {"$regex": re.escape(search.strip()), "$options": "i"}
+
+    logs = list(
+        db.agent_logs()
+        .find(query)
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+    formatted = [
+        {
+            "id": str(l["_id"]),
+            "server_id": str(l["server_id"]),
+            "timestamp": l["timestamp"].isoformat() if hasattr(l["timestamp"], "isoformat") else str(l.get("timestamp", "")),
+            "level": str(l.get("level", "info")),
+            "source": str(l.get("source", "agent")),
+            "message": str(l.get("message", "")),
+            "created_at": l["created_at"].isoformat() if hasattr(l.get("created_at"), "isoformat") else str(l.get("created_at", "")),
+        }
+        for l in logs
+    ]
+
+    total_count = db.agent_logs().count_documents({"$or": [{"server_id": sid}, {"server_id": str(sid)}]})
+
+    return {
+        "server_id": str(sid),
+        "total": total_count,
+        "logs": formatted,
+    }
+
+
+@router.delete(
+    "/{server_id}/logs",
+    dependencies=[Depends(auth.require_admin)],
+)
+async def clear_server_agent_logs(server_id: str) -> dict:
+    """Clear stored agent logs for a specific server."""
+    doc = find_server_or_404(server_id)
+    sid = doc["_id"]
+    res = db.agent_logs().delete_many({"$or": [{"server_id": sid}, {"server_id": str(sid)}]})
+    return {"deleted": res.deleted_count}
+
+
+@router.post(
+    "/{server_id}/logs/journal",
+    dependencies=[Depends(auth.require_admin)],
+)
+async def fetch_server_journal_logs(
+    server_id: str,
+    request: Request,
+    user: dict = Depends(auth.require_admin),
+) -> dict:
+    """Trigger an on-demand systemd journal fetch via agent terminal command."""
+    from app.database.connection import new_id
+    from app.realtime import emit
+    from app.services import audit as audit_trail
+
+    doc = find_server_or_404(server_id)
+    sid = doc["_id"]
+
+    command_id = new_id()
+    journal_cmd = "journalctl -u octyn.service -n 100 --no-pager 2>&1 || journalctl -u agent-lite -n 100 --no-pager 2>&1 || journalctl -u cm-agent -n 100 --no-pager 2>&1"
+
+    cmd_doc = {
+        "_id": command_id,
+        "server_id": sid,
+        "command": journal_cmd,
+        "timeout_seconds": 30,
+        "status": "queued",
+        "output": "",
+        "exit_code": None,
+        "timed_out": False,
+        "created_at": now(),
+        "created_by": user["_id"],
+    }
+    db.terminal_commands().insert_one(cmd_doc)
+
+    audit_trail.record(
+        user,
+        "fetch_agent_journal",
+        request,
+        {
+            "server": doc.get("hostname") or doc.get("name"),
+            "server_id": str(sid),
+            "command_id": command_id,
+        },
+    )
+
+    emit(
+        "terminal_queued",
+        {"server_id": str(sid), "command_id": command_id},
+        room=f"server:{sid}",
+    )
+
+    return {"command_id": command_id, "status": "queued"}

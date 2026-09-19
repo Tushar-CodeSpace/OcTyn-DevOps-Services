@@ -89,6 +89,8 @@ _AGENT_SCALAR_DEFAULTS: dict[str, object] = {
     "mongo_config_enabled": settings.agent_mongo_config_enabled,
     "mongo_uri": settings.agent_mongo_uri,
     "mongo_auth_source": settings.agent_mongo_auth_source,
+    "runtime_template_id": "",
+    "runtime_template_name": "",
 }
 
 
@@ -346,6 +348,8 @@ def _sanitize_widget(item) -> dict:
         alert_window = max(1, min(10080, int(item.get("alert_window_minutes", 15))))
     except (TypeError, ValueError):
         alert_window = 15
+    template_id = str(item.get("template_id") or "").strip() or None
+    template_name = str(item.get("template_name") or "").strip() or None
     return {
         "name": name[:100],
         "database": database[:100],
@@ -358,6 +362,8 @@ def _sanitize_widget(item) -> dict:
         "max_groups": max_groups,
         "alert_threshold_percent": alert_threshold,
         "alert_window_minutes": alert_window,
+        "template_id": template_id,
+        "template_name": template_name,
     }
 
 
@@ -395,7 +401,7 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
         "connectivity_poll_interval_seconds": (1, 3600),
     }
     list_keys = {"monitored_services", "config_collections", "connectivity_targets", "custom_widgets"}
-    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id"}
+    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id", "runtime_template_id", "runtime_template_name"}
     allowed = bool_keys | set(int_keys) | list_keys | str_keys
 
     for key, raw in patch.items():
@@ -477,6 +483,8 @@ def _normalize_widgets(raw) -> list[dict]:
         enabled = item.get("enabled", True)
         alert_thresh = _coerce_clamped_float(item.get("alert_threshold_percent", 50.0), "custom_widgets.alert_threshold_percent", 0.0, 100.0)
         alert_window = _coerce_clamped_int(item.get("alert_window_minutes", 15), "custom_widgets.alert_window_minutes", 1, 10080)
+        template_id = str(item.get("template_id") or "").strip() or None
+        template_name = str(item.get("template_name") or "").strip() or None
         normalized.append({
             "name": name,
             "database": database,
@@ -489,6 +497,8 @@ def _normalize_widgets(raw) -> list[dict]:
             "max_groups": max_groups,
             "alert_threshold_percent": alert_thresh,
             "alert_window_minutes": alert_window,
+            "template_id": template_id,
+            "template_name": template_name,
         })
     return normalized
 

@@ -80,3 +80,7 @@ def softwares() -> Collection:
 def deployments() -> Collection:
     return get_db()["deployments"]
 
+
+def agent_logs() -> Collection:
+    return get_db()["agent_logs"]
+

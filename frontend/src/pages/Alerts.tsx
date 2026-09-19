@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { Search, AlertTriangle, Info, ShieldAlert } from "lucide-react";
+import { Search, AlertTriangle, Info, ShieldAlert, CheckCircle2, Activity } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import { getSocket } from "@/lib/socket";
 import type { Alert, Server, Site } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ import { formatTime, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Alerts() {
-  const { isAdmin } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [serverMap, setServerMap] = useState<Record<string, Server>>({});
   const [siteMap, setSiteMap] = useState<Record<string, Site>>({});
@@ -58,11 +56,6 @@ export default function Alerts() {
     };
   }, [filter]);
 
-  async function resolve(id: string) {
-    await apiFetch(`/alerts/${id}/resolve`, { method: "POST" });
-    await load();
-  }
-
   const criticalCount = alerts.filter((a) => a.severity === "critical").length;
   const warningCount = alerts.filter((a) => a.severity === "warning").length;
   const infoCount = alerts.filter((a) => a.severity === "info").length;
@@ -87,8 +80,8 @@ export default function Alerts() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gradient-sky">Alert Operations Center</h1>
-          <p className="text-sm text-slate-400">Real-time incident log feed & resolution workspace</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gradient-sky">Master Logs</h1>
+          <p className="text-sm text-slate-400">Real-time system incident and auto-resolution workspace</p>
         </div>
         <div className="flex rounded-full border border-white/10 bg-slate-900/80 p-1 backdrop-blur-md">
           {(["active", "resolved", "all"] as const).map((f) => (
@@ -149,7 +142,7 @@ export default function Alerts() {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800/80 pb-3">
           <CardTitle className="text-sm">
-            {loading ? "Loading…" : `${filteredAlerts.length} alert logs`}
+            {loading ? "Loading…" : `${filteredAlerts.length} master logs`}
           </CardTitle>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -174,7 +167,7 @@ export default function Alerts() {
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search alert logs..."
+                placeholder="Search master logs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-8 rounded-lg border border-slate-700/60 bg-slate-900 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 w-44"
@@ -191,7 +184,7 @@ export default function Alerts() {
                 <TableHead>Message</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead></TableHead>
+                <TableHead>Resolution</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -208,7 +201,7 @@ export default function Alerts() {
               ) : (
                 <>
                   {filteredAlerts.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-slate-500">No alerts match the criteria.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-slate-500">No logs match the criteria.</TableCell></TableRow>
                   )}
                   {filteredAlerts.map((a) => (
                     <TableRow key={a.id} className="hover:bg-slate-800/40">
@@ -235,8 +228,16 @@ export default function Alerts() {
                       </TableCell>
                       <TableCell className="text-xs text-slate-400">{formatTime(a.created_at)}</TableCell>
                       <TableCell>
-                        {isAdmin && a.status === "active" && (
-                          <Button variant="outline" size="sm" onClick={() => resolve(a.id)}>Resolve</Button>
+                        {a.status === "resolved" ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                            Auto-Resolved {a.resolved_at ? `(${formatTime(a.resolved_at)})` : ""}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-medium">
+                            <Activity className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
+                            Active (Auto-Monitoring)
+                          </span>
                         )}
                       </TableCell>
                     </TableRow>
