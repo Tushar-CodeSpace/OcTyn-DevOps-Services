@@ -162,6 +162,12 @@ def _detect_cutoff(coll, time_field: str, cutoff: datetime) -> Any:
 def _coerce_val_candidates(vals: List[Any]) -> List[Any]:
     candidates = []
     for v in vals:
+        if v == "":
+            candidates.append("")
+            continue
+        if v is None:
+            candidates.append(None)
+            continue
         s = str(v).strip()
         if not s:
             continue
@@ -189,38 +195,54 @@ def _coerce_val_candidates(vals: List[Any]) -> List[Any]:
 def _parse_field_conditions(entries: List[Any], default_field: str) -> Dict[str, List[Any]]:
     """Parse include/exclude entries into mapping of field -> list of values.
     Supports plain values ('SKIPPED'), 'field: value' ('rejection_data.display_rejection: PSTR'),
-    'where field: value', 'field = value', and bracketed lists 'field: [A, B]'.
+    empty string ('rejection_data.display_rejection: ""' or '""'), 'where field: value',
+    'field = value', and bracketed lists 'field: [A, B]'.
     """
     res: Dict[str, List[Any]] = {}
     for item in entries:
-        if not item:
+        if item is None:
             continue
         s = str(item).strip()
-        if not s:
-            continue
         if s.lower().startswith("where "):
             s = s[6:].strip()
+        has_delim = False
         field = default_field
         val_str = s
         if ":" in s:
             parts = s.split(":", 1)
             field = parts[0].strip()
             val_str = parts[1].strip()
+            has_delim = True
         elif "=" in s:
             parts = s.split("=", 1)
             field = parts[0].strip()
             val_str = parts[1].strip()
+            has_delim = True
         if not field:
             field = default_field
 
         vals = []
         if val_str.startswith("[") and val_str.endswith("]"):
             inner = val_str[1:-1]
-            vals = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+            for x in inner.split(","):
+                xs = x.strip()
+                if xs in ('""', "''"):
+                    vals.append("")
+                else:
+                    c = xs.strip("'\"")
+                    if c or xs in ('""', "''"):
+                        vals.append(c)
+        elif val_str in ('""', "''"):
+            vals = [""]
+        elif has_delim and val_str == "":
+            vals = [""]
         else:
             cleaned = val_str.strip("'\"")
-            if cleaned:
+            if cleaned or val_str in ('""', "''"):
                 vals = [cleaned]
+            elif not has_delim and not s:
+                continue
+
         if field not in res:
             res[field] = []
         for v in vals:
