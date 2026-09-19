@@ -100,9 +100,11 @@ Since remote servers are usually behind firewalls or NATs, direct SSH incoming c
 
 OcTyn allows you to back up MongoDB database collection configurations across your remote client sites:
 
-1. **Instant Backup Testing**:
+1. **Instant Backup Testing & Auto-Discovery**:
    - In the **Server Detail** page, click **"Backup settings"** $\rightarrow$ **"Test Connection & Run Backup Now"**.
    - If your password has special characters like `@` (e.g. `nido@123`), OcTyn automatically URL-encodes it (`nido%40123`) to avoid connection errors.
+   - **Multi-Host Resolution**: The agent tests candidate endpoints (`localhost`, `127.0.0.1`, `host.docker.internal`, `172.17.0.1`) and tries both `directConnection=True` and fallback without direct connection.
+   - **Database Auto-Discovery**: If your site uses custom databases that do not match the default OcTyn names, the agent automatically discovers all non-system databases (`user_dbs`) and backs up all collections.
 2. **Instant Agent Trigger (`trigger_sync_id`)**:
    - The central server sends a `trigger_sync_id` signal to the remote site agent.
    - The agent immediately runs `sync_configs()` in a background thread and POSTs MongoDB collection snapshots back to the central hub.
@@ -139,4 +141,30 @@ You can customize alert delivery so specific client sites don't trigger unnecess
    - Admins and Super Admins can disable alerts for an entire client (e.g. `Samsonite`) or a specific site (e.g. `Nashik Plant`).
 3. **Alert Engine Enforcement**:
    - When alerts are disabled for a site or client, the alert evaluator (`alerts.py`) and notifier (`notifier.py`) suppress notification popups and external alerts (e.g. WhatsApp messages).
+
+---
+
+## 8. How Widget-Specific Integration Failure Thresholds Work
+
+Rather than a one-size-fits-all global threshold, each integration widget configures its own sensitivity:
+
+1. **Site & Widget-Specific Controls**:
+   - Under **Server Detail** $\rightarrow$ **Custom Data Widgets**, each widget card has individual settings:
+     - **Integration Failure Alert Threshold (%)**: Default `50%`.
+     - **Integration Failure Window (minutes)**: Default `15` minutes.
+2. **Targeted Failure Rate Evaluation**:
+   - The evaluator queries `db.widget_data()` within that widget's specified lookback window and tallies failure status groups (`FAILED`, `ERROR`, `EXPIRED`, `INVALID`, `REJECT`).
+   - If the failure percentage exceeds the widget's threshold, a warning alert `integration_error_spike:<widget_name>` is raised for that site, and auto-resolves when health returns to normal.
+
+---
+
+## 9. How Master Deploy Grace Periods Prevent False Offline Alarms
+
+When pushing new code to the central server or deploying agent auto-updates, temporary reconnections would previously trigger false "Server is offline" alerts:
+
+1. **Master Startup Grace Period (180s)**:
+   - When the central backend boots, it enforces a 180-second startup window (`master_deploy_grace_seconds`) during which new `server_offline` alerts are suppressed while remote agents re-establish connections.
+2. **Agent Auto-Update Grace Period (180s)**:
+   - When `POST /api/v1/agent/trigger-update` broadcasts an update, an active 180s `updating_until` window protects agents from being falsely flagged as offline while they self-update and restart under `systemd`.
+
 

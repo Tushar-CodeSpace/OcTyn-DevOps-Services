@@ -172,9 +172,12 @@ When changes are pushed to GitHub (`main`), the CI/CD pipeline ([`.github/workfl
 
 ---
 
-## 7. MongoDB Config Backup Testing & Instant Triggering
+## 7. MongoDB Config Backup Testing, Auto-Discovery & Instant Triggering
 
 - **Percent-Encoding Special Characters**: Connection strings containing special characters in username/password (e.g. `@` in `nido@123`) are automatically URL percent-encoded via `_encode_uri_password()` (`mongodb://nido:nido%40123@localhost:27017`) to prevent `pymongo.errors.InvalidURI`.
+- **Multi-Host Resolution**: When connecting to `localhost`, the agent tests candidate endpoints (`localhost`, `127.0.0.1`, `host.docker.internal`, `172.17.0.1`) to reliably support bare-metal, VM, and Docker environments.
+- **Direct Connection Fallbacks & 4000ms Timeout**: Both `directConnection=True` and fallback without direct connection are attempted with a 4-second timeout.
+- **Database Auto-Discovery**: If the site hosts custom databases that do not match the default OcTyn database names, the agent automatically detects all non-system databases and backs up all collections (`*`).
 - **Instant Triggering (`trigger_sync_id`)**: Calling `POST /api/v1/configs/servers/{server_id}/test-backup` updates server config overrides with `trigger_sync_id` and sets `force_update`.
 - **Agent Execution**: The site agent receives `trigger_sync_id` via its 5s config poller, logs `[TRIGGER] Hub requested immediate config backup`, and executes `sync_configs()` in a background thread.
 - **Frontend Verification Loop**: The dashboard shows a loading spinner (`Loader2`) and actively polls `GET /api/v1/configs/servers/{server_id}` for up to 25 seconds until the snapshot arrives, displaying success or an explicit timeout notification.
@@ -196,4 +199,28 @@ When changes are pushed to GitHub (`main`), the CI/CD pipeline ([`.github/workfl
     ```
     This script prunes old data and executes MongoDB collection compaction (`compact`) to immediately free up disk space on `/dev/sda4`.
 - **Dashboard UI Controls**: Admin users can modify retention days or click **"Prune Data Older Than 7 Days"** directly from the Settings page.
+
+---
+
+## 9. Widget-Specific & Site-Specific Integration Failure Alerts
+
+- **Per-Widget Thresholds**: Integration failure threshold and lookback window are configured **per-widget** under **Custom Data Widgets** on the Server Detail page (instead of a global setting):
+  - **`Integration Failure Alert Threshold (%)`**: Default `50%`.
+  - **`Integration Failure Window (minutes)`**: Default `15` minutes.
+- **Alert Evaluator**: `_check_integration_failure_rate()` evaluates each widget against its specific threshold and window from `db.widget_data()`, raising or resolving alerts like `integration_error_spike:<widget_name>`.
+
+---
+
+## 10. Master Deploy & Agent Auto-Update Grace Periods
+
+- **Eliminating False-Positive Offline Alerts**:
+  - During master server deployments (e.g. CI/CD restart), `alerts.py` enforces a **180-second startup grace period** (`master_deploy_grace_seconds`) during which new `server_offline` alerts are suppressed.
+  - When central broadcast triggers agent updates via `POST /api/v1/agent/trigger-update`, an active `updating_until` window (180s) prevents offline alerts while remote agents self-update and restart under `systemd`.
+
+---
+
+## 11. Automated API Prefix Normalization
+
+- If a client or setup command accidentally prefixes the API URL with redundant `/api/v1/api/v1/`, the FastAPI backend middleware automatically rewrites the path to `/api/v1/` to ensure zero 404 errors.
+
 

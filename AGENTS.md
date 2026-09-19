@@ -58,6 +58,17 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
 9. **Per-Client & Per-Site Alert Controls**:
    - Admin and Super Admin users can toggle alerts at Client level (`PATCH /api/v1/sites/clients/{client_name}/alerts`) or Site level (`PATCH /api/v1/sites/{site_id}`). Evaluator (`alerts.py`) and Notifier (`notifier.py`) enforce both settings.
 
+10. **Widget-Specific Integration Failure Alerts & Deploy Grace Periods**:
+    - Integration failure threshold (`alert_threshold_percent: 50%`) and window (`alert_window_minutes: 15m`) are configured **per-widget** under Custom Data Widgets on Server Detail, not globally.
+    - Central server CI/CD deployments and agent auto-updates enforce a **180s grace period** (`master_deploy_grace_seconds` & `is_agent_update_in_progress`) to eliminate false-positive "Server is offline" alerts.
+
+11. **Site MongoDB Config Backup Resiliency**:
+    - Agent tests candidate hosts (`localhost`, `127.0.0.1`, `host.docker.internal`, `172.17.0.1`), tries `directConnection=True` and fallback, with a 4s timeout.
+    - If custom site databases do not match the default 10 OcTyn names, the agent auto-discovers all non-system databases (`user_dbs`) and backs up all collections.
+
+12. **API Prefix Auto-Normalization**:
+    - Backend middleware automatically rewrites redundant `/api/v1/api/v1/` prefixes to `/api/v1/` to prevent 404s when tools or users include `/api/v1` in their base domain.
+
 ---
 
 ## How to Run Services

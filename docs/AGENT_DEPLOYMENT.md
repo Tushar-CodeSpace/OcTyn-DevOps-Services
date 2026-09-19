@@ -11,8 +11,10 @@ This guide explains how to **deploy the latest monitoring agent** on any remote 
 Run this single command on the remote site server (it creates `/opt/octyn-agent`, downloads `agent_lite.py`, generates `.env`, and sets up `octyn.service` automatically):
 
 ```bash
-curl -sSL "http://<CENTRAL_SERVER_IP_OR_DOMAIN>/api/v1/agent/download/installer" | sudo python3 -
+curl -fsSL "https://<CENTRAL_SERVER_DOMAIN_OR_IP>/api/v1/agent/download/installer" | sudo python3 -
 ```
+
+> **Important**: Ensure there is only a **single `/api/v1`** in the URL (e.g. `https://appstore.nidoworld.com/api/v1/agent/download/installer`, NOT `/api/v1/api/v1/`). Using `-fsSL` ensures curl will output error details if the URL is mistyped rather than silently failing.
 
 ---
 
@@ -154,4 +156,38 @@ curl -X POST "http://<CENTRAL_SERVER_IP_OR_DOMAIN>:8000/api/v1/agent/trigger-upd
 | ------ | ----- | ----------- |
 | `GET` | `/api/v1/agent/release` | Check active agent version & SHA256 checksum |
 | `GET` | `/api/v1/agent/download/lite` | Download latest single-file `agent_lite.py` |
+| `GET` | `/api/v1/agent/download/installer` | Download 1-liner automated agent installer |
 | `POST` | `/api/v1/agent/trigger-update` | Broadcast update check notification to all agents |
+
+---
+
+## 6. Site MongoDB Configuration Backup Setup & Troubleshooting
+
+Remote agents can automatically back up MongoDB configuration and application collections to the Central Hub.
+
+### 1. Determining the Correct Port & Credentials
+On the site machine, verify the active port and whether authentication is enabled:
+```bash
+# Connect using mongo/mongosh shell:
+mongosh
+# Inside shell, check available databases:
+show dbs
+```
+- **Port**: Default MongoDB on Linux `/etc/mongod.conf` runs on port **27017** (`mongodb://localhost:27017`). Ensure you do not confuse it with custom ports like `27027`.
+- **Authentication**: If `mongosh` outputs *"Access control is not enabled"*, no username or password is required (`mongodb://localhost:27017`). If auth is enabled, specify:
+  ```text
+  mongodb://<username>:<password>@localhost:27017/?authSource=admin
+  ```
+
+### 2. Auto-Discovery of Databases
+- If your site uses custom databases that do not match the default OcTyn database names, the agent automatically detects all non-system databases (`user_dbs`) and backs up all collections (`*`).
+- You can also explicitly specify custom databases and collections in the **"Backup settings"** popup on the Server Detail page.
+
+### 3. Immediate Testing from Terminal
+To verify backup connectivity and snapshot uploading directly on the site machine:
+```bash
+cd /opt/octyn-agent
+python3 agent_lite.py --sync-configs
+```
+This prints the discovered databases and snapshot upload statuses in real-time.
+
