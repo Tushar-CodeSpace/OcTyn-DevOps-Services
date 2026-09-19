@@ -320,3 +320,66 @@ def evaluate_server(server: dict, cfg: Optional[dict] = None) -> None:
         )
     else:
         _resolve_alert("api_error_spike", server_id, hostname=hostname, machine=machine, site_id=site_id, current_value=api_err_rate)
+
+    # Integration Logs Failure Rate Monitoring
+    _check_integration_failure_rate(server_id, cfg, hostname, machine, site_id)
+
+
+def _check_integration_failure_rate(server_id: str, cfg: dict, hostname: Optional[str], machine: Optional[str], site_id: Optional[str]) -> None:
+    """Check if integration logs failure rate exceeds threshold over the configured window."""
+    from datetime import timedelta
+
+    threshold = float(cfg.get("alert_integration_failure_threshold_percent", settings.alert_integration_failure_threshold_percent))
+    window_min = int(cfg.get("alert_integration_window_minutes", settings.alert_integration_window_minutes))
+    cutoff = now() - timedelta(minutes=window_min)
+
+    pipeline = [
+        {"$match": {
+            "server_id": server_id,
+            "database": "data_uploader_service",
+            "collection": "integration_logs",
+            "received_at": {"$gte": cutoff},
+        }},
+        {"$group": {
+            "_id": None,
+            "total": {"$sum": "$total"},
+            "failed": {"$sum": {
+                "$add": [
+                    {"$ifNull": ["$groups.FAILED", 0]},
+                    {"$ifNull": ["$groups.ERROR", 0]},
+                    {"$ifNull": ["$groups.EXPIRED", 0]},
+                    {"$ifNull": ["$groups.INVALID", 0]},
+                    {"$ifNull": ["$groups.REJECT", 0]},
+                ]
+            }},
+        }},
+    ]
+
+    try:
+        result = list(db.widget_data().aggregate(pipeline, allowDiskUse=True))
+    except Exception as exc:
+        logger.warning("integration alert aggregation failed", extra={"extra_fields": {"server_id": server_id, "error": str(exc)}})
+        return
+
+    if not result or result[0].get("total", 0) == 0:
+        _resolve_alert("integration_error_spike", server_id, hostname=hostname, machine=machine, site_id=site_id)
+        return
+
+    total = result[0]["total"]
+    failed = result[0]["failed"]
+    failure_rate = (failed / total) * 100 if total > 0 else 0.0
+
+    if failure_rate >= threshold:
+        _open_alert(
+            "integration_error_spike",
+            server_id,
+            "warning",
+            f"Integration failure rate at {failure_rate:.1f}% ({failed}/{total} failed in {window_min}min)",
+            value=failure_rate,
+            threshold=threshold,
+            hostname=hostname,
+            machine=machine,
+            site_id=site_id,
+        )
+    else:
+        _resolve_alert("integration_error_spike", server_id, hostname=hostname, machine=machine, site_id=site_id, current_value=failure_rate)

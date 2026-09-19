@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     alert_cpu_duration_seconds: int = 300
     alert_ram_threshold_percent: float = 80.0
     alert_disk_threshold_percent: float = 85.0
+    alert_integration_failure_threshold_percent: float = 50.0
+    alert_integration_window_minutes: int = 15
 
     # Background evaluator
     evaluator_interval_seconds: int = 5

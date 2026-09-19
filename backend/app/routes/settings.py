@@ -23,6 +23,8 @@ class AlertSettingsRead(BaseModel):
     config_sync_enabled: bool = True
     config_sync_hour: int = 0
     metrics_retention_days: int = 7
+    alert_integration_failure_threshold_percent: float = 50.0
+    alert_integration_window_minutes: int = 15
 
 
 class AlertSettingsUpdate(BaseModel):
@@ -37,6 +39,8 @@ class AlertSettingsUpdate(BaseModel):
     config_sync_enabled: Optional[bool] = None
     config_sync_hour: Optional[int] = Field(default=None, ge=0, le=23)
     metrics_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
+    alert_integration_failure_threshold_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    alert_integration_window_minutes: Optional[int] = Field(default=None, ge=1)
 
 
 @router.get("", response_model=AlertSettingsRead)
