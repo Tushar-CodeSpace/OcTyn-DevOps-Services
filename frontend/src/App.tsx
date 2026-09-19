@@ -11,6 +11,7 @@ import UsersPage from "@/pages/Users";
 import AuditLogsPage from "@/pages/AuditLogs";
 import WhatsAppPage from "@/pages/WhatsApp";
 import TerminalPage from "@/pages/Terminal";
+import TemplatesPage from "@/pages/Templates";
 import { useAuth } from "@/lib/auth";
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ export default function App() {
       <Route path="/alerts" element={<Protected><Alerts /></Protected>} />
       <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
       <Route path="/users" element={<Protected><AdminOnly><UsersPage /></AdminOnly></Protected>} />
+      <Route path="/templates" element={<Protected><AdminOnly><TemplatesPage /></AdminOnly></Protected>} />
       <Route path="/audit-logs" element={<Protected><SuperAdminOnly><AuditLogsPage /></SuperAdminOnly></Protected>} />
       <Route path="/whatsapp" element={<Protected><AdminOnly><WhatsAppPage /></AdminOnly></Protected>} />
       <Route path="/servers/:id/terminal" element={<BareProtected><AdminOnly><TerminalPage /></AdminOnly></BareProtected>} />

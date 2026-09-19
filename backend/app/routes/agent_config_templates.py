@@ -81,6 +81,35 @@ async def upsert_runtime_template(
     return template_doc_to_read(doc)
 
 
+@router.put(
+    "/{template_id}",
+    response_model=RuntimeTemplateRead,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def update_runtime_template(
+    template_id: str,
+    payload: RuntimeTemplateUpsert,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> RuntimeTemplateRead:
+    """Dashboard endpoint (admin): update a runtime template by ID."""
+    doc = db.agent_config_templates().find_one({"_id": template_id})
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    data = payload.model_dump()
+    db.agent_config_templates().update_one(
+        {"_id": template_id},
+        {"$set": {**data, "updated_at": now()}},
+    )
+    audit_trail.record(
+        current, "template_save", request,
+        {"kind": "runtime", "id": template_id, "name": data["name"]},
+    )
+    updated = db.agent_config_templates().find_one({"_id": template_id})
+    assert updated is not None
+    return template_doc_to_read(updated)
+
+
 @router.delete(
     "/{template_id}",
     status_code=status.HTTP_204_NO_CONTENT,

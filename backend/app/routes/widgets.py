@@ -185,6 +185,35 @@ async def upsert_widget_template(
     return template_doc_to_read(doc)
 
 
+@router.put(
+    "/templates/{template_id}",
+    response_model=WidgetTemplateRead,
+    dependencies=[Depends(auth.require_admin)],
+)
+async def update_widget_template(
+    template_id: str,
+    payload: WidgetTemplateUpsert,
+    request: Request,
+    current: dict = Depends(auth.require_admin),
+) -> WidgetTemplateRead:
+    """Dashboard endpoint (admin): update a widget template by ID."""
+    doc = db.widget_templates().find_one({"_id": template_id})
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    data = payload.model_dump()
+    db.widget_templates().update_one(
+        {"_id": template_id},
+        {"$set": {**data, "updated_at": now()}},
+    )
+    audit_trail.record(
+        current, "template_save", request,
+        {"kind": "widget", "id": template_id, "name": data["name"], "database": data.get("database"), "collection": data.get("collection")},
+    )
+    updated = db.widget_templates().find_one({"_id": template_id})
+    assert updated is not None
+    return template_doc_to_read(updated)
+
+
 @router.delete(
     "/templates/{template_id}",
     status_code=status.HTTP_204_NO_CONTENT,
