@@ -3657,11 +3657,11 @@ export default function ServerDetail() {
                               next[i] = { ...w, include_values: arr };
                               setWidgetDraft(next);
                             }}
-                            placeholder="e.g. SUCCESS, FAILED (leave blank for all)"
+                            placeholder="e.g. SUCCESS, barcode_data.type: 2D (leave blank for all)"
                             className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
                           />
                           <span className="text-[10px] text-slate-400">
-                            Only count and display these specific key values. Comma-separated.
+                            Only count matching values. Supports plain values (for group-by) or field: value (e.g. status: SUCCESS). Comma-separated.
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
@@ -3678,11 +3678,11 @@ export default function ServerDetail() {
                               next[i] = { ...w, exclude_values: arr };
                               setWidgetDraft(next);
                             }}
-                            placeholder="e.g. SKIPPED, UNKNOWN, PENDING"
+                            placeholder="e.g. SKIPPED, rejection_data.display_rejection: PSTR"
                             className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
                           />
                           <span className="text-[10px] text-slate-400">
-                            Omit these key values from the total count and group breakdown. Comma-separated.
+                            Omit matching values from count and breakdown. Supports plain values or field: value (e.g. rejection_data.display_rejection: PSTR). Comma-separated.
                           </span>
                         </div>
                       </div>

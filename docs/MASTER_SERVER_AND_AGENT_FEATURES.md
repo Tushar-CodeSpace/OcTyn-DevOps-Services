@@ -117,10 +117,13 @@ Both `agent_lite.py` and the modular agent container (`agent/agent/`) possess id
 - Pushes results to `POST /api/v1/connectivity`.
 - Automatically escalates unreachable devices to `warning` alerts and resolves them upon recovery.
 
-### 3.6 Custom Data Widgets with Include/Exclude Key Filters
+### 3.6 Custom Data Widgets with Plain Key & Arbitrary Field Path Filtering
 - Periodically runs user-configured MongoDB count aggregations on the site database.
+- **Dual Include / Exclude Filter Syntax**:
+  - **Plain Values**: (e.g. `SKIPPED, PENDING`) targets the configured `group_by_field`.
+  - **Arbitrary Field Conditions**: (e.g. `rejection_data.display_rejection: PSTR`, `where rejection_data.display_rejection: PSTR`, or `rejection_data.display_rejection = PSTR`) allows excluding or including counts based on any nested document path.
 - **Candidate Type Coercion**: Automatically coerces user input strings into typed candidates (e.g. `"200"` expands to `"200"` and `200`; `"true"` expands to `True`; `"null"` expands to `None`), preventing count drops due to MongoDB data type mismatches.
-- Constructs MongoDB query `$match` with `$in` for `include_values` and `$nin` for `exclude_values`, followed by strict post-filtering on `groups`.
+- Constructs MongoDB query `$match` with `$in` for include conditions and `$nin` for exclude conditions, followed by strict post-filtering on `groups` for conditions targeting the `group_by_field`.
 - Pushes results to `POST /api/v1/widgets`.
 
 ### 3.7 Site MongoDB Config Backup & Instant Trigger Sync

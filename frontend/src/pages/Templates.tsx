@@ -1547,7 +1547,7 @@ export default function TemplatesPage() {
                     Include Key Values <span className="text-[10px] text-slate-500">(Optional comma-separated)</span>
                   </Label>
                   <Input
-                    placeholder="e.g. SUCCESS, DELIVERED, 200"
+                    placeholder="e.g. SUCCESS, barcode_data.type: 2D"
                     value={widgetIncludeRaw}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1558,7 +1558,7 @@ export default function TemplatesPage() {
                     className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                   <p className="text-[10px] text-slate-500">
-                    If set, only documents matching these values for &quot;{widgetForm.group_by_field || "group_by_field"}&quot; will be counted.
+                    Only count matching values. Supports plain values (for group-by) or field: value (e.g. status: SUCCESS).
                   </p>
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -1566,7 +1566,7 @@ export default function TemplatesPage() {
                     Exclude Key Values <span className="text-[10px] text-slate-500">(Optional comma-separated)</span>
                   </Label>
                   <Input
-                    placeholder="e.g. SKIPPED, CANCELLED, null"
+                    placeholder="e.g. SKIPPED, rejection_data.display_rejection: PSTR"
                     value={widgetExcludeRaw}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1577,7 +1577,7 @@ export default function TemplatesPage() {
                     className="bg-slate-900 border-slate-800 text-xs font-mono"
                   />
                   <p className="text-[10px] text-slate-500">
-                    Documents with these values will be omitted from counts and group breakdown.
+                    Omit matching values from count and breakdown. Supports plain values or field: value (e.g. rejection_data.display_rejection: PSTR).
                   </p>
                 </div>
               </div>

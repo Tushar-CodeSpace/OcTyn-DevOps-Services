@@ -250,11 +250,12 @@ Update server runtime configuration. Automatically bumps config version and noti
         "alert_threshold_percent": 50.0,
         "alert_window_minutes": 15,
         "include_values": ["SUCCESS", "DELIVERED"],
-        "exclude_values": ["SKIPPED"]
+        "exclude_values": ["SKIPPED", "rejection_data.display_rejection: PSTR"]
       }
     ]
   }
   ```
+  *Note: `include_values` and `exclude_values` support both plain values targeting `group_by_field` (e.g. `"SKIPPED"`) and arbitrary field paths (e.g. `"rejection_data.display_rejection: PSTR"`, `"where rejection_data.display_rejection: PSTR"`, or `"rejection_data.display_rejection = PSTR"`).*
 
 ### `GET /api/v1/agent/config`
 **Primary Agent Pull Endpoint**: Polled by edge agents every 5 seconds to receive dynamic settings, `force_update`, and instant backup signals (`trigger_sync_id`).

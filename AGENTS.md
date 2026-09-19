@@ -103,10 +103,13 @@ For the detailed complete guide, see [docs/API_CONTRACT.md](file:///d:/octyn_wat
     - Inspects MongoDB ping latency, database storage allocation vs index size, and an interactive collection breakdown table with document counts and 7-day TTL expiration policies.
     - Provides 1-click on-demand disk space reclamation ("Run Retention Cleanup & Compact") executing automated 7-day pruning and MongoDB collection compaction.
 
-18. **Custom Widget Include & Exclude Key Values Filtering**:
+18. **Custom Widget Include & Exclude Filtering (Plain Keys & Arbitrary Field Conditions)**:
     - Widgets support optional `include_values` and `exclude_values` string arrays configured on Server Detail or via reusable Widget Templates.
-    - When specified, edge agents inject candidate-coerced values (supporting string, integer, float, boolean, and null matches) into the query `$match` (`$in` and/or `$nin`) and perform post-filter pruning on `groups`.
-    - Both `total` count and `groups` breakdown strictly respect the include/exclude filters. If left empty, unrestricted counting continues as before.
+    - **Dual Syntax Support**:
+      - **Plain Values**: e.g. `SKIPPED, UNKNOWN` targets the widget's `group_by_field`.
+      - **Field-Targeted Conditions**: e.g. `rejection_data.display_rejection: PSTR` or `where rejection_data.display_rejection: PSTR` or `rejection_data.display_rejection = PSTR` filters on any nested MongoDB document path.
+    - When specified, edge agents parse all field conditions, inject candidate-coerced values (`$in` and/or `$nin`) into the MongoDB query `$match`, and prune `groups` breakdown for conditions targeting the `group_by_field`.
+    - Both `total` count and `groups` breakdown strictly respect all include/exclude filters. If left empty, unrestricted counting continues.
 
 
 

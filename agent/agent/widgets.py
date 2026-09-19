@@ -186,6 +186,49 @@ def _coerce_val_candidates(vals: List[Any]) -> List[Any]:
     return out
 
 
+def _parse_field_conditions(entries: List[Any], default_field: str) -> Dict[str, List[Any]]:
+    """Parse include/exclude entries into mapping of field -> list of values.
+    Supports plain values ('SKIPPED'), 'field: value' ('rejection_data.display_rejection: PSTR'),
+    'where field: value', 'field = value', and bracketed lists 'field: [A, B]'.
+    """
+    res: Dict[str, List[Any]] = {}
+    for item in entries:
+        if not item:
+            continue
+        s = str(item).strip()
+        if not s:
+            continue
+        if s.lower().startswith("where "):
+            s = s[6:].strip()
+        field = default_field
+        val_str = s
+        if ":" in s:
+            parts = s.split(":", 1)
+            field = parts[0].strip()
+            val_str = parts[1].strip()
+        elif "=" in s:
+            parts = s.split("=", 1)
+            field = parts[0].strip()
+            val_str = parts[1].strip()
+        if not field:
+            field = default_field
+
+        vals = []
+        if val_str.startswith("[") and val_str.endswith("]"):
+            inner = val_str[1:-1]
+            vals = [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+        else:
+            cleaned = val_str.strip("'\"")
+            if cleaned:
+                vals = [cleaned]
+        if field not in res:
+            res[field] = []
+        for v in vals:
+            if v not in res[field]:
+                res[field].append(v)
+    return res
+
+
 def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
     """Run one widget aggregation; always returns a hub-ready payload."""
     database = widget["database"]
@@ -213,17 +256,25 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
             pass
         cutoff_value = _detect_cutoff(coll, time_field, cutoff)
         match: Dict[str, Any] = {time_field: {"$gte": cutoff_value}}
-        group_filter = {}
-        if include_vals:
-            inc_c = _coerce_val_candidates(include_vals)
-            if inc_c:
-                group_filter["$in"] = inc_c
-        if exclude_vals:
-            exc_c = _coerce_val_candidates(exclude_vals)
-            if exc_c:
-                group_filter["$nin"] = exc_c
-        if group_filter:
-            match[group_by] = group_filter
+        inc_by_field = _parse_field_conditions(include_vals, group_by)
+        exc_by_field = _parse_field_conditions(exclude_vals, group_by)
+
+        all_filter_fields = set(inc_by_field.keys()) | set(exc_by_field.keys())
+        for f in all_filter_fields:
+            f_filter = {}
+            if f in inc_by_field:
+                inc_c = _coerce_val_candidates(inc_by_field[f])
+                if inc_c:
+                    f_filter["$in"] = inc_c
+            if f in exc_by_field:
+                exc_c = _coerce_val_candidates(exc_by_field[f])
+                if exc_c:
+                    f_filter["$nin"] = exc_c
+            if f_filter:
+                if f in match and isinstance(match[f], dict):
+                    match[f].update(f_filter)
+                else:
+                    match[f] = f_filter
 
         try:
             total = coll.count_documents(match, maxTimeMS=20000)
@@ -247,12 +298,12 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as exc:
             return _error(f"group-by failed: {exc}")
 
-        # Post-filter groups to guarantee strict key inclusion/exclusion
-        if include_vals:
-            inc_set = {str(x).strip().lower() for x in include_vals if str(x).strip()}
+        # Post-filter groups for group_by field conditions if specified
+        if group_by in inc_by_field:
+            inc_set = {str(x).strip().lower() for x in inc_by_field[group_by] if str(x).strip()}
             groups = {k: v for k, v in groups.items() if str(k).strip().lower() in inc_set}
-        if exclude_vals:
-            exc_set = {str(x).strip().lower() for x in exclude_vals if str(x).strip()}
+        if group_by in exc_by_field:
+            exc_set = {str(x).strip().lower() for x in exc_by_field[group_by] if str(x).strip()}
             groups = {k: v for k, v in groups.items() if str(k).strip().lower() not in exc_set}
         if total < sum(groups.values()):
             total = sum(groups.values())
