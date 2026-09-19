@@ -41,15 +41,15 @@ def format_alert_text(
     hostname: Optional[str] = None,
 ) -> str:
     """Multi-line WhatsApp body carrying full site context."""
-    lines = [f"🔔 OcTyn DevOps Services — {severity.upper()}"]
+    lines = [f"[ALERT] OcTyn DevOps Services — {severity.upper()}"]
 
     place = " · ".join(p for p in (client, location) if p)
     if place:
-        lines.append(f"📍 {place}")
+        lines.append(f"Location: {place}")
 
     equip = " · ".join(p for p in (machine, hostname) if p)
     if equip:
-        lines.append(f"🔧 {equip}")
+        lines.append(f"Equipment: {equip}")
 
     if message:
         lines.append(message)

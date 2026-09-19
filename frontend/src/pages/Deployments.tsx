@@ -20,6 +20,7 @@ import {
   StopCircle,
   Terminal as TerminalIcon,
   Trash2,
+  Wrench,
   X,
   XCircle,
 } from "lucide-react";
@@ -789,7 +790,8 @@ export default function DeploymentsPage() {
           >
             <div className="flex items-center justify-between">
               <span className="font-semibold flex items-center gap-1.5">
-                🛠️ DevOps Team
+                <Wrench className="h-3.5 w-3.5 text-slate-400" />
+                DevOps Team
               </span>
               {devopsApproval ? (
                 <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
@@ -825,7 +827,8 @@ export default function DeploymentsPage() {
           >
             <div className="flex items-center justify-between">
               <span className="font-semibold flex items-center gap-1.5">
-                💻 Developer Team
+                <Code2 className="h-3.5 w-3.5 text-slate-400" />
+                Developer Team
               </span>
               {devApproval ? (
                 <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
@@ -861,7 +864,8 @@ export default function DeploymentsPage() {
           >
             <div className="flex items-center justify-between">
               <span className="font-semibold flex items-center gap-1.5">
-                📊 Product Team
+                <Layers className="h-3.5 w-3.5 text-slate-400" />
+                Product Team
               </span>
               {prodApproval ? (
                 <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
@@ -2161,9 +2165,9 @@ export default function DeploymentsPage() {
                   onChange={(e) => setSelectedApprovalGroup(e.target.value)}
                   className="mt-1 h-9 w-full rounded-md border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500 font-medium"
                 >
-                  <option value="devops">🛠️ DevOps Team Approval</option>
-                  <option value="developer">💻 Developer Team Approval</option>
-                  <option value="product">📊 Product Team Approval</option>
+                  <option value="devops">DevOps Team Approval</option>
+                  <option value="developer">Developer Team Approval</option>
+                  <option value="product">Product Team Approval</option>
                 </select>
                 {!isSuperAdmin && (
                   <p className="mt-1 text-[11px] text-slate-400">

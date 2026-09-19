@@ -18,7 +18,7 @@ text = format_alert_text(
 print("--- sample WhatsApp body ---")
 print(text)
 print("----------------------------")
-for part in ("WARNING", "📍 samsonite · Nashik", "🔧 Conveyor Line 01 · nido-server", "Memory at 85.5%"):
+for part in ("WARNING", "Location: samsonite · Nashik", "Equipment: Conveyor Line 01 · nido-server", "Memory at 85.5%"):
     assert part in text, f"missing: {part}"
 
 # site lookup against real DB (samsonite-nashik-c1 was seeded under ci_plant)

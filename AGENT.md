@@ -163,9 +163,9 @@ uv run agent
 - **Multi-Component Stacks**: Configure Node.js v24 PM2 monorepos, PHP 8.4 Nginx frontends, and client/machine config repos under `/deployments`.
 - **Governance Gate**: Deployments trigger into `pending_approval` status. Edge agents poll for `status: "pending"`, preventing unapproved code from running on remote machines.
 - **3 Team Sign-Offs**: Require 3 distinct team approvals:
-  1. 🛠️ **DevOps Team** (`user_group: devops`)
-  2. 💻 **Developer Team** (`user_group: developer`)
-  3. 📊 **Product Team** (`user_group: product`)
+  1. **DevOps Team** (`user_group: devops`)
+  2. **Developer Team** (`user_group: developer`)
+  3. **Product Team** (`user_group: product`)
 - **Fleet Batch Approvals**: `POST /api/v1/deployments/batch/{batch_id}/approve` signs off across all nodes in a multi-site batch in a single step.
 - **Real-Time Streaming**: Agents stream stdout/stderr lines live to the web terminal drawer via Socket.IO.
 

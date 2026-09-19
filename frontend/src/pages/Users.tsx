@@ -259,10 +259,10 @@ export default function UsersPage() {
                     onChange={(e) => setNewUser({ ...newUser, user_group: e.target.value })}
                     className="h-9 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 outline-none focus:border-emerald-500"
                   >
-                    <option value="devops">🛠️ DevOps Team (Deployment Approver)</option>
-                    <option value="developer">💻 Developer Team (Deployment Approver)</option>
-                    <option value="product">📊 Product Team (Deployment Approver)</option>
-                    <option value="management">👔 Management</option>
+                    <option value="devops">DevOps Team (Deployment Approver)</option>
+                    <option value="developer">Developer Team (Deployment Approver)</option>
+                    <option value="product">Product Team (Deployment Approver)</option>
+                    <option value="management">Management</option>
                     <option value="">Unassigned</option>
                   </select>
                 </div>
@@ -322,10 +322,10 @@ export default function UsersPage() {
                               onChange={(e) => handleGroupChange(u.id, e.target.value)}
                               className="rounded border border-slate-700 bg-slate-900/90 px-2 py-0.5 text-xs text-slate-300 outline-none focus:border-emerald-500 font-medium"
                             >
-                              <option value="devops">🛠️ DevOps Team</option>
-                              <option value="developer">💻 Developer Team</option>
-                              <option value="product">📊 Product Team</option>
-                              <option value="management">👔 Management</option>
+                              <option value="devops">DevOps Team</option>
+                              <option value="developer">Developer Team</option>
+                              <option value="product">Product Team</option>
+                              <option value="management">Management</option>
                               <option value="">Unassigned</option>
                             </select>
                           </td>

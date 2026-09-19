@@ -206,8 +206,8 @@ To ensure safe, compliant production releases, deployments enforce an enterprise
        │                            │                            │
        ▼                            ▼                            ▼
 ┌──────────────┐             ┌──────────────┐             ┌──────────────┐
-│ 🛠️ DevOps     │             │ 💻 Developer │             │ 📊 Product    │
-│ Team Sign-Off│             │ Team Sign-Off│             │ Team Sign-Off│
+│ DevOps Team  │             │Developer Team│             │ Product Team │
+│   Sign-Off   │             │   Sign-Off   │             │   Sign-Off   │
 └──────┬───────┘             └──────┬───────┘             └──────┬───────┘
        │                            │                            │
        └────────────────────────────┼────────────────────────────┘
@@ -227,10 +227,10 @@ To ensure safe, compliant production releases, deployments enforce an enterprise
 
 1. **User Groups & Role-Based Segregation**:
    - Users are assigned to distinct operational groups under `/users`:
-     - 🛠️ `devops`: Infrastructure, environment, and CI/CD verification.
-     - 💻 `developer`: Code review, logic validation, and schema compatibility.
-     - 📊 `product`: Feature sign-off, release notes, and customer notification.
-     - 👔 `management`: High-level oversight.
+     - `devops`: Infrastructure, environment, and CI/CD verification.
+     - `developer`: Code review, logic validation, and schema compatibility.
+     - `product`: Feature sign-off, release notes, and customer notification.
+     - `management`: High-level oversight.
 
 2. **Agent Isolation (Zero-Execution Before Approval)**:
    - When triggered, deployments are created in `status: "pending_approval"`.

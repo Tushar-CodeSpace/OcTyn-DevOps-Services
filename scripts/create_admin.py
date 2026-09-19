@@ -17,7 +17,7 @@ def create_admin():
     
     existing = db.users.find_one({"email": email})
     if existing:
-        print(f"✅ Admin user already exists: {email}")
+        print(f"[OK] Admin user already exists: {email}")
     else:
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         doc = {
@@ -29,7 +29,7 @@ def create_admin():
             "created_at": datetime.now(timezone.utc),
         }
         db.users.insert_one(doc)
-        print(f"🎉 Admin user successfully created!")
+        print(f"[SUCCESS] Admin user successfully created!")
         print(f"   Email: {email}")
         print(f"   Password: {password}")
 
