@@ -43,6 +43,12 @@ def _connect():
     uri_candidates = [primary_uri]
     if "localhost" in primary_uri:
         uri_candidates.append(primary_uri.replace("localhost", "127.0.0.1"))
+        uri_candidates.append(primary_uri.replace("localhost", "host.docker.internal"))
+        uri_candidates.append(primary_uri.replace("localhost", "172.17.0.1"))
+    elif "127.0.0.1" in primary_uri:
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "localhost"))
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "host.docker.internal"))
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "172.17.0.1"))
     auth_candidates = _extract_auth_sources(raw_uri, mongo_auth_source())
     creds = _parse_mongo_credentials(raw_uri)
 
@@ -55,24 +61,10 @@ def _connect():
 
 def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Optional[Dict[str, str]]):
     """Yield a connected client (single yield) or nothing."""
-    temp_client = None
-    try:
-        temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=3000, directConnection=True)
-        temp_client.admin.command("ping")
-        yield temp_client
-        return
-    except Exception:
-        if temp_client:
-            try:
-                temp_client.close()
-            except Exception:
-                pass
-    for src in auth_candidates:
+    for dc in (True, False):
         temp_client = None
         try:
-            temp_client = MongoClient(
-                target_uri, authSource=src, serverSelectionTimeoutMS=3000, directConnection=True
-            )
+            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc)
             temp_client.admin.command("ping")
             yield temp_client
             return
@@ -82,10 +74,28 @@ def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Option
                     temp_client.close()
                 except Exception:
                     pass
+    for src in auth_candidates:
+        for dc in (True, False):
+            temp_client = None
+            try:
+                temp_client = MongoClient(
+                    target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc
+                )
+                temp_client.admin.command("ping")
+                yield temp_client
+                return
+            except Exception:
+                if temp_client:
+                    try:
+                        temp_client.close()
+                    except Exception:
+                        pass
     if creds:
         host_candidates = [creds["host_uri"]]
         if "localhost" in creds["host_uri"]:
             host_candidates.append(creds["host_uri"].replace("localhost", "127.0.0.1"))
+            host_candidates.append(creds["host_uri"].replace("localhost", "host.docker.internal"))
+            host_candidates.append(creds["host_uri"].replace("localhost", "172.17.0.1"))
         pass_candidates = []
         if creds["password"]:
             pass_candidates.append(creds["password"])
@@ -94,25 +104,26 @@ def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Option
         for h_uri in host_candidates:
             for p_val in pass_candidates:
                 for src in auth_candidates:
-                    temp_client = None
-                    try:
-                        temp_client = MongoClient(
-                            h_uri,
-                            username=creds["username"],
-                            password=p_val,
-                            authSource=src,
-                            serverSelectionTimeoutMS=3000,
-                            directConnection=True,
-                        )
-                        temp_client.admin.command("ping")
-                        yield temp_client
-                        return
-                    except Exception:
-                        if temp_client:
-                            try:
-                                temp_client.close()
-                            except Exception:
-                                pass
+                    for dc in (True, False):
+                        temp_client = None
+                        try:
+                            temp_client = MongoClient(
+                                h_uri,
+                                username=creds["username"],
+                                password=p_val,
+                                authSource=src,
+                                serverSelectionTimeoutMS=4000,
+                                directConnection=dc,
+                            )
+                            temp_client.admin.command("ping")
+                            yield temp_client
+                            return
+                        except Exception:
+                            if temp_client:
+                                try:
+                                    temp_client.close()
+                                except Exception:
+                                    pass
 
 
 def _lookup(doc: Any, dotted: str) -> Any:

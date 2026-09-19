@@ -162,10 +162,16 @@ def sync_configs() -> None:
         log("[CONFIG-SYNC] Skipped: mongo_uri is empty")
         return
 
-    # Prepare URI variations (original URI and 127.0.0.1 variant if localhost)
+    # Prepare URI variations (original URI, 127.0.0.1, host.docker.internal, and 172.17.0.1 if localhost/127.0.0.1)
     uri_candidates = [primary_uri]
     if "localhost" in primary_uri:
         uri_candidates.append(primary_uri.replace("localhost", "127.0.0.1"))
+        uri_candidates.append(primary_uri.replace("localhost", "host.docker.internal"))
+        uri_candidates.append(primary_uri.replace("localhost", "172.17.0.1"))
+    elif "127.0.0.1" in primary_uri:
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "localhost"))
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "host.docker.internal"))
+        uri_candidates.append(primary_uri.replace("127.0.0.1", "172.17.0.1"))
 
     auth_candidates = _extract_auth_sources(raw_uri, auth_source)
     creds = _parse_mongo_credentials(raw_uri)
@@ -180,32 +186,15 @@ def sync_configs() -> None:
 
         log(f"[CONFIG-SYNC] Connecting to MongoDB at {_sanitize_uri(target_uri)}...")
 
-        # 1. Try native URI ping first
-        temp_client = None
-        try:
-            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=2000, directConnection=True)
-            temp_client.admin.command("ping")
-            client = temp_client
-            connected = True
-            log("[CONFIG-SYNC] Native URI ping succeeded.")
-            break
-        except Exception as exc:
-            last_err = exc
-            if temp_client:
-                try:
-                    temp_client.close()
-                except Exception:
-                    pass
-
-        # 2. Try candidate authSource databases with URI
-        for src in auth_candidates:
+        # 1. Try native URI ping first (with directConnection=True and fallback without)
+        for dc in (True, False):
             temp_client = None
             try:
-                temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=2000, directConnection=True)
+                temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc)
                 temp_client.admin.command("ping")
                 client = temp_client
                 connected = True
-                log(f"[CONFIG-SYNC] Auth ping succeeded with authSource='{src}'.")
+                log(f"[CONFIG-SYNC] Native URI ping succeeded (directConnection={dc}).")
                 break
             except Exception as exc:
                 last_err = exc
@@ -214,12 +203,37 @@ def sync_configs() -> None:
                         temp_client.close()
                     except Exception:
                         pass
+        if connected:
+            break
+
+        # 2. Try candidate authSource databases with URI
+        for src in auth_candidates:
+            for dc in (True, False):
+                temp_client = None
+                try:
+                    temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc)
+                    temp_client.admin.command("ping")
+                    client = temp_client
+                    connected = True
+                    log(f"[CONFIG-SYNC] Auth ping succeeded with authSource='{src}' (directConnection={dc}).")
+                    break
+                except Exception as exc:
+                    last_err = exc
+                    if temp_client:
+                        try:
+                            temp_client.close()
+                        except Exception:
+                            pass
+            if connected:
+                break
 
         # 3. Try explicit username/password kwargs if URI contained credentials
         if not connected and creds:
             host_candidates = [creds["host_uri"]]
             if "localhost" in creds["host_uri"]:
                 host_candidates.append(creds["host_uri"].replace("localhost", "127.0.0.1"))
+                host_candidates.append(creds["host_uri"].replace("localhost", "host.docker.internal"))
+                host_candidates.append(creds["host_uri"].replace("localhost", "172.17.0.1"))
 
             pass_candidates = []
             if creds["password"]:
@@ -234,28 +248,31 @@ def sync_configs() -> None:
                     if connected:
                         break
                     for src in auth_candidates:
-                        temp_client = None
-                        try:
-                            temp_client = MongoClient(
-                                h_uri,
-                                username=creds["username"],
-                                password=p_val,
-                                authSource=src,
-                                serverSelectionTimeoutMS=2000,
-                                directConnection=True,
-                            )
-                            temp_client.admin.command("ping")
-                            client = temp_client
-                            connected = True
-                            log(f"[CONFIG-SYNC] Explicit kwargs Auth ping succeeded (user='{creds['username']}', authSource='{src}').")
+                        for dc in (True, False):
+                            temp_client = None
+                            try:
+                                temp_client = MongoClient(
+                                    h_uri,
+                                    username=creds["username"],
+                                    password=p_val,
+                                    authSource=src,
+                                    serverSelectionTimeoutMS=4000,
+                                    directConnection=dc,
+                                )
+                                temp_client.admin.command("ping")
+                                client = temp_client
+                                connected = True
+                                log(f"[CONFIG-SYNC] Explicit kwargs Auth ping succeeded (user='{creds['username']}', authSource='{src}', directConnection={dc}).")
+                                break
+                            except Exception as exc:
+                                last_err = exc
+                                if temp_client:
+                                    try:
+                                        temp_client.close()
+                                    except Exception:
+                                        pass
+                        if connected:
                             break
-                        except Exception as exc:
-                            last_err = exc
-                            if temp_client:
-                                try:
-                                    temp_client.close()
-                                except Exception:
-                                    pass
 
     if not connected or not client:
         log(f"[CONFIG-SYNC] FAILED: Cannot connect to site MongoDB ({last_err!r})")
@@ -273,12 +290,19 @@ def sync_configs() -> None:
         log(f"[CONFIG-SYNC] Connected! Discovered databases: {sorted(list(db_names))}")
     except Exception as exc:
         log(f"[CONFIG-SYNC] Warning listing database names: {exc!r}")
+        if "requires authentication" in str(exc).lower() or "unauthorized" in str(exc).lower():
+            log("[CONFIG-SYNC] ERROR: MongoDB on this port requires authentication! Please configure credentials: mongodb://<username>:<password>@localhost:27027/?authSource=admin")
 
     cfg_map = dict(config_collections())
-    if not cfg_map and db_names:
-        for dbname in db_names:
-            if dbname not in {"admin", "config", "local"}:
-                cfg_map[dbname] = ["*"]
+    # If the user has distinct databases not matching the 10 default OcTyn names,
+    # and NONE of the configured databases exist in db_names, auto-discover all non-system databases!
+    user_dbs = {d for d in db_names if d not in {"admin", "config", "local"}}
+    configured_matches = set(cfg_map.keys()) & user_dbs
+    if not configured_matches and user_dbs:
+        log(f"[CONFIG-SYNC] Configured db list {list(cfg_map.keys())} does not match any site databases ({user_dbs}). Auto-discovering all site databases...")
+        cfg_map = {dbname: ["*"] for dbname in user_dbs}
+    elif not cfg_map and user_dbs:
+        cfg_map = {dbname: ["*"] for dbname in user_dbs}
 
     log(f"[CONFIG-SYNC] Mapped collections to backup: {cfg_map}")
 
