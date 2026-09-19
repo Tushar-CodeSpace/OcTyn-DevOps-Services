@@ -221,6 +221,8 @@ export interface AlertConfig {
   disk_threshold_percent: number;
   api_error_threshold_percent: number;
   offline_threshold_seconds?: number;
+  alert_integration_failure_threshold_percent: number;
+  alert_integration_window_minutes: number;
   config_sync_enabled: boolean;
   config_sync_hour: number;
   metrics_retention_days?: number;

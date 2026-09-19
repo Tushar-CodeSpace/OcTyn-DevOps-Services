@@ -45,12 +45,25 @@ const FIELDS: {
     min: 0,
     max: 100,
   },
-  {
+   {
     key: "api_error_threshold_percent",
     label: "API Error alert threshold (%)",
     hint: "Trigger an alert if HTTP 400-500 errors exceed this percentage of total API calls across site microservices.",
     min: 0,
     max: 100,
+  },
+  {
+    key: "alert_integration_failure_threshold_percent",
+    label: "Integration Failure Alert Threshold (%)",
+    hint: "Raise a warning when more than this percentage of integration log calls fail within the window.",
+    min: 0,
+    max: 100,
+  },
+  {
+    key: "alert_integration_window_minutes",
+    label: "Integration Failure Window (minutes)",
+    hint: "Look back this many minutes of integration logs to calculate the failure rate for the alert.",
+    min: 1,
   },
   {
     key: "offline_threshold_seconds",
