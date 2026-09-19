@@ -67,3 +67,7 @@ def audit_logs() -> Collection:
 
 def terminal_commands() -> Collection:
     return get_db()["terminal_commands"]
+
+
+def refresh_tokens() -> Collection:
+    return get_db()["refresh_tokens"]

@@ -10,7 +10,7 @@ from typing import Optional
 
 import socketio
 
-from app.services.authentication import decode_token
+from app.services.authentication import decode_access_token
 
 sio = socketio.AsyncServer(
     async_mode="asgi",
@@ -43,7 +43,7 @@ async def connect(sid, environ, auth_data) -> bool:
     if not token:
         return False
     try:
-        payload = decode_token(token)
+        payload = decode_access_token(token)
     except Exception:
         return False
     if payload is None:

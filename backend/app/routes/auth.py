@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, TokenResponse, UserRead
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, RefreshTokenRequest, TokenResponse, UserRead
 from app.services import authentication as auth
 from app.services import audit as audit_trail
 
@@ -36,8 +36,29 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
     token, expires_at = auth.create_access_token(user["_id"])
+    refresh_token, refresh_expires_at = auth.create_refresh_token(user["_id"])
     record_audit_log(user["_id"], user["email"], "login", request)
-    return TokenResponse(access_token=token, token_type="bearer", expires_at=expires_at)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_at=expires_at,
+        refresh_token=refresh_token,
+    )
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh(body: RefreshTokenRequest) -> RefreshTokenResponse:
+    user_id = auth.decode_refresh_token(body.refresh_token)
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+    new_token, expires_at = auth.create_access_token(user_id)
+    new_refresh, refresh_expires_at = auth.rotate_refresh_token(body.refresh_token)
+    if new_refresh is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not rotate refresh token")
+    user = db.users().find_one({"_id": user_id})
+    if user:
+        record_audit_log(str(user_id), user.get("email", ""), "token_refresh", Request())
+    return RefreshTokenResponse(access_token=new_token, expires_at=expires_at)
 
 
 @router.post("/logout")
@@ -45,6 +66,7 @@ async def logout(
     request: Request,
     user: dict = Depends(auth.get_current_user),
 ) -> dict:
+    auth.revoke_refresh_tokens(user["_id"])
     record_audit_log(user["_id"], user["email"], "logout", request)
     return {"message": "Logged out successfully"}
 
@@ -78,5 +100,6 @@ async def change_password(
 
     new_hash = auth.hash_password(body.new_password)
     db.users().update_one({"_id": current_user["_id"]}, {"$set": {"password_hash": new_hash}})
+    auth.revoke_refresh_tokens(current_user["_id"])
     audit_trail.record(current_user, "password_change", request, None)
     return {"message": "Password changed successfully"}
