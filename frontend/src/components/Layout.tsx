@@ -27,7 +27,7 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/", label: "Slave", icon: LayoutDashboard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/alerts", label: "Master Logs", icon: Bell },
   { to: "/master-server", label: "Master Server", icon: Server },
@@ -98,7 +98,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const currentNavItem = location.pathname.startsWith("/servers/")
     ? { label: "Server details", icon: Activity }
     : ([...nav, ...adminNav, ...superAdminNav].find((n) => n.to === location.pathname) ?? {
-        label: "Dashboard",
+        label: "Slave",
         icon: LayoutDashboard,
       });
 
