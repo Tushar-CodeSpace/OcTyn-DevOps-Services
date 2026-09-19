@@ -151,6 +151,8 @@ def template_doc_to_read(doc: dict, usage_resolver=None) -> WidgetTemplateRead:
         max_groups=int(doc.get("max_groups", 10)),
         alert_threshold_percent=float(doc.get("alert_threshold_percent", 50.0)),
         alert_window_minutes=int(doc.get("alert_window_minutes", 15)),
+        include_values=doc.get("include_values", []),
+        exclude_values=doc.get("exclude_values", []),
         created_at=doc.get("created_at", now()),
         updated_at=doc.get("updated_at", now()),
         used_by_sites=used_sites,
@@ -200,6 +202,8 @@ def propagate_widget_template(template_id: str, data: dict, old_name: str | None
                 w["max_groups"] = int(data.get("max_groups", 10))
                 w["alert_threshold_percent"] = float(data.get("alert_threshold_percent", 50.0))
                 w["alert_window_minutes"] = int(data.get("alert_window_minutes", 15))
+                w["include_values"] = data.get("include_values", [])
+                w["exclude_values"] = data.get("exclude_values", [])
                 w["template_id"] = template_id
                 w["template_name"] = data["name"]
                 modified = True
@@ -350,6 +354,8 @@ async def apply_widget_template_to_all(
         "max_groups": int(doc.get("max_groups", 10)),
         "alert_threshold_percent": float(doc.get("alert_threshold_percent", 50.0)),
         "alert_window_minutes": int(doc.get("alert_window_minutes", 15)),
+        "include_values": doc.get("include_values", []),
+        "exclude_values": doc.get("exclude_values", []),
         "template_id": template_id,
         "template_name": doc["name"],
     }

@@ -18,6 +18,7 @@ class SiteBase(BaseModel):
     location: str = Field(min_length=1, max_length=200)
     status: SiteStatus = "active"
     alerts_enabled: bool = True
+    equipment_name: Optional[str] = None
 
 
 class SiteCreate(SiteBase):
@@ -27,11 +28,13 @@ class SiteCreate(SiteBase):
 class SiteUpdate(BaseModel):
     client: Optional[str] = Field(default=None, min_length=1, max_length=100)
     location: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    equipment_name: Optional[str] = None
     status: Optional[SiteStatus] = None
     alerts_enabled: Optional[bool] = None
 
 
 class SiteRead(SiteBase):
     id: str
+    equipment_names: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

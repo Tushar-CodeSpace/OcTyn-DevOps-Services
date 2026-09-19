@@ -27,9 +27,9 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const nav = [
-  { to: "/", label: "Slave", icon: LayoutDashboard },
+  { to: "/", label: "Slaves", icon: LayoutDashboard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/alerts", label: "Master Logs", icon: Bell },
+  { to: "/alerts", label: "All slave logs", icon: Bell },
   { to: "/master-server", label: "Master Server", icon: Server },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -38,7 +38,7 @@ const adminNav = [
   { to: "/users", label: "Users & Roles", icon: Users },
   { to: "/templates", label: "Templates", icon: Layers },
   { to: "/deployments", label: "Deployments", icon: Rocket },
-  { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { to: "/whatsapp", label: "Notifier", icon: MessageCircle },
 ];
 
 const superAdminNav = [

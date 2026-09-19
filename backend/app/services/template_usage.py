@@ -255,6 +255,8 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
         "max_groups": int(template.get("max_groups", 10)),
         "alert_threshold_percent": float(template.get("alert_threshold_percent", 50.0)),
         "alert_window_minutes": int(template.get("alert_window_minutes", 15)),
+        "include_values": template.get("include_values", []),
+        "exclude_values": template.get("exclude_values", []),
         "template_id": template_id,
         "template_name": template["name"],
     }

@@ -18,7 +18,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { showToast } from "@/components/ToastHost";
-import type { AgentRuntimeTemplate, ConnectivityTarget, Site, WidgetTemplate } from "@/lib/types";
+import type { AgentRuntimeTemplate, ConnectivityTarget, Server, Site, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,8 @@ const DEFAULT_WIDGET_FORM = {
   max_groups: 10,
   alert_threshold_percent: 50.0,
   alert_window_minutes: 15,
+  include_values: [] as string[],
+  exclude_values: [] as string[],
   target_site_ids: [] as string[],
 };
 
@@ -63,6 +65,7 @@ export default function TemplatesPage() {
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[]>([]);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Runtime Modal state
@@ -77,6 +80,8 @@ export default function TemplatesPage() {
   const [widgetModalOpen, setWidgetModalOpen] = useState(false);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [widgetForm, setWidgetForm] = useState(DEFAULT_WIDGET_FORM);
+  const [widgetIncludeRaw, setWidgetIncludeRaw] = useState("");
+  const [widgetExcludeRaw, setWidgetExcludeRaw] = useState("");
   const [savingWidget, setSavingWidget] = useState(false);
 
   // Assign Sites Quick Modal state
@@ -96,19 +101,34 @@ export default function TemplatesPage() {
   async function loadAllTemplates() {
     setLoading(true);
     try {
-      const [runtimes, widgets, sitesData] = await Promise.all([
+      const [runtimes, widgets, sitesData, serversData] = await Promise.all([
         apiFetch<AgentRuntimeTemplate[]>("/agent-config-templates").catch(() => []),
         apiFetch<WidgetTemplate[]>("/widgets/templates").catch(() => []),
         apiFetch<Site[]>("/sites").catch(() => []),
+        apiFetch<Server[]>("/servers").catch(() => []),
       ]);
       setRuntimeTemplates(runtimes);
       setWidgetTemplates(widgets);
       setSites(sitesData);
+      setServers(serversData);
     } catch {
       showToast({ severity: "critical", title: "Load error", message: "Failed to load templates." });
     } finally {
       setLoading(false);
     }
+  }
+
+  function getSiteEquipmentList(site: Site): string[] {
+    const fromSite =
+      site.equipment_names && site.equipment_names.length > 0
+        ? site.equipment_names
+        : site.equipment_name
+        ? [site.equipment_name]
+        : [];
+    const fromServers = servers
+      .filter((srv) => srv.site_id === site.id && srv.name)
+      .map((srv) => srv.name.trim());
+    return Array.from(new Set([...fromSite, ...fromServers])).filter(Boolean);
   }
 
   // Filtered lists
@@ -367,6 +387,8 @@ export default function TemplatesPage() {
   function openCreateWidget() {
     setEditingWidgetId(null);
     setWidgetForm(DEFAULT_WIDGET_FORM);
+    setWidgetIncludeRaw("");
+    setWidgetExcludeRaw("");
     setWidgetModalOpen(true);
   }
 
@@ -385,8 +407,12 @@ export default function TemplatesPage() {
       max_groups: w.max_groups,
       alert_threshold_percent: w.alert_threshold_percent ?? 50.0,
       alert_window_minutes: w.alert_window_minutes ?? 15,
+      include_values: w.include_values || [],
+      exclude_values: w.exclude_values || [],
       target_site_ids: (w.used_by_sites || []).map((s) => s.site_id),
     });
+    setWidgetIncludeRaw((w.include_values || []).join(", "));
+    setWidgetExcludeRaw((w.exclude_values || []).join(", "));
     setWidgetModalOpen(true);
   }
 
@@ -405,8 +431,12 @@ export default function TemplatesPage() {
       max_groups: w.max_groups,
       alert_threshold_percent: w.alert_threshold_percent ?? 50.0,
       alert_window_minutes: w.alert_window_minutes ?? 15,
+      include_values: w.include_values || [],
+      exclude_values: w.exclude_values || [],
       target_site_ids: [],
     });
+    setWidgetIncludeRaw((w.include_values || []).join(", "));
+    setWidgetExcludeRaw((w.exclude_values || []).join(", "));
     setWidgetModalOpen(true);
   }
 
@@ -875,6 +905,28 @@ export default function TemplatesPage() {
                     </div>
                   </div>
 
+                  {/* Include / Exclude Key Values Filters */}
+                  {((w.include_values && w.include_values.length > 0) || (w.exclude_values && w.exclude_values.length > 0)) && (
+                    <div className="flex flex-col gap-1 rounded-lg border border-slate-800/80 bg-slate-950/40 p-2 text-[11px]">
+                      {w.include_values && w.include_values.length > 0 && (
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          <span className="text-emerald-400 font-mono text-[10px] uppercase font-semibold shrink-0">Inc:</span>
+                          <span className="font-mono text-slate-300 truncate" title={w.include_values.join(", ")}>
+                            {w.include_values.join(", ")}
+                          </span>
+                        </div>
+                      )}
+                      {w.exclude_values && w.exclude_values.length > 0 && (
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          <span className="text-rose-400 font-mono text-[10px] uppercase font-semibold shrink-0">Exc:</span>
+                          <span className="font-mono text-slate-300 truncate" title={w.exclude_values.join(", ")}>
+                            {w.exclude_values.join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Failure Alert settings */}
                   <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 text-slate-300 flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-amber-400 font-medium">
@@ -1053,6 +1105,7 @@ export default function TemplatesPage() {
                 ) : (
                   sites.map((s) => {
                     const isSelected = selectedSiteIds.includes(s.id);
+                    const equipList = getSiteEquipmentList(s);
                     return (
                       <div
                         key={s.id}
@@ -1080,7 +1133,18 @@ export default function TemplatesPage() {
                             <Check className="h-3 w-3" />
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="font-semibold text-xs text-slate-200 truncate">{s.client}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-xs text-slate-200 truncate">{s.client}</span>
+                              {equipList.length > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-950/50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
+                                  title={`Equipment: ${equipList.join(", ")}`}
+                                >
+                                  <Cpu className="h-2.5 w-2.5 text-emerald-400 shrink-0" />
+                                  <span className="truncate max-w-[200px]">{equipList.join(", ")}</span>
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-slate-400 truncate">
                               {s.location} ({s.code})
                             </span>
@@ -1089,7 +1153,7 @@ export default function TemplatesPage() {
 
                         <span
                           className={cn(
-                            "text-[10px] px-2 py-0.5 rounded-full border",
+                            "text-[10px] px-2 py-0.5 rounded-full border shrink-0",
                             isSelected
                               ? "border-sky-500/40 bg-sky-950/40 text-sky-300"
                               : "border-slate-800 bg-slate-900 text-slate-500"
@@ -1261,6 +1325,7 @@ export default function TemplatesPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
                   {sites.map((s) => {
                     const isChecked = runtimeForm.target_site_ids.includes(s.id);
+                    const equipList = getSiteEquipmentList(s);
                     return (
                       <label
                         key={s.id}
@@ -1290,7 +1355,18 @@ export default function TemplatesPage() {
                           className="rounded border-slate-700 text-indigo-600 focus:ring-0"
                         />
                         <div className="flex flex-col min-w-0">
-                          <span className="font-semibold truncate">{s.client}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold truncate">{s.client}</span>
+                            {equipList.length > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-950/50 px-1.5 py-0.2 text-[9px] font-medium text-indigo-300"
+                                title={`Equipment: ${equipList.join(", ")}`}
+                              >
+                                <Cpu className="h-2.5 w-2.5 text-indigo-400 shrink-0" />
+                                <span className="truncate max-w-[150px]">{equipList.join(", ")}</span>
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-500 truncate">
                             {s.location} ({s.code})
                           </span>
@@ -1464,6 +1540,48 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
+              {/* Include & Exclude Key Values */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">
+                    Include Key Values <span className="text-[10px] text-slate-500">(Optional comma-separated)</span>
+                  </Label>
+                  <Input
+                    placeholder="e.g. SUCCESS, DELIVERED, 200"
+                    value={widgetIncludeRaw}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setWidgetIncludeRaw(val);
+                      const parsed = val.split(",").map((s) => s.trim()).filter(Boolean);
+                      setWidgetForm((prev) => ({ ...prev, include_values: parsed }));
+                    }}
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    If set, only documents matching these values for &quot;{widgetForm.group_by_field || "group_by_field"}&quot; will be counted.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-slate-300">
+                    Exclude Key Values <span className="text-[10px] text-slate-500">(Optional comma-separated)</span>
+                  </Label>
+                  <Input
+                    placeholder="e.g. SKIPPED, CANCELLED, null"
+                    value={widgetExcludeRaw}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setWidgetExcludeRaw(val);
+                      const parsed = val.split(",").map((s) => s.trim()).filter(Boolean);
+                      setWidgetForm((prev) => ({ ...prev, exclude_values: parsed }));
+                    }}
+                    className="bg-slate-900 border-slate-800 text-xs font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Documents with these values will be omitted from counts and group breakdown.
+                  </p>
+                </div>
+              </div>
+
               {/* Intervals & Window */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1.5">
@@ -1558,6 +1676,7 @@ export default function TemplatesPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
                   {sites.map((s) => {
                     const isChecked = widgetForm.target_site_ids.includes(s.id);
+                    const equipList = getSiteEquipmentList(s);
                     return (
                       <label
                         key={s.id}
@@ -1587,7 +1706,18 @@ export default function TemplatesPage() {
                           className="rounded border-slate-700 text-emerald-600 focus:ring-0"
                         />
                         <div className="flex flex-col min-w-0">
-                          <span className="font-semibold truncate">{s.client}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold truncate">{s.client}</span>
+                            {equipList.length > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-950/50 px-1.5 py-0.2 text-[9px] font-medium text-emerald-300"
+                                title={`Equipment: ${equipList.join(", ")}`}
+                              >
+                                <Cpu className="h-2.5 w-2.5 text-emerald-400 shrink-0" />
+                                <span className="truncate max-w-[150px]">{equipList.join(", ")}</span>
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-500 truncate">
                             {s.location} ({s.code})
                           </span>

@@ -457,6 +457,16 @@ def _normalize_collections(raw) -> dict[str, list[str]]:
     return normalized
 
 
+def _coerce_str_list(raw) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
+    if isinstance(raw, (list, tuple, set)):
+        return [str(p).strip() for p in raw if str(p).strip()]
+    return []
+
+
 def _normalize_widgets(raw) -> list[dict]:
     normalized: list[dict] = []
     seen: set[str] = set()
@@ -483,6 +493,8 @@ def _normalize_widgets(raw) -> list[dict]:
         enabled = item.get("enabled", True)
         alert_thresh = _coerce_clamped_float(item.get("alert_threshold_percent", 50.0), "custom_widgets.alert_threshold_percent", 0.0, 100.0)
         alert_window = _coerce_clamped_int(item.get("alert_window_minutes", 15), "custom_widgets.alert_window_minutes", 1, 10080)
+        include_values = _coerce_str_list(item.get("include_values"))
+        exclude_values = _coerce_str_list(item.get("exclude_values"))
         template_id = str(item.get("template_id") or "").strip() or None
         template_name = str(item.get("template_name") or "").strip() or None
         normalized.append({
@@ -497,6 +509,8 @@ def _normalize_widgets(raw) -> list[dict]:
             "max_groups": max_groups,
             "alert_threshold_percent": alert_thresh,
             "alert_window_minutes": alert_window,
+            "include_values": include_values,
+            "exclude_values": exclude_values,
             "template_id": template_id,
             "template_name": template_name,
         })

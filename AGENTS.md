@@ -93,8 +93,8 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
     - Site agents buffer runtime logs in a thread-safe ring buffer and stream them during 10s metric heartbeats.
     - Features live streaming (5s auto-refresh), severity filtering (All, Info, Warning, Error), text search, and on-demand host systemd journal inspection (`POST /api/v1/servers/{server_id}/logs/journal` running `journalctl -u octyn.service`).
 
-16. **Master Logs & Automatic Alert Resolution**:
-    - Main navigation displays **Master Logs** (`/alerts`).
+16. **All Slave Logs & Automatic Alert Resolution**:
+    - Main navigation displays **All slave logs** (`/alerts`), **Slaves** (`/`), and **Notifier** (`/whatsapp`).
     - Alerts automatically resolve in real time when underlying system conditions recover (heartbeats resume, CPU/RAM/Disk/error metrics fall below thresholds, services restart, or stale conditions clear). No manual resolution action is required.
 
 17. **Master Server Hub Monitoring (`/master-server`)**:
@@ -102,6 +102,12 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
     - Features real-time CPU (total & per-core), RAM (used/available/swap), Root Disk partitions, Network I/O, backend process PID/threads/RSS, and connected Socket.IO clients.
     - Inspects MongoDB ping latency, database storage allocation vs index size, and an interactive collection breakdown table with document counts and 7-day TTL expiration policies.
     - Provides 1-click on-demand disk space reclamation ("Run Retention Cleanup & Compact") executing automated 7-day pruning and MongoDB collection compaction.
+
+18. **Custom Widget Include & Exclude Key Values Filtering**:
+    - Widgets support optional `include_values` and `exclude_values` string arrays configured on Server Detail or via reusable Widget Templates.
+    - When specified, edge agents inject candidate-coerced values (supporting string, integer, float, boolean, and null matches) into the query `$match` (`$in` and/or `$nin`) and perform post-filter pruning on `groups`.
+    - Both `total` count and `groups` breakdown strictly respect the include/exclude filters. If left empty, unrestricted counting continues as before.
+
 
 
 ---

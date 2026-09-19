@@ -159,6 +159,33 @@ def _detect_cutoff(coll, time_field: str, cutoff: datetime) -> Any:
     return cutoff
 
 
+def _coerce_val_candidates(vals: List[Any]) -> List[Any]:
+    candidates = []
+    for v in vals:
+        s = str(v).strip()
+        if not s:
+            continue
+        candidates.append(s)
+        try:
+            if s.isdigit():
+                candidates.append(int(s))
+            else:
+                candidates.append(float(s))
+        except ValueError:
+            pass
+        if s.lower() == "true":
+            candidates.append(True)
+        elif s.lower() == "false":
+            candidates.append(False)
+        elif s.lower() in ("null", "none"):
+            candidates.append(None)
+    out = []
+    for c in candidates:
+        if c not in out:
+            out.append(c)
+    return out
+
+
 def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
     """Run one widget aggregation; always returns a hub-ready payload."""
     database = widget["database"]
@@ -167,6 +194,8 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
     group_by = widget["group_by_field"]
     time_field = widget["time_field"]
     max_groups = widget["max_groups"]
+    include_vals = widget.get("include_values") or []
+    exclude_vals = widget.get("exclude_values") or []
     collected_at = datetime.now(timezone.utc)
     cutoff = collected_at - timedelta(minutes=window)
 
@@ -183,7 +212,19 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
         cutoff_value = _detect_cutoff(coll, time_field, cutoff)
-        match = {time_field: {"$gte": cutoff_value}}
+        match: Dict[str, Any] = {time_field: {"$gte": cutoff_value}}
+        group_filter = {}
+        if include_vals:
+            inc_c = _coerce_val_candidates(include_vals)
+            if inc_c:
+                group_filter["$in"] = inc_c
+        if exclude_vals:
+            exc_c = _coerce_val_candidates(exclude_vals)
+            if exc_c:
+                group_filter["$nin"] = exc_c
+        if group_filter:
+            match[group_by] = group_filter
+
         try:
             total = coll.count_documents(match, maxTimeMS=20000)
         except Exception as exc:
@@ -205,6 +246,17 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
                     continue
         except Exception as exc:
             return _error(f"group-by failed: {exc}")
+
+        # Post-filter groups to guarantee strict key inclusion/exclusion
+        if include_vals:
+            inc_set = {str(x).strip().lower() for x in include_vals if str(x).strip()}
+            groups = {k: v for k, v in groups.items() if str(k).strip().lower() in inc_set}
+        if exclude_vals:
+            exc_set = {str(x).strip().lower() for x in exclude_vals if str(x).strip()}
+            groups = {k: v for k, v in groups.items() if str(k).strip().lower() not in exc_set}
+        if total < sum(groups.values()):
+            total = sum(groups.values())
+
         return _payload(widget, collected_at, window, total, groups)
     except Exception as exc:
         return _payload(widget, collected_at, window, 0, {}, error=str(exc)[:300])

@@ -22,16 +22,33 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def site_doc_to_read(doc: dict) -> SiteRead:
+def site_doc_to_read(doc: dict, server_names_by_site: dict[str, list[str]] | None = None) -> SiteRead:
+    sid = str(doc["_id"])
+    equip_names: list[str] = []
+    if server_names_by_site and sid in server_names_by_site:
+        equip_names.extend(server_names_by_site[sid])
+    explicit_equip = doc.get("equipment_name") or doc.get("equipment")
+    if explicit_equip and str(explicit_equip) not in equip_names:
+        equip_names.append(str(explicit_equip))
+
+    client = str(doc.get("client") or doc.get("client_name") or "Unknown Client")
+    code = str(doc.get("code") or doc.get("site_code") or doc.get("name") or sid).lower()
+    # Normalize code to alphanumeric and underscore
+    clean_code = "".join(c if c.isalnum() or c == "_" else "_" for c in code).strip("_") or "site"
+    location = str(doc.get("location") or doc.get("city") or "Unknown")
+    status_val = doc.get("status") if doc.get("status") in ("active", "inactive") else "active"
+
     return SiteRead(
-        id=doc["_id"],
-        client=doc["client"],
-        code=doc["code"],
-        location=doc["location"],
-        status=doc["status"],
+        id=sid,
+        client=client,
+        code=clean_code,
+        location=location,
+        status=status_val,
         alerts_enabled=doc.get("alerts_enabled", True),
-        created_at=doc["created_at"],
-        updated_at=doc["updated_at"],
+        equipment_name=doc.get("equipment_name") or (equip_names[0] if equip_names else None),
+        equipment_names=equip_names,
+        created_at=doc.get("created_at") or now(),
+        updated_at=doc.get("updated_at") or now(),
     )
 
 
@@ -46,7 +63,15 @@ def find_site_or_404(site_id: str) -> dict:
 @router.get("", response_model=list[SiteRead])
 async def list_sites() -> list[SiteRead]:
     docs = list(db.sites().find().sort("created_at", 1))
-    return [site_doc_to_read(d) for d in docs]
+    server_names_by_site: dict[str, list[str]] = {}
+    for srv in db.servers().find({}, {"site_id": 1, "name": 1}):
+        sid = str(srv.get("site_id") or "")
+        name = str(srv.get("name") or "").strip()
+        if sid and name:
+            lst = server_names_by_site.setdefault(sid, [])
+            if name not in lst:
+                lst.append(name)
+    return [site_doc_to_read(d, server_names_by_site) for d in docs]
 
 
 @router.post(
@@ -72,7 +97,15 @@ async def create_site(
 
 @router.get("/{site_id}", response_model=SiteRead)
 async def get_site(site_id: str) -> SiteRead:
-    return site_doc_to_read(find_site_or_404(site_id))
+    doc = find_site_or_404(site_id)
+    server_names_by_site: dict[str, list[str]] = {}
+    for srv in db.servers().find({"site_id": site_id}, {"name": 1}):
+        name = str(srv.get("name") or "").strip()
+        if name:
+            lst = server_names_by_site.setdefault(site_id, [])
+            if name not in lst:
+                lst.append(name)
+    return site_doc_to_read(doc, server_names_by_site)
 
 
 @router.patch(

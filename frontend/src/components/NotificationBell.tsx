@@ -185,7 +185,7 @@ export function NotificationBell() {
               }}
               className="border-t border-slate-800 px-3 py-2 text-center text-xs font-medium text-sky-300 transition-colors hover:bg-slate-800/60"
             >
-              View master logs
+              View all slave logs
             </button>
           </div>,
           document.body

@@ -445,6 +445,33 @@ def _widget_payload(widget, collected_at, window, total, groups, error=None):
     }
 
 
+def _coerce_val_candidates_lite(vals):
+    candidates = []
+    for v in vals:
+        s = str(v).strip()
+        if not s:
+            continue
+        candidates.append(s)
+        try:
+            if s.isdigit():
+                candidates.append(int(s))
+            else:
+                candidates.append(float(s))
+        except ValueError:
+            pass
+        if s.lower() == "true":
+            candidates.append(True)
+        elif s.lower() == "false":
+            candidates.append(False)
+        elif s.lower() in ("null", "none"):
+            candidates.append(None)
+    out = []
+    for c in candidates:
+        if c not in out:
+            out.append(c)
+    return out
+
+
 def collect_widget(client, widget):
     """Run one widget aggregation; always returns a hub-ready payload."""
     from datetime import timedelta
@@ -454,6 +481,8 @@ def collect_widget(client, widget):
     group_by = widget["group_by_field"]
     time_field = widget["time_field"]
     max_groups = widget["max_groups"]
+    include_vals = widget.get("include_values") or []
+    exclude_vals = widget.get("exclude_values") or []
     collected_at = datetime.now(timezone.utc)
     cutoff = collected_at - timedelta(minutes=window)
     try:
@@ -466,6 +495,18 @@ def collect_widget(client, widget):
         except Exception:
             pass
         match = {time_field: {"$gte": _widget_cutoff(coll, time_field, cutoff)}}
+        group_filter = {}
+        if include_vals:
+            inc_c = _coerce_val_candidates_lite(include_vals)
+            if inc_c:
+                group_filter["$in"] = inc_c
+        if exclude_vals:
+            exc_c = _coerce_val_candidates_lite(exclude_vals)
+            if exc_c:
+                group_filter["$nin"] = exc_c
+        if group_filter:
+            match[group_by] = group_filter
+
         try:
             total = coll.count_documents(match, maxTimeMS=20000)
         except Exception as exc:
@@ -487,6 +528,16 @@ def collect_widget(client, widget):
                     continue
         except Exception as exc:
             return _widget_payload(widget, collected_at, window, 0, {}, error="group-by failed: %s" % exc)
+
+        if include_vals:
+            inc_set = {str(x).strip().lower() for x in include_vals if str(x).strip()}
+            groups = {k: v for k, v in groups.items() if str(k).strip().lower() in inc_set}
+        if exclude_vals:
+            exc_set = {str(x).strip().lower() for x in exclude_vals if str(x).strip()}
+            groups = {k: v for k, v in groups.items() if str(k).strip().lower() not in exc_set}
+        if total < sum(groups.values()):
+            total = sum(groups.values())
+
         return _widget_payload(widget, collected_at, window, total, groups)
     except Exception as exc:
         return _widget_payload(widget, collected_at, window, 0, {}, error=str(exc)[:300])

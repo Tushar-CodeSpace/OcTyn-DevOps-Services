@@ -80,7 +80,7 @@ export default function Alerts() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gradient-sky">Master Logs</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gradient-sky">All Slave Logs</h1>
           <p className="text-sm text-slate-400">Real-time system incident and auto-resolution workspace</p>
         </div>
         <div className="flex rounded-full border border-white/10 bg-slate-900/80 p-1 backdrop-blur-md">
@@ -142,7 +142,7 @@ export default function Alerts() {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-800/80 pb-3">
           <CardTitle className="text-sm">
-            {loading ? "Loading…" : `${filteredAlerts.length} master logs`}
+            {loading ? "Loading…" : `${filteredAlerts.length} slave logs`}
           </CardTitle>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -167,7 +167,7 @@ export default function Alerts() {
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search master logs..."
+                placeholder="Search slave logs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-8 rounded-lg border border-slate-700/60 bg-slate-900 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 w-44"

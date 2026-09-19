@@ -78,6 +78,8 @@ export interface Site {
   location: string;
   status: string;
   alerts_enabled?: boolean;
+  equipment_name?: string | null;
+  equipment_names?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -257,6 +259,8 @@ export interface CustomWidgetSpec {
   max_groups: number;
   alert_threshold_percent: number;
   alert_window_minutes: number;
+  include_values?: string[];
+  exclude_values?: string[];
   template_id?: string | null;
   template_name?: string | null;
 }

@@ -199,6 +199,8 @@ export default function ServerDetail() {
   const [widgets, setWidgets] = useState<WidgetSample[] | null>(null);
   const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
   const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
+  const [widgetIncludeRaw, setWidgetIncludeRaw] = useState<Record<number, string>>({});
+  const [widgetExcludeRaw, setWidgetExcludeRaw] = useState<Record<number, string>>({});
   const [savingWidgets, setSavingWidgets] = useState(false);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
   const [templatePick, setTemplatePick] = useState("");
@@ -693,9 +695,16 @@ export default function ServerDetail() {
   }
 
   function openWidgetCfg() {
-    setWidgetDraft(
-      (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }))
-    );
+    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }));
+    setWidgetDraft(list);
+    const incMap: Record<number, string> = {};
+    const excMap: Record<number, string> = {};
+    list.forEach((w, idx) => {
+      incMap[idx] = (w.include_values ?? []).join(", ");
+      excMap[idx] = (w.exclude_values ?? []).join(", ");
+    });
+    setWidgetIncludeRaw(incMap);
+    setWidgetExcludeRaw(excMap);
     setTemplatePick("");
     apiFetch<WidgetTemplate[]>("/widgets/templates")
       .then(setWidgetTemplates)
@@ -711,6 +720,9 @@ export default function ServerDetail() {
       return;
     }
     const { id: _tid, description: _desc, created_at: _ca, updated_at: _ua, ...spec } = t;
+    const newIdx = widgetDraft.length;
+    setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: (spec.include_values ?? []).join(", ") }));
+    setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: (spec.exclude_values ?? []).join(", ") }));
     setWidgetDraft([...widgetDraft, { ...spec, enabled: true, template_id: t.id, template_name: t.name }]);
     showToast({ severity: "info", title: "Template applied", message: `"${t.name}" added — press Save widgets to activate.` });
   }
@@ -2641,6 +2653,7 @@ export default function ServerDetail() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[...widgets].sort((a, b) => a.widget_name.localeCompare(b.widget_name)).map((w) => {
                 const state = widgetState(w);
+                const def = agentCfg?.custom_widgets?.find((x) => x.name === w.widget_name);
                 const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
                 return (
                   <div
@@ -2662,6 +2675,20 @@ export default function ServerDetail() {
                         <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={`${w.database}.${w.collection}`}>
                           {w.database}.{w.collection} · last {w.window_minutes}m
                         </p>
+                        {(def?.include_values?.length || def?.exclude_values?.length) ? (
+                          <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px]">
+                            {def.include_values && def.include_values.length > 0 && (
+                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-400 border border-sky-500/20" title={`Include: ${def.include_values.join(", ")}`}>
+                                inc: {def.include_values.join(", ")}
+                              </span>
+                            )}
+                            {def.exclude_values && def.exclude_values.length > 0 && (
+                              <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-rose-400 border border-rose-500/20" title={`Exclude: ${def.exclude_values.join(", ")}`}>
+                                exc: {def.exclude_values.join(", ")}
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                       <span
                         className={cn(
@@ -3615,6 +3642,50 @@ export default function ServerDetail() {
                           </span>
                         </div>
                       </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-300 font-medium">Include Key Values (optional)</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={widgetIncludeRaw[i] ?? (w.include_values ?? []).join(", ")}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setWidgetIncludeRaw((prev) => ({ ...prev, [i]: val }));
+                              const arr = val.split(",").map((s) => s.trim()).filter(Boolean);
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, include_values: arr };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="e.g. SUCCESS, FAILED (leave blank for all)"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                          <span className="text-[10px] text-slate-400">
+                            Only count and display these specific key values. Comma-separated.
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Label className="text-xs text-slate-300 font-medium">Exclude Key Values (optional)</Label>
+                          <input
+                            type="text"
+                            disabled={!isAdmin}
+                            value={widgetExcludeRaw[i] ?? (w.exclude_values ?? []).join(", ")}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setWidgetExcludeRaw((prev) => ({ ...prev, [i]: val }));
+                              const arr = val.split(",").map((s) => s.trim()).filter(Boolean);
+                              const next = [...widgetDraft];
+                              next[i] = { ...w, exclude_values: arr };
+                              setWidgetDraft(next);
+                            }}
+                            placeholder="e.g. SKIPPED, UNKNOWN, PENDING"
+                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                          />
+                          <span className="text-[10px] text-slate-400">
+                            Omit these key values from the total count and group breakdown. Comma-separated.
+                          </span>
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between gap-2">
                         <label className="flex cursor-pointer select-none items-center gap-2">
                           <input
@@ -3636,21 +3707,22 @@ export default function ServerDetail() {
                             size="sm"
                             disabled={!isAdmin || !w.name.trim() || !w.database.trim() || !w.collection.trim()}
                             onClick={() => void saveAsTemplate(w)}
-                            className="h-7 text-xs text-emerald-300 hover:text-emerald-200 disabled:opacity-30"
-                            title="Save as a reusable template for other servers"
+                            className="text-xs text-emerald-400 hover:text-emerald-300"
+                            title="Save as reusable widget template"
                           >
                             Save as template
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={!isAdmin}
-                            onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
-                            className="h-7 text-xs text-red-400 hover:text-red-300 disabled:opacity-30"
-                          >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" />
-                            Remove
-                          </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
+                              className="text-xs text-red-400 hover:text-red-300"
+                            >
+                              <Trash2 className="mr-1 h-3.5 w-3.5" />
+                              Remove
+                            </Button>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -3660,7 +3732,10 @@ export default function ServerDetail() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() =>
+                        onClick={() => {
+                          const newIdx = widgetDraft.length;
+                          setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: "" }));
+                          setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: "" }));
                           setWidgetDraft([
                             ...widgetDraft,
                             {
@@ -3675,9 +3750,11 @@ export default function ServerDetail() {
                               max_groups: 10,
                               alert_threshold_percent: 50,
                               alert_window_minutes: 15,
+                              include_values: [],
+                              exclude_values: [],
                             },
-                          ])
-                        }
+                          ]);
+                        }}
                       >
                         <Plus className="mr-1 h-3.5 w-3.5" />
                         Add widget

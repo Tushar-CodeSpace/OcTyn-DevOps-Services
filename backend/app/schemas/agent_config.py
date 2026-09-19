@@ -48,6 +48,8 @@ class CustomWidgetSpec(BaseModel):
     max_groups: int = Field(default=10, ge=1, le=50)
     alert_threshold_percent: float = Field(default=50.0, ge=0.0, le=100.0)
     alert_window_minutes: int = Field(default=15, ge=1, le=10080)
+    include_values: list[str] = Field(default_factory=list)
+    exclude_values: list[str] = Field(default_factory=list)
     template_id: Optional[str] = None
     template_name: Optional[str] = None
 
