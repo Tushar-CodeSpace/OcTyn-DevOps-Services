@@ -339,3 +339,65 @@ export interface ConfigSnapshotMeta {
 export interface ConfigSnapshotFull extends ConfigSnapshotMeta {
   documents: Record<string, unknown>[];
 }
+
+export interface SoftwareComponent {
+  name: string;
+  type: string; // "nodejs_monorepo" | "php_nginx" | "custom_script" | "docker"
+  repo_url: string;
+  default_branch: string;
+  target_dir: string;
+  runtime_version?: string;
+  build_command?: string;
+  start_command?: string;
+  env_vars?: Record<string, string>;
+}
+
+export interface SoftwareConfigRepo {
+  name: string;
+  repo_url: string;
+  default_branch: string;
+  target_dir: string;
+  profile_pattern: string;
+  import_to_mongo: boolean;
+  mongo_database?: string;
+  import_script?: string;
+}
+
+export interface SoftwareDefinition {
+  id: string;
+  name: string;
+  description: string;
+  components: SoftwareComponent[];
+  config_repo?: SoftwareConfigRepo | null;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
+}
+
+export interface DeploymentLogEntry {
+  ts: string;
+  stage: string;
+  line: string;
+  level: "info" | "warn" | "error" | "success";
+}
+
+export interface DeploymentRecord {
+  id: string;
+  batch_id?: string | null;
+  server_id: string;
+  server_name: string;
+  site_name: string;
+  software_id: string;
+  software_name: string;
+  status: "pending" | "running" | "success" | "failed" | "cancelled";
+  components_selected: string[];
+  branches: Record<string, string>;
+  client_name?: string | null;
+  machine_type?: string | null;
+  triggered_by: string;
+  started_at: string;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  exit_code?: number | null;
+  logs?: DeploymentLogEntry[];
+}

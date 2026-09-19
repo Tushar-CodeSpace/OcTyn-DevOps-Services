@@ -53,3 +53,7 @@ def ensure_indexes() -> None:
         db.site_configs(),
         [("server_id", 1), ("database", 1), ("collection", 1), ("received_at", -1)]
     )
+    _ensure_index(db.softwares(), [("name", 1)], unique=True)
+    _ensure_index(db.deployments(), [("server_id", 1), ("created_at", -1)])
+    _ensure_index(db.deployments(), [("status", 1)])
+    _ensure_index(db.deployments(), [("created_at", -1)])

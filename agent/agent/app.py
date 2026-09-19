@@ -21,6 +21,7 @@ from agent.runner import cycle, start_config_poller
 from agent.terminal import start_terminal_poller
 from agent.transport import fetch_agent_config
 from agent.widgets import start_widget_poller
+from agent.deployer import start_deployment_poller
 
 
 def main() -> None:
@@ -48,6 +49,7 @@ def main() -> None:
     start_connectivity_poller()
     start_terminal_poller()
     start_widget_poller()
+    start_deployment_poller()
 
     last_config_sync_day = None
     while True:

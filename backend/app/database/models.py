@@ -71,3 +71,12 @@ def terminal_commands() -> Collection:
 
 def refresh_tokens() -> Collection:
     return get_db()["refresh_tokens"]
+
+
+def softwares() -> Collection:
+    return get_db()["softwares"]
+
+
+def deployments() -> Collection:
+    return get_db()["deployments"]
+

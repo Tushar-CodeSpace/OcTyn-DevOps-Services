@@ -12,6 +12,7 @@ import AuditLogsPage from "@/pages/AuditLogs";
 import WhatsAppPage from "@/pages/WhatsApp";
 import TerminalPage from "@/pages/Terminal";
 import TemplatesPage from "@/pages/Templates";
+import DeploymentsPage from "@/pages/Deployments";
 import { useAuth } from "@/lib/auth";
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
       <Route path="/users" element={<Protected><AdminOnly><UsersPage /></AdminOnly></Protected>} />
       <Route path="/templates" element={<Protected><AdminOnly><TemplatesPage /></AdminOnly></Protected>} />
+      <Route path="/deployments" element={<Protected><AdminOnly><DeploymentsPage /></AdminOnly></Protected>} />
       <Route path="/audit-logs" element={<Protected><SuperAdminOnly><AuditLogsPage /></SuperAdminOnly></Protected>} />
       <Route path="/whatsapp" element={<Protected><AdminOnly><WhatsAppPage /></AdminOnly></Protected>} />
       <Route path="/servers/:id/terminal" element={<BareProtected><AdminOnly><TerminalPage /></AdminOnly></BareProtected>} />

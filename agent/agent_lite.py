@@ -782,6 +782,248 @@ def start_terminal_poller():
 
     threading.Thread(target=_poll, name="terminal-poller", daemon=True).start()
 
+
+_ACTIVE_DEPLOYMENT = None
+
+
+def _stream_deployment_log(deployment_id, stage, line, level="info"):
+    try:
+        req = urllib.request.Request(
+            "%s/deployments/%s/stream" % (API_URL, deployment_id),
+            data=json.dumps({"stage": stage, "line": str(line).strip(), "level": level}).encode(),
+            headers={"Content-Type": "application/json", "X-API-Key": API_KEY},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            pass
+    except Exception:
+        pass
+
+
+def _finish_deployment(deployment_id, status, exit_code, duration_seconds, error_summary=None):
+    try:
+        req = urllib.request.Request(
+            "%s/deployments/%s/finish" % (API_URL, deployment_id),
+            data=json.dumps({
+                "status": status,
+                "exit_code": exit_code,
+                "duration_seconds": round(duration_seconds, 2),
+                "error_summary": error_summary,
+            }).encode(),
+            headers={"Content-Type": "application/json", "X-API-Key": API_KEY},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pass
+    except Exception as exc:
+        log("[DEPLOY] Error reporting finish status: %r" % (exc,))
+
+
+def _run_deployment_command(cmd, cwd, deployment_id, stage, env=None):
+    _stream_deployment_log(deployment_id, stage, "$ %s (cwd: %s)" % (cmd, cwd or os.getcwd()), level="info")
+    full_env = os.environ.copy()
+    if env:
+        full_env.update(env)
+    try:
+        process = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=cwd,
+            env=full_env,
+        )
+        for raw_line in process.stdout:
+            line = raw_line.rstrip()
+            if line:
+                level = "error" if "error" in line.lower() or "fatal" in line.lower() else "info"
+                _stream_deployment_log(deployment_id, stage, line, level=level)
+        process.wait()
+        rc = process.returncode
+        if rc == 0:
+            _stream_deployment_log(deployment_id, stage, "Command completed successfully (code 0)", level="success")
+        else:
+            _stream_deployment_log(deployment_id, stage, "Command failed with exit code %d" % rc, level="error")
+        return rc
+    except Exception as exc:
+        _stream_deployment_log(deployment_id, stage, "Command execution exception: %s" % exc, level="error")
+        return 1
+
+
+def _execute_deployment(job):
+    global _ACTIVE_DEPLOYMENT
+    deployment_id = job.get("deployment_id", "")
+    _ACTIVE_DEPLOYMENT = deployment_id
+    start_time = time.time()
+
+    sw_name = job.get("software_name", "Software")
+    components = job.get("components", [])
+    config_repo = job.get("config_repo")
+    branches = job.get("branches", {})
+    client_name = job.get("client_name", "")
+    machine_type = job.get("machine_type", "")
+
+    log("[DEPLOY] Starting deployment for '%s' (ID: %s)" % (sw_name, deployment_id))
+    _stream_deployment_log(deployment_id, "INIT", "=== Starting Deployment: %s ===" % sw_name, level="info")
+    _stream_deployment_log(deployment_id, "INIT", "Target client: '%s' | Machine: '%s'" % (client_name, machine_type), level="info")
+
+    try:
+        # Stage 1: Environment & Dependency Pre-Checks
+        _stream_deployment_log(deployment_id, "PRECHECK", "Checking system tools and runtime environments...", level="info")
+
+        if not shutil.which("git"):
+            _stream_deployment_log(deployment_id, "PRECHECK", "git is missing! Attempting installation...", level="warn")
+            if shutil.which("apt-get"):
+                _run_deployment_command("sudo apt-get update -qq && sudo apt-get install -y git", None, deployment_id, "PRECHECK")
+
+        needs_node = any(c.get("type") == "nodejs_monorepo" for c in components)
+        if needs_node:
+            _stream_deployment_log(deployment_id, "PRECHECK", "Checking Node.js v24 and PM2...", level="info")
+            node_ver_cmd = "node -v"
+            rc = subprocess.run(node_ver_cmd, shell=True, capture_output=True, text=True)
+            cur_ver = rc.stdout.strip()
+            _stream_deployment_log(deployment_id, "PRECHECK", "Current Node.js version: %s" % (cur_ver or "None"), level="info")
+
+            if not cur_ver.startswith("v24"):
+                _stream_deployment_log(deployment_id, "PRECHECK", "Node.js v24 required. Attempting installation via NodeSource...", level="warn")
+                setup_node = "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs"
+                _run_deployment_command(setup_node, None, deployment_id, "PRECHECK")
+
+            if not shutil.which("pm2"):
+                _stream_deployment_log(deployment_id, "PRECHECK", "PM2 not found globally. Installing PM2...", level="warn")
+                _run_deployment_command("sudo npm install -g pm2", None, deployment_id, "PRECHECK")
+
+        needs_php = any(c.get("type") == "php_nginx" for c in components)
+        if needs_php:
+            _stream_deployment_log(deployment_id, "PRECHECK", "Checking PHP and Nginx...", level="info")
+            if not shutil.which("nginx"):
+                _stream_deployment_log(deployment_id, "PRECHECK", "nginx missing. Installing nginx...", level="warn")
+                _run_deployment_command("sudo apt-get update -qq && sudo apt-get install -y nginx", None, deployment_id, "PRECHECK")
+            if not shutil.which("php"):
+                _stream_deployment_log(deployment_id, "PRECHECK", "php missing. Installing php-fpm...", level="warn")
+                _run_deployment_command("sudo apt-get install -y php-fpm php-cli composer", None, deployment_id, "PRECHECK")
+
+        # Stage 2: Git Repository Cloning & Updating
+        for c in components:
+            c_name = c.get("name", "Component")
+            repo_url = c.get("repo_url", "")
+            target_dir = c.get("target_dir", "/opt/%s/%s" % (sw_name, c_name.lower().replace(" ", "_")))
+            branch = branches.get(c_name) or c.get("default_branch", "main")
+
+            _stream_deployment_log(deployment_id, "GIT", "Syncing repository for '%s' -> %s (branch: %s)" % (c_name, target_dir, branch), level="info")
+
+            parent_dir = os.path.dirname(target_dir)
+            os.makedirs(parent_dir, exist_ok=True)
+
+            if os.path.exists(os.path.join(target_dir, ".git")):
+                _stream_deployment_log(deployment_id, "GIT", "Existing Git repository found in %s. Pulling latest..." % target_dir, level="info")
+                git_pull = "git fetch origin && git checkout %s && git pull origin %s" % (branch, branch)
+                rc = _run_deployment_command(git_pull, target_dir, deployment_id, "GIT")
+                if rc != 0:
+                    raise RuntimeError("Git pull failed for '%s'" % c_name)
+            else:
+                _stream_deployment_log(deployment_id, "GIT", "Cloning %s into %s..." % (repo_url, target_dir), level="info")
+                git_clone = "git clone --branch %s %s %s" % (branch, repo_url, target_dir)
+                rc = _run_deployment_command(git_clone, None, deployment_id, "GIT")
+                if rc != 0:
+                    raise RuntimeError("Git clone failed for '%s'" % c_name)
+
+        # Stage 3: Client & Machine-Specific Config Import
+        if config_repo and config_repo.get("repo_url"):
+            cfg_target = config_repo.get("target_dir", "/opt/%s/configs" % sw_name)
+            cfg_branch = branches.get("Config") or config_repo.get("default_branch", "main")
+            _stream_deployment_log(deployment_id, "CONFIG", "Syncing configs repo -> %s (branch: %s)" % (cfg_target, cfg_branch), level="info")
+
+            os.makedirs(os.path.dirname(cfg_target), exist_ok=True)
+            if os.path.exists(os.path.join(cfg_target, ".git")):
+                _run_deployment_command("git fetch origin && git checkout %s && git pull origin %s" % (cfg_branch, cfg_branch), cfg_target, deployment_id, "CONFIG")
+            else:
+                _run_deployment_command("git clone --branch %s %s %s" % (cfg_branch, config_repo["repo_url"], cfg_target), None, deployment_id, "CONFIG")
+
+            import_script = config_repo.get("import_script", "")
+            if import_script:
+                formatted_script = import_script.replace("{client}", client_name).replace("{machine_type}", machine_type)
+                _stream_deployment_log(deployment_id, "CONFIG", "Applying machine configs: %s" % formatted_script, level="info")
+                rc = _run_deployment_command(formatted_script, cfg_target, deployment_id, "CONFIG")
+                if rc != 0:
+                    _stream_deployment_log(deployment_id, "CONFIG", "Warning: Config import script returned non-zero code", level="warn")
+
+        # Stage 4: Component Builds & Service Execution
+        for c in components:
+            c_name = c.get("name", "Component")
+            target_dir = c.get("target_dir")
+            build_cmd = c.get("build_command")
+            start_cmd = c.get("start_command")
+            env_vars = c.get("env_vars", {})
+
+            if build_cmd:
+                _stream_deployment_log(deployment_id, "BUILD", "Running build for '%s'..." % c_name, level="info")
+                rc = _run_deployment_command(build_cmd, target_dir, deployment_id, "BUILD", env=env_vars)
+                if rc != 0:
+                    raise RuntimeError("Build command failed for '%s'" % c_name)
+
+            if start_cmd:
+                _stream_deployment_log(deployment_id, "START", "Starting/Reloading service for '%s'..." % c_name, level="info")
+                rc = _run_deployment_command(start_cmd, target_dir, deployment_id, "START", env=env_vars)
+                if rc != 0:
+                    raise RuntimeError("Service start/reload failed for '%s'" % c_name)
+
+        duration = time.time() - start_time
+        _stream_deployment_log(deployment_id, "VERIFY", "=== Deployment Successful in %.1fs ===" % duration, level="success")
+        _finish_deployment(deployment_id, "success", 0, duration)
+        log("[DEPLOY] Deployment '%s' SUCCESS (%.1fs)" % (deployment_id, duration))
+
+    except Exception as exc:
+        duration = time.time() - start_time
+        err_msg = str(exc)
+        log("[DEPLOY] Deployment '%s' FAILED: %s" % (deployment_id, err_msg))
+        _stream_deployment_log(deployment_id, "ERROR", "=== Deployment Failed: %s ===" % err_msg, level="error")
+        _finish_deployment(deployment_id, "failed", 1, duration, error_summary=err_msg)
+
+    finally:
+        _ACTIVE_DEPLOYMENT = None
+
+
+def poll_deployment_job():
+    global _ACTIVE_DEPLOYMENT
+    if _ACTIVE_DEPLOYMENT:
+        return
+
+    req = urllib.request.Request(
+        "%s/deployments/poll" % API_URL,
+        headers={"X-API-Key": API_KEY},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=min(http_timeout(), 6)) as resp:
+            data = json.loads(resp.read(50000) or b"{}")
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+
+    job = data.get("job")
+    if job and isinstance(job, dict):
+        t = threading.Thread(
+            target=_execute_deployment,
+            args=(job,),
+            name="deploy-%s" % job.get("deployment_id", "job"),
+            daemon=True,
+        )
+        t.start()
+
+
+def start_deployment_poller():
+    def _poll():
+        while True:
+            try:
+                poll_deployment_job()
+            except Exception as exc:
+                log("[DEPLOY] Poller exception: %r" % (exc,))
+            time.sleep(5)
+
+    threading.Thread(target=_poll, name="deploy-poller", daemon=True).start()
+
+
 def fetch_agent_config():
     """GET the effective agent config from the hub (None on failure)."""
     retries = retry_count()
@@ -1653,6 +1895,7 @@ def main():
     start_connectivity_poller()
     start_terminal_poller()
     start_widget_poller()
+    start_deployment_poller()
 
     # Config backup runs once daily at the centrally-configured hour
     # (default 12:00 AM local time of this host).

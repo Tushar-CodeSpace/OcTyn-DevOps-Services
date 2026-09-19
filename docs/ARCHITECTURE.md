@@ -68,3 +68,10 @@ This document describes the high-level architecture, data flows, background proc
    - SuperAdmin queues command in dashboard -> `POST /api/v1/terminal/{server_id}/commands`.
    - Agent polls `GET /api/v1/terminal/poll`, claims command, and executes in `/bin/bash` with `cwd=_TERMINAL_CWD`.
    - Output chunks stream back via `POST /api/v1/terminal/result` and are broadcast to dashboard over Socket.IO.
+
+4. **Software Deployments & Microservices Orchestration**:
+   - Admin configures multi-component software templates (Node.js v24 PM2 monorepos, PHP 8.4 Nginx apps, client/machine config repos) under `/deployments`.
+   - Admin triggers deployment selecting target server, components, branch overrides, client name, and machine type (`POST /api/v1/deployments/run`).
+   - Site agent poller checks `GET /api/v1/deployments/poll`, executes environment pre-checks (Node v24 via NodeSource, PM2, PHP 8.4, Nginx), clones/pulls Git repos, imports client/machine configurations into local MongoDB, runs build scripts, and reloads PM2/Nginx.
+   - Realtime stdout/stderr lines are streamed back to `POST /api/v1/deployments/{id}/stream` and broadcast live over Socket.IO to the web console drawer.
+

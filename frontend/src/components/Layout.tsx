@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Layers,
   PanelLeftClose,
+  Rocket,
   Search,
   Settings as SettingsIcon,
   Users,
@@ -34,6 +35,7 @@ const nav = [
 const adminNav = [
   { to: "/users", label: "Users & Roles", icon: Users },
   { to: "/templates", label: "Templates", icon: Layers },
+  { to: "/deployments", label: "Deployments", icon: Rocket },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
 ];
 
