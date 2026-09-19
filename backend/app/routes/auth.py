@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.database import models as db
 from app.database.connection import new_id
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, RefreshTokenRequest, TokenResponse, UserRead
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RefreshTokenResponse, TokenResponse, UserRead
 from app.services import authentication as auth
 from app.services import audit as audit_trail
 
