@@ -72,6 +72,12 @@ This document describes the high-level architecture, data flows, background proc
 4. **Software Deployments & Microservices Orchestration**:
    - Admin configures multi-component software templates (Node.js v24 PM2 monorepos, PHP 8.4 Nginx apps, client/machine config repos) under `/deployments`.
    - Admin triggers deployment selecting target server, components, branch overrides, client name, and machine type (`POST /api/v1/deployments/run`).
+   - The deployment initializes in `pending_approval` state.
+   - **3-Team Governance Gate**: Deployments require 3 distinct approvals from DevOps (`user_group: devops`), Developer (`user_group: developer`), and Product (`user_group: product`) teams before status transitions to `pending`. Site agents are strictly isolated and will not claim unapproved runs.
    - Site agent poller checks `GET /api/v1/deployments/poll`, executes environment pre-checks (Node v24 via NodeSource, PM2, PHP 8.4, Nginx), clones/pulls Git repos, imports client/machine configurations into local MongoDB, runs build scripts, and reloads PM2/Nginx.
    - Realtime stdout/stderr lines are streamed back to `POST /api/v1/deployments/{id}/stream` and broadcast live over Socket.IO to the web console drawer.
+
+5. **Template Library Management**:
+   - Centralized repository under `/templates` for reusable Agent Runtime configurations and Custom Widget definitions.
+   - Admins can create, edit, duplicate, and delete templates to enforce standardization across newly registered edge nodes.
 

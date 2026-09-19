@@ -100,6 +100,13 @@ octyn_watcher/
 | `POST` | `/api/v1/terminal/{id}/commands` | JWT (SuperAdmin) | Queue terminal command |
 | `GET` | `/api/v1/terminal/poll` | API Key | Agent claims queued command |
 | `POST` | `/api/v1/terminal/result` | API Key | Agent streams command output |
+| `POST` | `/api/v1/deployments/run` | JWT (Admin) | Trigger single or multi-site deployment (`pending_approval`) |
+| `POST` | `/api/v1/deployments/{id}/approve` | JWT (Admin) | Submit team sign-off (DevOps, Developer, Product) |
+| `POST` | `/api/v1/deployments/batch/{batch_id}/approve` | JWT (Admin) | Fleet-wide batch sign-off across all nodes |
+| `POST` | `/api/v1/deployments/{id}/reject` | JWT (Admin) | Reject deployment with reason |
+| `GET` | `/api/v1/deployments/poll` | API Key | Edge site agent polls for approved jobs (`status: pending`) |
+| `POST` | `/api/v1/deployments/{id}/stream` | API Key | Edge site agent streams live stdout/stderr logs |
+| `POST` | `/api/v1/deployments/{id}/finish` | API Key | Edge site agent reports completion exit code |
 
 ---
 
@@ -151,6 +158,19 @@ uv run agent
 - Primary styling uses Tailwind CSS 4 with custom dark mode theme (`bg-black`, `text-emerald-300`, `text-slate-200`).
 - **Device Connectivity**: Device status tiles are formatted as small, space-efficient, responsive grid cards showing glowing status indicators, host name, latency, IP, and timestamp.
 - **Alert Controls**: Settings page features responsive Sub-Tiles for Client-level and Site-level alert enable/disable toggles with real-time search filtering.
+
+### Software Deployments & 3-Team Approval Governance
+- **Multi-Component Stacks**: Configure Node.js v24 PM2 monorepos, PHP 8.4 Nginx frontends, and client/machine config repos under `/deployments`.
+- **Governance Gate**: Deployments trigger into `pending_approval` status. Edge agents poll for `status: "pending"`, preventing unapproved code from running on remote machines.
+- **3 Team Sign-Offs**: Require 3 distinct team approvals:
+  1. 🛠️ **DevOps Team** (`user_group: devops`)
+  2. 💻 **Developer Team** (`user_group: developer`)
+  3. 📊 **Product Team** (`user_group: product`)
+- **Fleet Batch Approvals**: `POST /api/v1/deployments/batch/{batch_id}/approve` signs off across all nodes in a multi-site batch in a single step.
+- **Real-Time Streaming**: Agents stream stdout/stderr lines live to the web terminal drawer via Socket.IO.
+
+### Template Library Management
+- Under `/templates` (restricted to Admin and Super Admin accounts), administrators can define and manage reusable **Agent Runtime Templates** and **Custom Widget Templates**.
 
 ---
 

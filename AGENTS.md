@@ -69,6 +69,20 @@ For the detailed complete guide, see [AGENT.md](file:///d:/octyn_watcher/AGENT.m
 12. **API Prefix Auto-Normalization**:
     - Backend middleware automatically rewrites redundant `/api/v1/api/v1/` prefixes to `/api/v1/` to prevent 404s when tools or users include `/api/v1` in their base domain.
 
+13. **Software Deployments & 3-Team Approval Governance Gate**:
+    - Software deployments start in `pending_approval` status with `approval_required_groups: ["devops", "developer", "product"]`.
+    - Edge site agents poll for `status: "pending"`, ensuring remote servers are strictly blocked from claiming or running unapproved code.
+    - Exactly **3 distinct team approvals** are mandatory before execution:
+      1. One **DevOps Team** user (`user_group: devops`)
+      2. One **Developer Team** user (`user_group: developer`)
+      3. One **Product Team** user (`user_group: product`)
+    - Duplicate team approvals are rejected with HTTP 400. Once all 3 teams approve, status automatically transitions to `pending`, unlocking the job for edge agent execution.
+    - Endpoints support single deployment approval (`POST /api/v1/deployments/{id}/approve`), fleet-wide batch approval (`POST /api/v1/deployments/batch/{batch_id}/approve`), and rejection (`/reject`).
+    - User accounts support `user_group: devops | developer | product | management` managed under `/users`.
+
+14. **Template Library Management (`/templates`)**:
+    - Dedicated management interface accessible strictly to Admin and Super Admin accounts to create, edit, duplicate, and delete reusable **Agent Runtime Templates** and **Custom Widget Templates**.
+
 ---
 
 ## How to Run Services

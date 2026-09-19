@@ -167,4 +167,97 @@ When pushing new code to the central server or deploying agent auto-updates, tem
 2. **Agent Auto-Update Grace Period (180s)**:
    - When `POST /api/v1/agent/trigger-update` broadcasts an update, an active 180s `updating_until` window protects agents from being falsely flagged as offline while they self-update and restart under `systemd`.
 
+---
+
+## 10. How Software Deployments & Orchestration Work
+
+OcTyn DevOps Services features an automated software release and orchestration engine designed to deploy multi-component applications across remote site servers:
+
+1. **Multi-Component Stacks & Git Repositories**:
+   - Software definitions configure multiple repositories under a unified deployment profile:
+     - **Backend Monorepo**: Node.js v24 PM2 services, automated dependencies installation (`npm ci`), and build steps.
+     - **Frontend Web**: PHP 8.4+ applications, Composer package installation, and Nginx / PHP-FPM service reloads.
+     - **Client & Machine Config Repo**: Dynamically clones site-specific profiles (`configs/{client}/{machine_type}`) and imports configuration documents directly into local MongoDB databases.
+   - Built-in default template for **`nidoworkz`** auto-seeds on initial database creation.
+
+2. **Single-Site vs Multi-Site Fleet Deployments**:
+   - **Single-Site**: Target an individual server node with immediate feedback.
+   - **Multi-Site**: Filter site nodes by client name, select all online machines, and dispatch concurrent deployment jobs bound by a shared `batch_id`.
+
+3. **Live Terminal Streaming & Multi-Node Console**:
+   - As edge agents execute deployment stages (`precheck`, `git_fetch`, `config_import`, `build`, `start_services`), every line of stdout and stderr streams back chunk-by-chunk to `POST /api/v1/deployments/{id}/stream`.
+   - The central server broadcasts log lines over Socket.IO directly to the web dashboard's terminal drawer.
+   - For multi-site batches, the console features a **Fleet Nodes Tab Bar**, allowing administrators to switch between live node output streams seamlessly.
+
+---
+
+## 11. How the 3-Team Approval Governance Gate Works
+
+To ensure safe, compliant production releases, deployments enforce an enterprise **3-Team Governance Gate**:
+
+```
+                       ┌─────────────────────────┐
+                       │  Deployment Triggered   │
+                       │ (status: pending_appr)  │
+                       └────────────┬────────────┘
+                                    │
+                                    ▼
+       ┌────────────────────────────┼────────────────────────────┐
+       │                            │                            │
+       ▼                            ▼                            ▼
+┌──────────────┐             ┌──────────────┐             ┌──────────────┐
+│ 🛠️ DevOps     │             │ 💻 Developer │             │ 📊 Product    │
+│ Team Sign-Off│             │ Team Sign-Off│             │ Team Sign-Off│
+└──────┬───────┘             └──────┬───────┘             └──────┬───────┘
+       │                            │                            │
+       └────────────────────────────┼────────────────────────────┘
+                                    │
+                         (3 of 3 Approvals Met)
+                                    ▼
+                       ┌─────────────────────────┐
+                       │   Status: "pending"     │
+                       └────────────┬────────────┘
+                                    │
+                       (Edge Agent Polls & Claims)
+                                    ▼
+                       ┌─────────────────────────┐
+                       │   Status: "running"     │
+                       └─────────────────────────┘
+```
+
+1. **User Groups & Role-Based Segregation**:
+   - Users are assigned to distinct operational groups under `/users`:
+     - 🛠️ `devops`: Infrastructure, environment, and CI/CD verification.
+     - 💻 `developer`: Code review, logic validation, and schema compatibility.
+     - 📊 `product`: Feature sign-off, release notes, and customer notification.
+     - 👔 `management`: High-level oversight.
+
+2. **Agent Isolation (Zero-Execution Before Approval)**:
+   - When triggered, deployments are created in `status: "pending_approval"`.
+   - Edge site agents poll for jobs with `status: "pending"`.
+   - **Result**: Remote servers cannot claim or execute any code until all mandatory approvals are locked in.
+
+3. **Step-by-Step Approval Protocol**:
+   - Each team submits sign-off via `POST /api/v1/deployments/{id}/approve` (or 1-click fleet batch approval via `/batch/{batch_id}/approve`).
+   - Duplicate approvals from the same team are rejected with HTTP 400.
+   - Approver email, user ID, timestamp, and optional sign-off notes are permanently recorded in the deployment record.
+   - When the 3rd distinct team approves (3/3), status automatically transitions to `pending` and emits `deployment_status`, immediately unlocking the job for edge site agents.
+
+4. **Rejection Handling**:
+   - Any authorized team member can reject a deployment via `POST /api/v1/deployments/{id}/reject` with a mandatory reason.
+   - The deployment transitions to `status: "rejected"`, alerting all teams and completely terminating execution.
+
+---
+
+## 12. How the Template Library Works
+
+Located under `/templates` (restricted to Administrators and Super Admins), the **Template Library** allows teams to standardize infrastructure and telemetry definitions:
+
+1. **Agent Runtime Templates**:
+   - Define reusable configurations for remote site agents, including monitoring intervals, timeout limits, retry policies, config polling frequencies, and ICMP ping target device lists.
+   - Apply templates directly to one or multiple remote servers.
+2. **Custom Widget Templates**:
+   - Define standardized MongoDB telemetry widgets: database name, collection, timestamp field, group-by keys, polling intervals, and widget-specific integration failure alert thresholds.
+   - Rapidly instantiate consistent monitoring widgets across newly registered servers.
+
 
