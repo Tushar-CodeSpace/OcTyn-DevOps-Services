@@ -350,6 +350,10 @@ def _sanitize_widget(item) -> dict:
         alert_window = 15
     template_id = str(item.get("template_id") or "").strip() or None
     template_name = str(item.get("template_name") or "").strip() or None
+    raw_inc = item.get("include_values") or []
+    include_values = [str(s).strip() for s in raw_inc if str(s).strip() or s == ""]
+    raw_exc = item.get("exclude_values") or []
+    exclude_values = [str(s).strip() for s in raw_exc if str(s).strip() or s == ""]
     return {
         "name": name[:100],
         "database": database[:100],
@@ -362,6 +366,8 @@ def _sanitize_widget(item) -> dict:
         "max_groups": max_groups,
         "alert_threshold_percent": alert_threshold,
         "alert_window_minutes": alert_window,
+        "include_values": include_values,
+        "exclude_values": exclude_values,
         "template_id": template_id,
         "template_name": template_name,
     }
@@ -474,9 +480,14 @@ def _coerce_str_list(raw) -> list[str]:
     if not raw:
         return []
     if isinstance(raw, str):
-        return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip()]
+        return [p.strip() for p in raw.replace("\n", ",").split(",") if p.strip() or p == ""]
     if isinstance(raw, (list, tuple, set)):
-        return [str(p).strip() for p in raw if str(p).strip()]
+        out = []
+        for p in raw:
+            s = str(p).strip() if p is not None else ""
+            if s or p == "":
+                out.append(s)
+        return out
     return []
 
 
