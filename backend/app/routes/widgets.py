@@ -153,6 +153,7 @@ def template_doc_to_read(doc: dict, usage_resolver=None) -> WidgetTemplateRead:
         alert_window_minutes=int(doc.get("alert_window_minutes", 15)),
         include_values=doc.get("include_values", []),
         exclude_values=doc.get("exclude_values", []),
+        target_site_ids=doc.get("target_site_ids"),
         created_at=doc.get("created_at", now()),
         updated_at=doc.get("updated_at", now()),
         used_by_sites=used_sites,
@@ -318,6 +319,10 @@ async def assign_widget_template_to_sites_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
     count = assign_widget_template_sites(template_id, payload.site_ids)
+    db.widget_templates().update_one(
+        {"_id": template_id},
+        {"$set": {"target_site_ids": payload.site_ids, "updated_at": now()}},
+    )
     audit_trail.record(
         current, "template_assign_sites", request,
         {"kind": "widget", "id": template_id, "name": doc["name"], "site_ids": payload.site_ids, "servers_updated": count},

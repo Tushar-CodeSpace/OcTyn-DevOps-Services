@@ -43,18 +43,19 @@ def get_all_runtime_template_usages():
         server_usages: list[TemplateServerUsage] = []
 
         for sid in sorted(server_ids):
-            srv = servers_map[sid]
+            srv = servers_map.get(sid) or {}
+            srv_name = str(srv.get("hostname") or srv.get("name") or sid)
             site_id = str(srv.get("site_id") or "")
-            site = sites_map.get(site_id)
-            client_name = site.get("client", "Unknown Site") if site else "Unknown Site"
-            location = site.get("location", "") if site else ""
-            code = site.get("code", "") if site else ""
+            site = sites_map.get(site_id) or {}
+            client_name = str(site.get("client") or "Unknown Site")
+            location = str(site.get("location") or "")
+            code = str(site.get("code") or "")
             site_display = f"{client_name} ({location})" if location else client_name
 
             server_usages.append(
                 TemplateServerUsage(
                     server_id=sid,
-                    server_name=srv.get("name", sid),
+                    server_name=srv_name,
                     site_id=site_id,
                     site_name=site_display,
                 )
@@ -68,7 +69,7 @@ def get_all_runtime_template_usages():
                     "code": code,
                     "servers": [],
                 }
-            sites_grouped[site_id]["servers"].append(srv.get("name", sid))
+            sites_grouped[site_id]["servers"].append(srv_name)
 
         site_usages = [
             TemplateSiteUsage(
@@ -118,18 +119,19 @@ def get_all_widget_template_usages():
         server_usages: list[TemplateServerUsage] = []
 
         for sid in sorted(server_ids):
-            srv = servers_map[sid]
+            srv = servers_map.get(sid) or {}
+            srv_name = str(srv.get("hostname") or srv.get("name") or sid)
             site_id = str(srv.get("site_id") or "")
-            site = sites_map.get(site_id)
-            client_name = site.get("client", "Unknown Site") if site else "Unknown Site"
-            location = site.get("location", "") if site else ""
-            code = site.get("code", "") if site else ""
+            site = sites_map.get(site_id) or {}
+            client_name = str(site.get("client") or "Unknown Site")
+            location = str(site.get("location") or "")
+            code = str(site.get("code") or "")
             site_display = f"{client_name} ({location})" if location else client_name
 
             server_usages.append(
                 TemplateServerUsage(
                     server_id=sid,
-                    server_name=srv.get("name", sid),
+                    server_name=srv_name,
                     site_id=site_id,
                     site_name=site_display,
                 )
@@ -143,7 +145,7 @@ def get_all_widget_template_usages():
                     "code": code,
                     "servers": [],
                 }
-            sites_grouped[site_id]["servers"].append(srv.get("name", sid))
+            sites_grouped[site_id]["servers"].append(srv_name)
 
         site_usages = [
             TemplateSiteUsage(
@@ -265,7 +267,8 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
     for sid in target_server_ids:
         pid = parse_id(sid) or sid
         sc = db.server_configs().find_one({"server_id": pid})
-        existing_widgets = (sc.get("custom_widgets") or sc.get("widgets") or []) if sc else []
+        raw_widgets = (sc.get("custom_widgets") or sc.get("widgets") or []) if sc else []
+        existing_widgets = [w for w in raw_widgets if isinstance(w, dict)]
         idx = next((i for i, w in enumerate(existing_widgets) if w.get("template_id") == template_id or w.get("name") == template["name"]), -1)
         if idx >= 0:
             existing_widgets[idx] = spec
@@ -289,7 +292,8 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
     for sc in all_with_widget:
         sc_sid = str(sc.get("server_id") or "")
         if sc_sid and sc_sid not in target_server_ids:
-            widgets = sc.get("custom_widgets") or sc.get("widgets") or []
+            raw_widgets = sc.get("custom_widgets") or sc.get("widgets") or []
+            widgets = [w for w in raw_widgets if isinstance(w, dict)]
             new_widgets = [w for w in widgets if w.get("template_id") != template_id and w.get("name") != template["name"]]
             if len(new_widgets) != len(widgets):
                 db.server_configs().update_one(
@@ -297,7 +301,11 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
                     {"$set": {"custom_widgets": new_widgets, "widgets": new_widgets, "updated_at": now()}},
                 )
                 from app.database.connection import parse_id
-                db.widget_data().delete_many({"server_id": parse_id(sc_sid), "widget_name": template["name"]})
+                target_del = [sc_sid]
+                pid = parse_id(sc_sid)
+                if pid is not None and pid != sc_sid:
+                    target_del.append(pid)
+                db.widget_data().delete_many({"server_id": {"$in": target_del}, "widget_name": template["name"]})
                 emit("agent_config_updated", {"server_id": sc_sid}, room=f"server:{sc_sid}")
 
     return count
