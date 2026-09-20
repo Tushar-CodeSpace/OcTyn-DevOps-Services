@@ -109,8 +109,21 @@ def ensure_pymongo() -> None:
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description="OcTyn DevOps Services — Agent Installer")
+    parser.add_argument("--server-id", dest="server_id", default=os.environ.get("SERVER_ID", ""))
+    parser.add_argument("--api-key", dest="api_key", default=os.environ.get("API_KEY", ""))
+    parser.add_argument("--api-url", dest="api_url", default=os.environ.get("API_URL", "http://localhost:8000/api/v1"))
+    parser.add_argument("--non-interactive", action="store_true", default=os.environ.get("NON_INTERACTIVE") == "1")
+    args, _ = parser.parse_known_args()
+
+    default_api_url = args.api_url or os.environ.get("API_URL", "http://localhost:8000/api/v1")
+    default_server_id = args.server_id or os.environ.get("SERVER_ID", "")
+    default_api_key = args.api_key or os.environ.get("API_KEY", "")
+    is_non_interactive = bool(args.non_interactive or (default_server_id and default_api_key))
+
     # If piped via `curl ... | sudo python3 -`, re-open sys.stdin from /dev/tty for interactive input
-    if not sys.stdin.isatty():
+    if not is_non_interactive and not sys.stdin.isatty():
         try:
             sys.stdin = open("/dev/tty", "r")
         except Exception:
@@ -126,7 +139,7 @@ def main() -> None:
         try:
             os.makedirs(INSTALL_DIR, exist_ok=True)
         except PermissionError:
-            print_err(f"Permission denied: please run installer with sudo/root privileges!")
+            print_err("Permission denied: please run installer with sudo/root privileges!")
             sys.exit(1)
     else:
         print_step(f"Installation directory exists: {INSTALL_DIR}")
@@ -134,14 +147,11 @@ def main() -> None:
     # 2. Ensure python3-pymongo is installed
     ensure_pymongo()
 
-    # 2. Collect configuration inputs
-    default_api_url = os.environ.get("API_URL", "http://localhost:8000/api/v1")
-    default_server_id = os.environ.get("SERVER_ID", "")
-    default_api_key = os.environ.get("API_KEY", "")
-
-    # Non-interactive mode support (if env vars are passed)
-    if os.environ.get("NON_INTERACTIVE") == "1" or (default_server_id and default_api_key):
-        api_url = default_api_url
+    # 3. Collect configuration inputs
+    if is_non_interactive:
+        api_url = default_api_url.rstrip("/")
+        if "/api/v1" not in api_url:
+            api_url += "/api/v1"
         server_id = default_server_id
         api_key = default_api_key
     else:
@@ -152,6 +162,7 @@ def main() -> None:
 
         server_id = prompt(f"Enter SERVER_ID (from dashboard) [{default_server_id}]: ", default_server_id)
         api_key = prompt(f"Enter API_KEY (starts with cm-) [{default_api_key}]: ", default_api_key)
+
 
     # 3. Write .env file
     env_file = os.path.join(INSTALL_DIR, ".env")

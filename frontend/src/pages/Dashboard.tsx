@@ -4,7 +4,10 @@ import {
   AlertTriangle,
   ArrowUpDown,
   Building2,
+  Check,
+  CheckCircle2,
   Copy,
+  ExternalLink,
   Grid,
   List,
   MapPin,
@@ -12,6 +15,8 @@ import {
   Rocket,
   Search,
   Server as ServerIcon,
+  ShieldCheck,
+  Terminal,
   Trash2,
   Wifi,
   WifiOff,
@@ -88,6 +93,23 @@ export default function Dashboard() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [hubUrl, setHubUrl] = useState(() => {
+    if (typeof window !== "undefined" && window.location.port === "5173") {
+      return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+    }
+    return typeof window !== "undefined" ? `${window.location.origin}/api/v1` : "http://localhost:8000/api/v1";
+  });
+  const [copiedType, setCopiedType] = useState<string | null>(null);
+  const [installTab, setInstallTab] = useState<"bash" | "python" | "env">("bash");
+
+  function copyWithFeedback(text: string, type: string) {
+    copy(text);
+    setCopiedType(type);
+    setTimeout(() => {
+      setCopiedType((cur) => (cur === type ? null : cur));
+    }, 2000);
+  }
 
   const siteName = (siteId: string) => sites.find((s) => s.id === siteId)?.client ?? siteId.slice(0, 8);
   const siteLocation = (siteId: string) => sites.find((s) => s.id === siteId)?.location ?? "—";
@@ -787,10 +809,28 @@ export default function Dashboard() {
       </Card>
 
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3">
-              <h2 className="text-sm font-semibold">Register agent</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className={cn(
+            "w-full rounded-xl border border-slate-700/80 bg-slate-900 p-6 shadow-2xl transition-all",
+            registered ? "max-w-2xl" : "max-w-md"
+          )}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              {registered ? (
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-100">Agent Registered Successfully</h2>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs font-mono font-medium text-emerald-400">{registered.name}</span>
+                      <span className="text-[11px] text-slate-400 font-mono">({registered.serverId})</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <h2 className="text-sm font-semibold">Register agent</h2>
+              )}
               <button
                 onClick={() => {
                   setShowAdd(false);
@@ -804,38 +844,248 @@ export default function Dashboard() {
             </div>
 
             {registered ? (
-              <div className="flex flex-col gap-3">
-                <p className="text-xs text-emerald-400">
-                  Agent <span className="font-semibold">{registered.name}</span> registered. Set
-                  these values on the agent in the site server — the key is shown only once.
-                </p>
-                <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 break-all font-mono text-xs text-emerald-300">
-                      {registered.key}
-                    </code>
-                    <Button variant="ghost" size="sm" onClick={() => copy(registered.key)}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
+              <div className="flex flex-col gap-4 mt-4">
+                {/* Method selector tabs */}
+                <div className="flex items-center gap-1 border-b border-slate-800 pb-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setInstallTab("bash")}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors",
+                      installTab === "bash"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    )}
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                    Single-Line Bash (Recommended)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInstallTab("python")}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors",
+                      installTab === "python"
+                        ? "bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    )}
+                  >
+                    Python Script
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInstallTab("env")}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors",
+                      installTab === "env"
+                        ? "bg-slate-700 text-slate-200 border border-slate-600"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    )}
+                  >
+                    Manual .env
+                  </button>
                 </div>
-                <pre className="overflow-x-auto rounded-lg border border-slate-800 bg-black/60 p-3 font-mono text-xs leading-relaxed text-emerald-300">{`SITE_ID=${registered.siteId}
-SERVER_ID=${registered.serverId}
-API_URL=${window.location.origin}/api/v1
-API_KEY=${registered.key}
-MONITORING_INTERVAL=60
-MONITORED_SERVICES=${form.monitored_services.trim()}`}</pre>
-                <Button
-                  onClick={() => {
-                    setShowAdd(false);
-                    setRegistered(null);
-                  }}
-                  className="w-full"
-                >
-                  Done
-                </Button>
+
+                {installTab === "bash" && (
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-300">
+                        Run this single command on the agent server to install &amp; start:
+                      </span>
+                      <span className="text-[11px] text-emerald-400/90 flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Run as root / sudo
+                      </span>
+                    </div>
+
+                    {/* Terminal Window Box */}
+                    <div className="relative overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950 shadow-inner">
+                      <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/90 px-3 py-1.5 text-[11px] text-slate-400 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-full bg-rose-500/80" />
+                          <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
+                          <span className="ml-1 text-slate-400">root@{registered.name || "server"}:~#</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">Auto-installs dependencies &amp; starts daemon</span>
+                      </div>
+
+                      <div className="p-3.5">
+                        <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-emerald-300 select-all whitespace-pre-wrap break-all">
+                          {`curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}" | sudo bash`}
+                        </pre>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-slate-800/80 bg-slate-900/60 px-3 py-2">
+                        <span className="text-[11px] text-slate-400">
+                          Runs unattended on Ubuntu, Debian, CentOS, RHEL, Rocky, Alma.
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={() => copyWithFeedback(
+                            `curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}" | sudo bash`,
+                            "bash"
+                          )}
+                          className={cn(
+                            "h-8 gap-1.5 text-xs font-semibold shadow-sm transition-all",
+                            copiedType === "bash"
+                              ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                              : "bg-emerald-500 hover:bg-emerald-400 text-slate-950"
+                          )}
+                        >
+                          {copiedType === "bash" ? (
+                            <>
+                              <Check className="h-3.5 w-3.5" />
+                              Copied Command!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy Single Command
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* What this command does badges */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5 text-[11px] text-slate-400">
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span>Installs Python 3</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span>Fetches Agent</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span>Writes .env</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <span>Starts systemd</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {installTab === "python" && (
+                  <div className="flex flex-col gap-2.5">
+                    <span className="text-xs font-medium text-slate-300">
+                      Execute automated Python installer directly:
+                    </span>
+                    <div className="overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950 p-3.5 shadow-inner">
+                      <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-sky-300 select-all whitespace-pre-wrap break-all">
+                        {`curl -sSL "${hubUrl}/agent/download/installer" | sudo python3 - --server-id "${registered.serverId}" --api-key "${registered.key}" --api-url "${hubUrl}"`}
+                      </pre>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={() => copyWithFeedback(
+                          `curl -sSL "${hubUrl}/agent/download/installer" | sudo python3 - --server-id "${registered.serverId}" --api-key "${registered.key}" --api-url "${hubUrl}"`,
+                          "python"
+                        )}
+                        className="h-8 gap-1.5 text-xs bg-sky-600 hover:bg-sky-500 text-white"
+                      >
+                        {copiedType === "python" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedType === "python" ? "Copied Command!" : "Copy Python Command"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {installTab === "env" && (
+                  <div className="flex flex-col gap-2.5">
+                    <span className="text-xs text-slate-400">
+                      Agent API Key (shown only once):
+                    </span>
+                    <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2.5">
+                      <code className="flex-1 break-all font-mono text-xs text-emerald-300 select-all">
+                        {registered.key}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyWithFeedback(registered.key, "key")}
+                        className="h-7 text-xs gap-1 text-slate-300 hover:text-white"
+                      >
+                        {copiedType === "key" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedType === "key" ? "Copied" : "Copy Key"}
+                      </Button>
+                    </div>
+
+                    <span className="text-xs text-slate-400 mt-1">
+                      Minimal configuration file (<code className="text-slate-300">/opt/octyn-agent/.env</code>):
+                    </span>
+                    <pre className="overflow-x-auto rounded-lg border border-slate-800 bg-black/60 p-3 font-mono text-xs leading-relaxed text-emerald-300 select-all">{`SERVER_ID=${registered.serverId}
+API_URL=${hubUrl}
+API_KEY=${registered.key}`}</pre>
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyWithFeedback(
+                          `SERVER_ID=${registered.serverId}\nAPI_URL=${hubUrl}\nAPI_KEY=${registered.key}`,
+                          "env"
+                        )}
+                        className="h-7 text-xs gap-1 border-slate-700 text-slate-300 hover:text-white"
+                      >
+                        {copiedType === "env" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedType === "env" ? "Copied .env" : "Copy .env"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Central Hub Endpoint configuration */}
+                <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] font-medium text-slate-400">
+                      Central Server Hub URL (configured in command):
+                    </Label>
+                    {typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && (
+                      <span className="text-[10px] text-amber-400">
+                        ⚠ Using localhost: For remote agents, use this machine's LAN or Public IP.
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    value={hubUrl}
+                    onChange={(e) => setHubUrl(e.target.value)}
+                    placeholder="http://<central-server-ip>:8000/api/v1"
+                    className="h-8 text-xs font-mono bg-slate-950/60 border-slate-700 text-slate-200"
+                  />
+                </div>
+
+                {/* Modal Footer */}
+                <div className="flex items-center justify-between border-t border-slate-800 pt-3 mt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowAdd(false);
+                      setRegistered(null);
+                      navigate(`/servers/${registered.serverId}`);
+                    }}
+                    className="gap-1.5 text-xs border-slate-700 text-slate-300 hover:text-white hover:border-slate-600"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open Server Details
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setShowAdd(false);
+                      setRegistered(null);
+                    }}
+                    className="min-w-24 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  >
+                    Done
+                  </Button>
+                </div>
               </div>
             ) : (
+
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
                   <Label className="text-xs text-slate-400">Client name</Label>

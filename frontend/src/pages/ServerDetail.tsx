@@ -2907,9 +2907,46 @@ export default function ServerDetail() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {newKey && (
-            <div className="rounded-md border border-emerald-700 bg-emerald-900/30 p-3 text-sm">
-              <p className="font-medium text-emerald-300">Save this key now — it is shown only once:</p>
-              <code className="mt-1 block break-all text-emerald-100">{newKey}</code>
+            <div className="rounded-xl border border-emerald-700/80 bg-emerald-950/30 p-4 text-sm flex flex-col gap-3 shadow-md">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  Save this API key now — it is shown only once:
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(newKey);
+                    showToast({ severity: "info", title: "Key Copied", message: "API key copied to clipboard" });
+                  }}
+                  className="h-7 text-xs gap-1 text-emerald-300 hover:text-emerald-100"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy Key
+                </Button>
+              </div>
+              <code className="block break-all rounded border border-emerald-800 bg-black/60 p-2.5 font-mono text-xs text-emerald-200 select-all">{newKey}</code>
+              <div className="mt-1 flex flex-col gap-1.5 border-t border-emerald-800/40 pt-3">
+                <span className="text-xs font-medium text-slate-300">Single-Command Agent Installation (Run on Remote Server):</span>
+                <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-black/70 p-2 font-mono text-xs text-sky-300">
+                  <code className="flex-1 break-all select-all">
+                    {`curl -sSL "${(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}/agent/install.sh?server_id=${id}&api_key=${newKey}" | sudo bash`}
+                  </code>
+                  <Button
+                    size="sm"
+                    className="shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-7 gap-1"
+                    onClick={() => {
+                      const cmd = `curl -sSL "${(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}/agent/install.sh?server_id=${id}&api_key=${newKey}" | sudo bash`;
+                      navigator.clipboard.writeText(cmd);
+                      showToast({ severity: "info", title: "Command Copied", message: "Single-command installer copied to clipboard" });
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy Command
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
           <Table>
