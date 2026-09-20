@@ -911,7 +911,7 @@ export default function Dashboard() {
 
                       <div className="p-3.5">
                         <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-emerald-300 select-all whitespace-pre-wrap break-all">
-                          {`curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}" | sudo bash`}
+                          {`curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}&api_url=${encodeURIComponent(hubUrl)}" | sudo bash`}
                         </pre>
                       </div>
 
@@ -922,7 +922,7 @@ export default function Dashboard() {
                         <Button
                           size="sm"
                           onClick={() => copyWithFeedback(
-                            `curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}" | sudo bash`,
+                            `curl -sSL "${hubUrl}/agent/install.sh?server_id=${registered.serverId}&api_key=${registered.key}&api_url=${encodeURIComponent(hubUrl)}" | sudo bash`,
                             "bash"
                           )}
                           className={cn(

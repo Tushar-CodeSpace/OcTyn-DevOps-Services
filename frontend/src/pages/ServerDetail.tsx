@@ -2931,13 +2931,14 @@ export default function ServerDetail() {
                 <span className="text-xs font-medium text-slate-300">Single-Command Agent Installation (Run on Remote Server):</span>
                 <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-black/70 p-2 font-mono text-xs text-sky-300">
                   <code className="flex-1 break-all select-all">
-                    {`curl -sSL "${(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}/agent/install.sh?server_id=${id}&api_key=${newKey}" | sudo bash`}
+                    {`curl -sSL "${(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}/agent/install.sh?server_id=${id}&api_key=${newKey}&api_url=${encodeURIComponent(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}" | sudo bash`}
                   </code>
                   <Button
                     size="sm"
                     className="shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-7 gap-1"
                     onClick={() => {
-                      const cmd = `curl -sSL "${(window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`)}/agent/install.sh?server_id=${id}&api_key=${newKey}" | sudo bash`;
+                      const effectiveHub = window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8000/api/v1` : `${window.location.origin}/api/v1`;
+                      const cmd = `curl -sSL "${effectiveHub}/agent/install.sh?server_id=${id}&api_key=${newKey}&api_url=${encodeURIComponent(effectiveHub)}" | sudo bash`;
                       navigator.clipboard.writeText(cmd);
                       showToast({ severity: "info", title: "Command Copied", message: "Single-command installer copied to clipboard" });
                     }}

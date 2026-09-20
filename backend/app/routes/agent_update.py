@@ -135,7 +135,22 @@ async def get_agent_install_script(
     # Determine base Central API Hub URL
     if not api_url:
         host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        forwarded_ssl = request.headers.get("x-forwarded-ssl", "").strip().lower()
+        referer = request.headers.get("referer", "")
+
+        if forwarded_proto in ("https", "http"):
+            proto = forwarded_proto
+        elif forwarded_ssl in ("on", "1"):
+            proto = "https"
+        elif referer.startswith("https://"):
+            proto = "https"
+        elif host and not (":" in host and not host.endswith(":443") and not host.endswith(":80")):
+            # Standard domain without custom port usually terminates on HTTPS in production
+            proto = "https" if "." in host and not host.startswith("localhost") and not host.startswith("127.") else (request.url.scheme or "http")
+        else:
+            proto = request.url.scheme or "http"
+
         effective_api_url = f"{proto}://{host}/api/v1"
     else:
         effective_api_url = api_url.rstrip("/")
@@ -150,6 +165,8 @@ async def get_agent_install_script(
 # OcTyn DevOps Services — Automated Site Agent Installer
 # ==============================================================================
 set -e
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 
 # Configuration
 SERVER_ID="{safe_server_id}"
@@ -201,34 +218,63 @@ if [[ "$API_URL" != *"/api/v1" ]]; then
   API_URL="${{API_URL}}/api/v1"
 fi
 
+# Auto-detect if HTTPS is available if API_URL was set to http on a remote domain
+if [[ "$API_URL" == http://* ]] && [[ "$API_URL" != http://localhost* ]] && [[ "$API_URL" != http://127.0.0.1* ]]; then
+  HTTPS_CANDIDATE="https://${{API_URL#http://}}"
+  if curl -sSL -k -f --connect-timeout 3 --max-time 5 "${{HTTPS_CANDIDATE}}/agent/release" >/dev/null 2>&1; then
+    API_URL="$HTTPS_CANDIDATE"
+  fi
+fi
+
 echo -e "${{BLUE}}==>${{NC}} Target Server ID  : ${{BOLD}}${{SERVER_ID}}${{NC}}"
 echo -e "${{BLUE}}==>${{NC}} Central API Hub   : ${{BOLD}}${{API_URL}}${{NC}}"
 
 # 3. Detect OS & Ensure Python 3
 echo -e "\\n${{BLUE}}==>${{NC}} Checking Python 3 & system dependencies..."
-if ! command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1; then
+  PY_VER=$(python3 --version 2>&1)
+  echo -e "${{GREEN}}[OK]${{NC}} ${{PY_VER}} detected."
+else
   echo -e "${{YELLOW}}[!]${{NC}} Python 3 not found. Installing..."
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y --no-install-recommends python3 python3-pip curl
+    timeout 60 apt-get update -qq || true
+    timeout 120 apt-get install -y --no-install-recommends python3 curl || {{
+      echo -e "${{RED}}[ERROR]${{NC}} Failed to install python3 automatically."
+      exit 1
+    }}
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y python3 python3-pip curl
+    timeout 120 dnf install -y python3 curl || true
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y python3 python3-pip curl
+    timeout 120 yum install -y python3 curl || true
   elif command -v pacman >/dev/null 2>&1; then
-    pacman -Sy --noconfirm python python-pip curl
+    timeout 120 pacman -Sy --noconfirm python curl || true
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache python3 py3-pip curl
+    timeout 60 apk add --no-cache python3 curl || true
   else
     echo -e "${{RED}}[ERROR]${{NC}} Could not install Python 3 automatically. Please install python3 and re-run."
     exit 1
   fi
 fi
 
-# Attempt installing python3-pymongo if apt/dnf is available (for MongoDB database backups)
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get install -y --no-install-recommends python3-pymongo >/dev/null 2>&1 || true
-elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y python3-pymongo >/dev/null 2>&1 || true
+# Ensure curl is installed (usually present since curl was used to fetch this script)
+if ! command -v curl >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    timeout 30 apt-get install -y --no-install-recommends curl >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    timeout 30 dnf install -y curl >/dev/null 2>&1 || true
+  fi
+fi
+
+# Optional: ensure python3-pymongo for MongoDB database config backups (non-blocking)
+if python3 -c "import pymongo" >/dev/null 2>&1; then
+  echo -e "${{GREEN}}[OK]${{NC}} pymongo driver detected."
+else
+  echo -e "${{BLUE}}==>${{NC}} Checking pymongo driver (optional for MongoDB backup)..."
+  if command -v apt-get >/dev/null 2>&1; then
+    timeout 20 apt-get install -y --no-install-recommends python3-pymongo >/dev/null 2>&1 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    timeout 20 dnf install -y python3-pymongo >/dev/null 2>&1 || true
+  fi
 fi
 
 # 4. Create directory /opt/octyn-agent
@@ -236,6 +282,7 @@ INSTALL_DIR="/opt/octyn-agent"
 echo -e "${{BLUE}}==>${{NC}} Creating installation directory: ${{INSTALL_DIR}}"
 mkdir -p "$INSTALL_DIR"
 chmod 755 "$INSTALL_DIR"
+
 
 # 5. Write .env configuration (strictly SERVER_ID, API_URL, API_KEY)
 ENV_FILE="$INSTALL_DIR/.env"
@@ -254,14 +301,15 @@ echo -e "${{BLUE}}==>${{NC}} Downloading latest agent runtime from ${{DOWNLOAD_U
 
 DOWNLOAD_OK=0
 if command -v curl >/dev/null 2>&1; then
-  if curl -sSL -f -H "User-Agent: OcTyn-Agent-Installer" "${{DOWNLOAD_URL}}" -o "$AGENT_FILE"; then
+  if curl -sSL -f --connect-timeout 10 --max-time 45 -H "User-Agent: OcTyn-Agent-Installer" "${{DOWNLOAD_URL}}" -o "$AGENT_FILE"; then
     DOWNLOAD_OK=1
   fi
 elif command -v wget >/dev/null 2>&1; then
-  if wget -q -O "$AGENT_FILE" "${{DOWNLOAD_URL}}"; then
+  if wget -q --timeout=30 -O "$AGENT_FILE" "${{DOWNLOAD_URL}}"; then
     DOWNLOAD_OK=1
   fi
 fi
+
 
 if [ "$DOWNLOAD_OK" -ne 1 ]; then
   python3 -c "import urllib.request; urllib.request.urlretrieve('${{DOWNLOAD_URL}}', '${{AGENT_FILE}}')" || true
