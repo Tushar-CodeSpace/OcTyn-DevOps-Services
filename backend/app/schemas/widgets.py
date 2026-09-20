@@ -66,6 +66,8 @@ class WidgetHistoryPoint(BaseModel):
 class WidgetTemplateUpsert(CustomWidgetSpec):
     """Reusable widget definition shared across servers (upsert by name)."""
 
+    model_config = {"extra": "ignore"}
+
     description: str = Field(default="", max_length=300)
     target_site_ids: Optional[list[str]] = None
 

@@ -35,7 +35,7 @@ class CustomWidgetSpec(BaseModel):
     (e.g. ``upload_status`` -> {SUCCESS: n, FAILED: m}).
     """
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     name: str = Field(min_length=1, max_length=100)
     database: str = Field(min_length=1, max_length=100)
@@ -82,7 +82,7 @@ class AgentConfig(BaseModel):
 
 
 class AgentConfigOverrideUpdate(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     config_sync_enabled: Optional[bool] = None
     config_sync_hour: Optional[int] = Field(default=None, ge=0, le=23)
@@ -134,7 +134,7 @@ class TemplateSiteAssignRequest(BaseModel):
 class RuntimeTemplateUpsert(BaseModel):
     """Reusable agent-runtime settings snapshot shared across servers."""
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=300)

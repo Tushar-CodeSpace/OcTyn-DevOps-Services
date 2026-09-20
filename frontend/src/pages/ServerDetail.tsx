@@ -695,7 +695,23 @@ export default function ServerDetail() {
   }
 
   function openWidgetCfg() {
-    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }));
+    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({
+      name: w.name || "",
+      database: w.database || "",
+      collection: w.collection || "",
+      enabled: w.enabled ?? true,
+      poll_interval_seconds: Number(w.poll_interval_seconds) || 60,
+      window_minutes: Number(w.window_minutes) || 60,
+      group_by_field: w.group_by_field || "upload_status",
+      time_field: w.time_field || "created_at",
+      max_groups: Number(w.max_groups) || 10,
+      alert_threshold_percent: Number(w.alert_threshold_percent ?? 50),
+      alert_window_minutes: Number(w.alert_window_minutes ?? 15),
+      include_values: Array.isArray(w.include_values) ? [...w.include_values] : [],
+      exclude_values: Array.isArray(w.exclude_values) ? [...w.exclude_values] : [],
+      template_id: w.template_id || null,
+      template_name: w.template_name || null,
+    }));
     setWidgetDraft(list);
     const incMap: Record<number, string> = {};
     const excMap: Record<number, string> = {};
@@ -719,19 +735,36 @@ export default function ServerDetail() {
       showToast({ severity: "info", title: "Already added", message: `"${t.name}" is already in this server's widgets.` });
       return;
     }
-    const { id: _tid, description: _desc, created_at: _ca, updated_at: _ua, ...spec } = t;
+    const cleanWidget: CustomWidgetSpec = {
+      name: t.name || "",
+      database: t.database || "",
+      collection: t.collection || "",
+      enabled: t.enabled ?? true,
+      poll_interval_seconds: Number(t.poll_interval_seconds) || 60,
+      window_minutes: Number(t.window_minutes) || 60,
+      group_by_field: t.group_by_field || "upload_status",
+      time_field: t.time_field || "created_at",
+      max_groups: Number(t.max_groups) || 10,
+      alert_threshold_percent: Number(t.alert_threshold_percent ?? 50),
+      alert_window_minutes: Number(t.alert_window_minutes ?? 15),
+      include_values: Array.isArray(t.include_values) ? [...t.include_values] : [],
+      exclude_values: Array.isArray(t.exclude_values) ? [...t.exclude_values] : [],
+      template_id: t.id,
+      template_name: t.name,
+    };
     const newIdx = widgetDraft.length;
-    setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: (spec.include_values ?? []).join(", ") }));
-    setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: (spec.exclude_values ?? []).join(", ") }));
-    setWidgetDraft([...widgetDraft, { ...spec, enabled: true, template_id: t.id, template_name: t.name }]);
+    setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: (cleanWidget.include_values ?? []).join(", ") }));
+    setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: (cleanWidget.exclude_values ?? []).join(", ") }));
+    setWidgetDraft([...widgetDraft, cleanWidget]);
     showToast({ severity: "info", title: "Template applied", message: `"${t.name}" added — press Save widgets to activate.` });
   }
 
   async function saveAsTemplate(w: CustomWidgetSpec) {
     try {
+      const { template_id: _tid, template_name: _tname, ...rest } = w as any;
       const saved = await apiFetch<WidgetTemplate>("/widgets/templates", {
         method: "POST",
-        body: JSON.stringify({ ...w, description: "" }),
+        body: JSON.stringify({ ...rest, description: "" }),
       });
       setWidgetTemplates((prev) => {
         const next = (prev ?? []).filter((x) => x.id !== saved.id);
@@ -768,9 +801,26 @@ export default function ServerDetail() {
     if (!id) return;
     setSavingWidgets(true);
     try {
+      const cleanWidgets: CustomWidgetSpec[] = widgetDraft.map((w) => ({
+        name: (w.name || "").trim(),
+        database: (w.database || "").trim(),
+        collection: (w.collection || "").trim(),
+        enabled: w.enabled ?? true,
+        poll_interval_seconds: Number(w.poll_interval_seconds) || 60,
+        window_minutes: Number(w.window_minutes) || 60,
+        group_by_field: (w.group_by_field || "upload_status").trim(),
+        time_field: (w.time_field || "created_at").trim(),
+        max_groups: Number(w.max_groups) || 10,
+        alert_threshold_percent: Number(w.alert_threshold_percent ?? 50),
+        alert_window_minutes: Number(w.alert_window_minutes ?? 15),
+        include_values: Array.isArray(w.include_values) ? w.include_values.map((s) => String(s).trim()).filter(Boolean) : [],
+        exclude_values: Array.isArray(w.exclude_values) ? w.exclude_values.map((s) => String(s).trim()).filter(Boolean) : [],
+        template_id: w.template_id || null,
+        template_name: w.template_name || null,
+      }));
       const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ custom_widgets: widgetDraft }),
+        body: JSON.stringify({ custom_widgets: cleanWidgets }),
       });
       setAgentCfg(saved);
       await loadWidgets();

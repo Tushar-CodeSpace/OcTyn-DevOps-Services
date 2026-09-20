@@ -244,7 +244,6 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
 
     spec = {
         "name": template["name"],
-        "description": template.get("description", ""),
         "database": template["database"],
         "collection": template["collection"],
         "enabled": bool(template.get("enabled", True)),
