@@ -852,20 +852,66 @@ export default function ServerDetail() {
     return ageMs <= widgetIntervalSeconds(w.widget_name) * 2000 + 60000 ? "fresh" : "stale";
   }
 
-  function groupColor(label: string): string {
-    const l = label.toLowerCase();
-    if (/(success|^ok$|passed|complete)/.test(l)) return "bg-emerald-500";
-    if (/(fail|error|expired|invalid|reject)/.test(l)) return "bg-red-500";
-    if (/(pending|retry|warn|unknown)/.test(l)) return "bg-amber-500";
-    return "bg-sky-500";
+  const GROUP_PALETTE_HEX = [
+    "#38bdf8", // Sky Blue
+    "#a855f7", // Purple
+    "#f59e0b", // Amber
+    "#10b981", // Emerald Green
+    "#f43f5e", // Rose
+    "#6366f1", // Indigo
+    "#14b8a6", // Teal
+    "#f97316", // Orange
+    "#ec4899", // Pink
+    "#84cc16", // Lime Green
+    "#06b6d4", // Cyan
+    "#eab308", // Yellow
+  ];
+
+  const GROUP_PALETTE_BG = [
+    "bg-sky-500",
+    "bg-purple-500",
+    "bg-amber-500",
+    "bg-emerald-500",
+    "bg-rose-500",
+    "bg-indigo-500",
+    "bg-teal-500",
+    "bg-orange-500",
+    "bg-pink-500",
+    "bg-lime-500",
+    "bg-cyan-500",
+    "bg-yellow-500",
+  ];
+
+  function getLabelColorIndex(label: string): number {
+    if (!label) return 0;
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+      hash = (hash << 5) - hash + label.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash) % GROUP_PALETTE_HEX.length;
   }
 
-  function groupHex(label: string): string {
-    const l = label.toLowerCase();
-    if (/(success|^ok$|passed|complete)/.test(l)) return "#34d399";
-    if (/(fail|error|expired|invalid|reject)/.test(l)) return "#f87171";
-    if (/(pending|retry|warn|unknown)/.test(l)) return "#fbbf24";
-    return "#38bdf8";
+  function groupColor(label: string, index?: number): string {
+    const l = (label || "").toLowerCase().trim();
+    if (/(success|^ok$|passed|complete)/.test(l)) return "bg-emerald-500";
+    if (/(^fail$|^error$|^expired$|^invalid$)/.test(l)) return "bg-red-500";
+    if (/(^pending$|^retry$|^warn$)/.test(l)) return "bg-amber-500";
+    if (index !== undefined && index >= 0) {
+      return GROUP_PALETTE_BG[index % GROUP_PALETTE_BG.length];
+    }
+    return GROUP_PALETTE_BG[getLabelColorIndex(l)];
+  }
+
+  function groupHex(label: string, index?: number): string {
+    const l = (label || "").toLowerCase().trim();
+    if (/(success|^ok$|passed|complete)/.test(l)) return "#10b981";
+    if (/(^fail$|^error$|^expired$|^invalid$)/.test(l)) return "#ef4444";
+    if (/(^pending$|^retry$|^warn$)/.test(l)) return "#f59e0b";
+    if (index !== undefined && index >= 0) {
+      return GROUP_PALETTE_HEX[index % GROUP_PALETTE_HEX.length];
+    }
+    return GROUP_PALETTE_HEX[getLabelColorIndex(l)];
   }
 
   function widgetRangeLabel(w: { received_at: string; window_minutes: number }): string {
@@ -2123,21 +2169,21 @@ export default function ServerDetail() {
                                   paddingAngle={2}
                                   strokeWidth={0}
                                 >
-                                  {pieData.map((d) => (
-                                    <Cell key={d.name} fill={groupHex(d.name)} />
+                                  {pieData.map((d, i) => (
+                                    <Cell key={d.name} fill={groupHex(d.name, i)} />
                                   ))}
                                 </Pie>
                                 <Tooltip content={<WidgetTooltip />} cursor={{ stroke: "#334155" }} />
                               </PieChart>
                             </ResponsiveContainer>
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                              {pieData.map((d) => (
+                              {pieData.map((d, i) => (
                                 <span key={d.name} className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-400">
                                   <span
                                     className="h-2 w-2 rounded-full"
-                                    style={{ background: groupHex(d.name) }}
+                                    style={{ background: groupHex(d.name, i) }}
                                   />
-                                  {d.name} · {d.value.toLocaleString()}
+                                  {d.name || "(blank)"} · {d.value.toLocaleString()}
                                 </span>
                               ))}
                             </div>
@@ -2174,13 +2220,13 @@ export default function ServerDetail() {
                                 fill={`url(#wtot-${gid})`}
                                 name="Total"
                               />
-                              {trendKeys.map((k) => (
+                              {trendKeys.map((k, i) => (
                                 <Line
                                   key={k}
                                   type="monotone"
                                   dataKey={(row: any) => row.groups?.[k] ?? 0}
-                                  name={k}
-                                  stroke={groupHex(k)}
+                                  name={k || "(blank)"}
+                                  stroke={groupHex(k, i)}
                                   strokeWidth={2}
                                   dot={false}
                                 />
@@ -2199,13 +2245,13 @@ export default function ServerDetail() {
                             <span className="text-xs text-slate-500">events</span>
                           </div>
                           <div className="mt-2 flex flex-col gap-1.5">
-                            {groups.slice(0, 4).map(([label, count]) => {
+                            {groups.slice(0, 4).map(([label, count], i) => {
                               const pct = total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0;
                               return (
                                 <div key={label} className="flex flex-col gap-1">
                                   <div className="flex items-center justify-between text-xs">
                                     <span className="truncate font-mono text-slate-300" title={label}>
-                                      {label}
+                                      {label || "(blank)"}
                                     </span>
                                     <span className="ml-2 shrink-0 font-mono text-slate-400">
                                       {count.toLocaleString()} · {pct}%
@@ -2213,7 +2259,7 @@ export default function ServerDetail() {
                                   </div>
                                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                                     <div
-                                      className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
+                                      className={cn("h-full rounded-full transition-all duration-500", groupColor(label, i))}
                                       style={{ width: `${pct}%` }}
                                     />
                                   </div>
@@ -2802,13 +2848,13 @@ export default function ServerDetail() {
                             <p className="text-xs text-slate-500">No events in this window.</p>
                           ) : (
                             <div className="flex flex-col gap-1.5">
-                              {entries.map(([label, count]) => {
+                              {entries.map(([label, count], i) => {
                                 const pct = w.total > 0 ? Math.min(100, Math.round((count / w.total) * 100)) : 0;
                                 return (
                                   <div key={label} className="flex flex-col gap-1">
                                     <div className="flex items-center justify-between text-xs">
                                       <span className="truncate font-mono text-slate-300" title={label}>
-                                        {label}
+                                        {label || "(blank)"}
                                       </span>
                                       <span className="ml-2 shrink-0 font-mono text-slate-400">
                                         {count.toLocaleString()} · {pct}%
@@ -2816,7 +2862,7 @@ export default function ServerDetail() {
                                     </div>
                                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                                       <div
-                                        className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
+                                        className={cn("h-full rounded-full transition-all duration-500", groupColor(label, i))}
                                         style={{ width: `${pct}%` }}
                                       />
                                     </div>
