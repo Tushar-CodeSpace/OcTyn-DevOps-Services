@@ -143,13 +143,14 @@ async def run_background_loop() -> None:
     logger.info("background loop started", extra={"extra_fields": {"interval_s": interval}})
     # Take immediate initial snapshot on loop startup
     record_master_metrics_snapshot()
+    last_cleanup = None
     while True:
         try:
             await asyncio.sleep(interval)
             sweep_server_health()
             active = evaluate_all_alerts()
             record_master_metrics_snapshot()
-            if now().date() != last_cleanup:
+            if last_cleanup != now().date():
                 cleanup_expired_data()
                 last_cleanup = now().date()
             logger.debug(

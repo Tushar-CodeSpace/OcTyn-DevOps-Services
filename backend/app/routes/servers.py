@@ -31,14 +31,14 @@ def now() -> datetime:
 def server_doc_to_read(doc: dict) -> ServerRead:
     return ServerRead(
         id=doc["_id"],
-        site_id=doc["site_id"],
-        name=doc["name"],
-        hostname=doc["hostname"],
+        site_id=str(doc.get("site_id") or ""),
+        name=str(doc.get("name") or doc.get("hostname") or doc["_id"]),
+        hostname=str(doc.get("hostname") or doc.get("name") or doc["_id"]),
         ip_address=doc.get("ip_address"),
         status=doc.get("status", "unknown"),
         last_seen_at=doc.get("last_seen_at"),
-        created_at=doc["created_at"],
-        updated_at=doc["updated_at"],
+        created_at=doc.get("created_at") or now(),
+        updated_at=doc.get("updated_at") or now(),
     )
 
 

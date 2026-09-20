@@ -75,14 +75,14 @@ async def dashboard(_: dict = Depends(auth.get_current_user)) -> DashboardRespon
         server_reads.append(
             DashboardServer(
                 id=server["_id"],
-                site_id=server["site_id"],
-                name=server["name"],
-                hostname=server["hostname"],
+                site_id=str(server.get("site_id") or ""),
+                name=str(server.get("name") or server.get("hostname") or server["_id"]),
+                hostname=str(server.get("hostname") or server.get("name") or server["_id"]),
                 ip_address=server.get("ip_address"),
                 status=server.get("status", "unknown"),
                 last_seen_at=server.get("last_seen_at"),
-                created_at=server["created_at"],
-                updated_at=server["updated_at"],
+                created_at=server.get("created_at") or now(),
+                updated_at=server.get("updated_at") or now(),
                 latest=metric_to_latest(latest.get(server["_id"])),
             )
         )
@@ -102,12 +102,12 @@ async def dashboard(_: dict = Depends(auth.get_current_user)) -> DashboardRespon
         sites=[
             {
                 "id": s["_id"],
-                "client": s["client"],
-                "code": s["code"],
-                "location": s["location"],
-                "status": s["status"],
-                "created_at": s["created_at"],
-                "updated_at": s["updated_at"],
+                "client": str(s.get("client") or s.get("client_name") or "Unknown Client"),
+                "code": str(s.get("code") or s.get("name") or s["_id"]),
+                "location": str(s.get("location") or ""),
+                "status": str(s.get("status") or "active"),
+                "created_at": s.get("created_at") or now(),
+                "updated_at": s.get("updated_at") or now(),
             }
             for s in sites
         ],
