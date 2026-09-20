@@ -264,6 +264,8 @@ def custom_widgets() -> List[Dict[str, Any]]:
             "group_by_field": group_by[:200],
             "time_field": time_field[:200],
             "max_groups": max_groups,
+            "include_values": item.get("include_values") or [],
+            "exclude_values": item.get("exclude_values") or [],
         })
     return out
 

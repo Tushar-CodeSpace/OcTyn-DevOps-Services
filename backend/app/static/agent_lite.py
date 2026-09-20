@@ -341,6 +341,8 @@ def custom_widgets():
             "group_by_field": group_by[:200],
             "time_field": time_field[:200],
             "max_groups": max_groups,
+            "include_values": item.get("include_values") or [],
+            "exclude_values": item.get("exclude_values") or [],
         })
     return out
 
@@ -448,14 +450,18 @@ def _widget_payload(widget, collected_at, window, total, groups, error=None):
 def _coerce_val_candidates_lite(vals):
     candidates = []
     for v in vals:
-        if v == "":
+        if v == "" or v in ('""', "''"):
             candidates.append("")
+            candidates.append(None)
             continue
         if v is None:
             candidates.append(None)
+            candidates.append("")
             continue
         s = str(v).strip()
         if not s:
+            candidates.append("")
+            candidates.append(None)
             continue
         candidates.append(s)
         try:
@@ -471,6 +477,7 @@ def _coerce_val_candidates_lite(vals):
             candidates.append(False)
         elif s.lower() in ("null", "none"):
             candidates.append(None)
+            candidates.append("")
     out = []
     for c in candidates:
         if c not in out:
@@ -604,11 +611,31 @@ def collect_widget(client, widget):
 
         # Post-filter groups for group_by field conditions if specified
         if group_by in inc_by_field:
-            inc_set = {str(x).strip().lower() for x in inc_by_field[group_by] if str(x).strip()}
-            groups = {k: v for k, v in groups.items() if str(k).strip().lower() in inc_set}
+            inc_set = set()
+            for x in inc_by_field[group_by]:
+                xs = "" if x is None else str(x).strip().lower()
+                inc_set.add(xs)
+                if xs == "":
+                    inc_set.add("unknown")
+                    inc_set.add("none")
+                    inc_set.add("null")
+            groups = {
+                k: v for k, v in groups.items()
+                if ("" if k is None else str(k).strip().lower()) in inc_set
+            }
         if group_by in exc_by_field:
-            exc_set = {str(x).strip().lower() for x in exc_by_field[group_by] if str(x).strip()}
-            groups = {k: v for k, v in groups.items() if str(k).strip().lower() not in exc_set}
+            exc_set = set()
+            for x in exc_by_field[group_by]:
+                xs = "" if x is None else str(x).strip().lower()
+                exc_set.add(xs)
+                if xs == "":
+                    exc_set.add("unknown")
+                    exc_set.add("none")
+                    exc_set.add("null")
+            groups = {
+                k: v for k, v in groups.items()
+                if ("" if k is None else str(k).strip().lower()) not in exc_set
+            }
         if total < sum(groups.values()):
             total = sum(groups.values())
 
