@@ -773,6 +773,7 @@ export default function ServerDetail() {
         body: JSON.stringify({ custom_widgets: widgetDraft }),
       });
       setAgentCfg(saved);
+      await loadWidgets();
       showToast({
         severity: "info",
         title: "Widgets saved",
@@ -1605,7 +1606,7 @@ export default function ServerDetail() {
           [
             { id: "overview", label: "Overview" },
             { id: "services", label: `Services (${svcCounts.total})` },
-            { id: "widgets", label: `Widgets (${widgets?.length ?? 0})` },
+            { id: "widgets", label: `Widgets (${(agentCfg?.custom_widgets ?? []).length})` },
             { id: "backups", label: `Backups (${backupCollCount})` },
             { id: "keys", label: `Keys (${keys.length})` },
             { id: "logs", label: `Logs (${agentLogTotal})` },
@@ -1940,10 +1941,13 @@ export default function ServerDetail() {
       {/* Data widgets on overview — Bar / Pie / Trend per widget */}
       {(() => {
          const defs = agentCfg?.custom_widgets ?? [];
+         if (defs.length === 0) return null;
          const defByName = new Map(defs.map((d) => [d.name, d]));
-         const seen = new Set((widgets ?? []).map((s) => s.widget_name));
+         const activeNames = new Set(defs.map((d) => d.name));
+         const activeSamples = (widgets ?? []).filter((s) => activeNames.has(s.widget_name));
+         const seen = new Set(activeSamples.map((s) => s.widget_name));
          const entries: { def?: CustomWidgetSpec; sample?: WidgetSample }[] = [
-           ...(widgets ?? []).map((s) => ({ sample: s, def: defByName.get(s.widget_name) })),
+           ...activeSamples.map((s) => ({ sample: s, def: defByName.get(s.widget_name) })),
            ...defs.filter((d) => !seen.has(d.name)).map((d) => ({ def: d })),
           ].sort((a, b) => {
             const an = (a as { def?: CustomWidgetSpec; sample?: WidgetSample }).def?.name ?? ((a as { sample?: WidgetSample }).sample?.widget_name ?? "");
@@ -2606,7 +2610,7 @@ export default function ServerDetail() {
           <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle className="text-sm">
-                Custom data widgets{widgets ? ` (${widgets.length})` : ""}
+                Custom data widgets ({(agentCfg?.custom_widgets ?? []).length})
               </CardTitle>
               <p className="mt-0.5 text-xs text-slate-500">
                 Periodic tallies collected by the site agent from site MongoDB
@@ -2632,140 +2636,159 @@ export default function ServerDetail() {
                 <Skeleton key={i} className="h-44 w-full rounded-xl" />
               ))}
             </div>
-          ) : widgets.length === 0 ? (
-            <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
-              <p className="text-sm text-slate-400">
-                No widgets yet — the agent hasn't reported any tallies.
-              </p>
-              <p className="text-xs text-slate-500">
-                Click <span className="font-semibold text-slate-300">Configure widgets</span> to
-                add one, e.g. count <span className="font-mono">data_uploader_service.integration_logs</span> grouped
-                by <span className="font-mono">upload_status</span> every 60s.
-              </p>
-              {isAdmin && (
-                <Button size="sm" variant="outline" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
-                  <Plus className="mr-1 h-3.5 w-3.5" />
-                  Add widget
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[...widgets].sort((a, b) => a.widget_name.localeCompare(b.widget_name)).map((w) => {
-                const state = widgetState(w);
-                const def = agentCfg?.custom_widgets?.find((x) => x.name === w.widget_name);
-                const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
-                return (
-                  <div
-                    key={w.widget_name}
-                    className={cn(
-                      "flex flex-col gap-3 rounded-xl border bg-slate-950/40 p-4",
-                      state === "error"
-                        ? "border-red-500/40"
-                        : state === "stale"
-                          ? "border-amber-500/30"
-                          : "border-slate-800/70"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-100" title={w.widget_name}>
-                          {w.widget_name}
-                        </p>
-                        <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={`${w.database}.${w.collection}`}>
-                          {w.database}.{w.collection} · last {w.window_minutes}m
-                        </p>
-                        {(def?.include_values?.length || def?.exclude_values?.length) ? (
-                          <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px]">
-                            {def.include_values && def.include_values.length > 0 && (
-                              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-400 border border-sky-500/20" title={`Include: ${def.include_values.join(", ")}`}>
-                                inc: {def.include_values.join(", ")}
-                              </span>
-                            )}
-                            {def.exclude_values && def.exclude_values.length > 0 && (
-                              <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-rose-400 border border-rose-500/20" title={`Exclude: ${def.exclude_values.join(", ")}`}>
-                                exc: {def.exclude_values.join(", ")}
-                              </span>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                      <span
-                        className={cn(
-                          "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                          state === "error"
-                            ? "bg-red-500/10 text-red-300"
-                            : state === "stale"
-                              ? "bg-amber-500/10 text-amber-300"
-                              : "bg-emerald-500/10 text-emerald-300"
-                        )}
-                      >
+          ) : (() => {
+            const defs = agentCfg?.custom_widgets ?? [];
+            const activeNames = new Set(defs.map((d) => d.name));
+            const displayedWidgets = (widgets ?? []).filter((w) => activeNames.has(w.widget_name));
+            if (defs.length === 0) {
+              return (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
+                  <p className="text-sm text-slate-400">
+                    No custom widgets configured for this server.
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Click <span className="font-semibold text-slate-300">Configure widgets</span> to
+                    add one, or apply a widget template from the library.
+                  </p>
+                  {isAdmin && (
+                    <Button size="sm" variant="outline" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Add widget
+                    </Button>
+                  )}
+                </div>
+              );
+            }
+            if (displayedWidgets.length === 0) {
+              return (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
+                  <p className="text-sm text-slate-400">
+                    Waiting for agent report...
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    The server has {defs.length} widget(s) configured. Awaiting initial reporting from the edge agent.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[...displayedWidgets].sort((a, b) => a.widget_name.localeCompare(b.widget_name)).map((w) => {
+                  const state = widgetState(w);
+                  const def = agentCfg?.custom_widgets?.find((x) => x.name === w.widget_name);
+                  const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
+                  return (
+                    <div
+                      key={w.widget_name}
+                      className={cn(
+                        "flex flex-col gap-3 rounded-xl border bg-slate-950/40 p-4",
+                        state === "error"
+                          ? "border-red-500/40"
+                          : state === "stale"
+                            ? "border-amber-500/30"
+                            : "border-slate-800/70"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-100" title={w.widget_name}>
+                            {w.widget_name}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={`${w.database}.${w.collection}`}>
+                            {w.database}.{w.collection} · last {w.window_minutes}m
+                          </p>
+                          {(def?.include_values?.length || def?.exclude_values?.length) ? (
+                            <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px]">
+                              {def.include_values && def.include_values.length > 0 && (
+                                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-400 border border-sky-500/20" title={`Include: ${def.include_values.join(", ")}`}>
+                                  inc: {def.include_values.join(", ")}
+                                </span>
+                              )}
+                              {def.exclude_values && def.exclude_values.length > 0 && (
+                                <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-rose-400 border border-rose-500/20" title={`Exclude: ${def.exclude_values.join(", ")}`}>
+                                  exc: {def.exclude_values.join(", ")}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
                         <span
                           className={cn(
-                            "h-1.5 w-1.5 rounded-full",
+                            "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
                             state === "error"
-                              ? "bg-red-400"
+                              ? "bg-red-500/10 text-red-300"
                               : state === "stale"
-                                ? "bg-amber-400"
-                                : "bg-emerald-400"
+                                ? "bg-amber-500/10 text-amber-300"
+                                : "bg-emerald-500/10 text-emerald-300"
                           )}
-                        />
-                        {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
-                      </span>
-                    </div>
-
-                    {w.error ? (
-                      <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
-                        Agent reported: {w.error}
+                        >
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              state === "error"
+                                ? "bg-red-400"
+                                : state === "stale"
+                                  ? "bg-amber-400"
+                                  : "bg-emerald-400"
+                            )}
+                          />
+                          {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
+                        </span>
                       </div>
-                    ) : (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-3xl font-extrabold tracking-tight text-slate-50">
-                            {w.total.toLocaleString()}
-                          </span>
-                          <span className="text-xs text-slate-500">events</span>
-                        </div>
-                        {entries.length === 0 ? (
-                          <p className="text-xs text-slate-500">No events in this window.</p>
-                        ) : (
-                          <div className="flex flex-col gap-1.5">
-                            {entries.map(([label, count]) => {
-                              const pct = w.total > 0 ? Math.min(100, Math.round((count / w.total) * 100)) : 0;
-                              return (
-                                <div key={label} className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="truncate font-mono text-slate-300" title={label}>
-                                      {label}
-                                    </span>
-                                    <span className="ml-2 shrink-0 font-mono text-slate-400">
-                                      {count.toLocaleString()} · {pct}%
-                                    </span>
-                                  </div>
-                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                                    <div
-                                      className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </>
-                    )}
 
-                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
-                      <span className="truncate">collected {formatTime(w.collected_at)}</span>
-                      <span className="shrink-0">{widgetRangeLabel(w)}</span>
-                      <span className="shrink-0">every {widgetIntervalSeconds(w.widget_name)}s</span>
+                      {w.error ? (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                          Agent reported: {w.error}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-extrabold tracking-tight text-slate-50">
+                              {w.total.toLocaleString()}
+                            </span>
+                            <span className="text-xs text-slate-500">events</span>
+                          </div>
+                          {entries.length === 0 ? (
+                            <p className="text-xs text-slate-500">No events in this window.</p>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {entries.map(([label, count]) => {
+                                const pct = w.total > 0 ? Math.min(100, Math.round((count / w.total) * 100)) : 0;
+                                return (
+                                  <div key={label} className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="truncate font-mono text-slate-300" title={label}>
+                                        {label}
+                                      </span>
+                                      <span className="ml-2 shrink-0 font-mono text-slate-400">
+                                        {count.toLocaleString()} · {pct}%
+                                      </span>
+                                    </div>
+                                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                                      <div
+                                        className={cn("h-full rounded-full transition-all duration-500", groupColor(label))}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
+                        <span className="truncate">collected {formatTime(w.collected_at)}</span>
+                        <span className="shrink-0">{widgetRangeLabel(w)}</span>
+                        <span className="shrink-0">every {widgetIntervalSeconds(w.widget_name)}s</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
       )}

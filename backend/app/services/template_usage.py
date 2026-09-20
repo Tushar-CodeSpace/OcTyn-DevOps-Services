@@ -297,6 +297,8 @@ def assign_widget_template_sites(template_id: str, site_ids: list[str]) -> int:
                     {"_id": sc["_id"]},
                     {"$set": {"custom_widgets": new_widgets, "widgets": new_widgets, "updated_at": now()}},
                 )
+                from app.database.connection import parse_id
+                db.widget_data().delete_many({"server_id": parse_id(sc_sid), "widget_name": template["name"]})
                 emit("agent_config_updated", {"server_id": sc_sid}, room=f"server:{sc_sid}")
 
     return count

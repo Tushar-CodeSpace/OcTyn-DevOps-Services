@@ -418,14 +418,22 @@ async def list_latest_widgets(
     """Dashboard endpoint: newest sample per widget for a server.
 
     Samples expire via TTL (7 days); only the latest sample of each
-    ``widget_name`` is returned, newest first.
+    configured widget_name is returned, newest first.
     """
     sid = parse_id(server_id)
     if sid is None or db.servers().find_one({"_id": sid}) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    # Filter strictly to widgets currently configured on this server
+    agent_cfg = app_settings.get_agent_config(str(sid))
+    active_widgets = agent_cfg.get("custom_widgets") or []
+    active_names = {w["name"].strip() for w in active_widgets if isinstance(w, dict) and w.get("name")}
+    if not active_names:
+        return []
+
     docs = list(
         db.widget_data()
-        .find({"server_id": sid})
+        .find({"server_id": sid, "widget_name": {"$in": list(active_names)}})
         .sort("received_at", -1)
         .limit(limit * 5)
     )
@@ -440,6 +448,33 @@ async def list_latest_widgets(
         if len(out) >= limit:
             break
     return out
+
+
+@router.delete("/servers/{server_id}", response_model=dict)
+async def clear_server_widgets(
+    server_id: str,
+    _: dict = Depends(auth.require_admin),
+) -> dict:
+    """Delete all historical widget samples for a server."""
+    sid = parse_id(server_id)
+    if sid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    res = db.widget_data().delete_many({"server_id": sid})
+    return {"deleted_count": res.deleted_count}
+
+
+@router.delete("/servers/{server_id}/{widget_name}", response_model=dict)
+async def delete_server_widget_sample(
+    server_id: str,
+    widget_name: str,
+    _: dict = Depends(auth.require_admin),
+) -> dict:
+    """Delete historical samples of a specific widget for a server."""
+    sid = parse_id(server_id)
+    if sid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    res = db.widget_data().delete_many({"server_id": sid, "widget_name": widget_name.strip()})
+    return {"deleted_count": res.deleted_count}
 
 
 @router.get("/servers/{server_id}/history", response_model=list[WidgetHistoryPoint])

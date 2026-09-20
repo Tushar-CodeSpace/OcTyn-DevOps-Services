@@ -439,6 +439,19 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
             {"$set": {**clean, "updated_at": datetime.now(timezone.utc)}},
             upsert=True,
         )
+        # If custom_widgets was updated, clean up obsolete widget_data for this server
+        if "custom_widgets" in clean:
+            active_names = [
+                w["name"].strip() for w in clean["custom_widgets"]
+                if isinstance(w, dict) and w.get("name")
+            ]
+            from app.database.connection import parse_id
+            sid = parse_id(server_id)
+            if sid is not None:
+                if active_names:
+                    db.widget_data().delete_many({"server_id": sid, "widget_name": {"$nin": active_names}})
+                else:
+                    db.widget_data().delete_many({"server_id": sid})
     return get_agent_config(server_id)
 
 

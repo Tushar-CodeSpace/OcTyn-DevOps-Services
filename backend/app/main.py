@@ -97,5 +97,13 @@ app.include_router(widgets.router)
 app.include_router(deployments.router)
 app.include_router(master_server.router)
 
+# Mount static files directory (for agent_lite.py & installer downloads)
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 # Entrypoint for uvicorn: app.main:socket_app
 socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
