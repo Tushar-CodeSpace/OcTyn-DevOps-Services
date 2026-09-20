@@ -28,6 +28,7 @@ from app.routes import (
     terminal,
     users,
     widgets,
+    qa,
 )
 from app.routes import configs as configs_routes
 from app.routes import settings as settings_routes
@@ -95,6 +96,7 @@ app.include_router(connectivity.router)
 app.include_router(terminal.router)
 app.include_router(widgets.router)
 app.include_router(deployments.router)
+app.include_router(qa.router)
 app.include_router(master_server.router)
 
 # Mount static files directory (for agent_lite.py & installer downloads)

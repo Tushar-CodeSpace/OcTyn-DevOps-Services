@@ -111,7 +111,11 @@ For the detailed complete guide, see [docs/API_CONTRACT.md](file:///d:/octyn_wat
     - When specified, edge agents parse all field conditions, inject candidate-coerced values (`$in` and/or `$nin`) into the MongoDB query `$match`, and prune `groups` breakdown for conditions targeting the `group_by_field`.
     - Both `total` count and `groups` breakdown strictly respect all include/exclude filters. If left empty, unrestricted counting continues.
 
-
+19. **QA & Testing Environment & Fast-Track Git Deployments (`/qa-testing`)**:
+    - Dedicated navigation link **QA & Testing** (`/qa-testing`) featuring an isolated staging testbed.
+    - Nodes can be designated into `environment: "qa" | "production"` with assigned `qa_role` (e.g. `e2e_runner`, `load_tester`, `staging_node`) and direct app preview URLs (`qa_test_url`).
+    - **Fast-Track Git Deployments**: Unlike production deployments that undergo the 3-team approval governance gate (`pending_approval`), QA deployments deploy directly with `status: "pending"`, allowing edge QA agents to instantly pull the requested Git branch/commit and execute builds within 5 seconds without governance approval delays.
+    - **QA Test Verdicts**: QA engineers can directly record test sign-offs (`passed`, `failed`, or `blocked`) with notes and automated test logs linked directly to the build.
 
 ---
 

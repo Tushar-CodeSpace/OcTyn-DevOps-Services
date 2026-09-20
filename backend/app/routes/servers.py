@@ -35,6 +35,9 @@ def server_doc_to_read(doc: dict) -> ServerRead:
         name=str(doc.get("name") or doc.get("hostname") or doc["_id"]),
         hostname=str(doc.get("hostname") or doc.get("name") or doc["_id"]),
         ip_address=doc.get("ip_address"),
+        environment=doc.get("environment", "production"),
+        qa_role=doc.get("qa_role"),
+        qa_test_url=doc.get("qa_test_url"),
         status=doc.get("status", "unknown"),
         last_seen_at=doc.get("last_seen_at"),
         created_at=doc.get("created_at") or now(),
@@ -59,6 +62,7 @@ def verify_site_exists(site_id: str) -> None:
 @router.get("", response_model=list[ServerRead])
 async def list_servers(
     site_id: Optional[str] = Query(default=None, description="Filter by site"),
+    environment: Optional[str] = Query(default=None, description="Filter by environment (production/qa)"),
 ) -> list[ServerRead]:
     query: dict = {}
     if site_id:
@@ -66,6 +70,8 @@ async def list_servers(
         if sid is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
         query["site_id"] = sid
+    if environment:
+        query["environment"] = environment
     docs = list(db.servers().find(query).sort("created_at", 1))
     return [server_doc_to_read(d) for d in docs]
 

@@ -82,6 +82,7 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
         software_id=str(doc.get("software_id", "")),
         software_name=doc.get("software_name", "Software"),
         status=doc.get("status", "pending_approval"),
+        environment=doc.get("environment", "production"),
         components_selected=doc.get("components_selected", []),
         branches=doc.get("branches", {}),
         client_name=doc.get("client_name"),
@@ -95,6 +96,7 @@ def _deployment_doc_to_read(doc: dict) -> DeploymentRead:
         approvals=approvals,
         approval_required_groups=doc.get("approval_required_groups", ["devops", "developer", "product"]),
         rejection=doc.get("rejection"),
+        qa_test_result=doc.get("qa_test_result"),
     )
 
 

@@ -54,6 +54,24 @@ class DeploymentTriggerRequest(BaseModel):
     branches: Dict[str, str] = Field(default_factory=dict)         # component_name -> branch override
     client_name: Optional[str] = Field(default="", max_length=100)
     machine_type: Optional[str] = Field(default="", max_length=100)
+    environment: Optional[str] = Field(default="production", max_length=50)
+
+
+class QATestResultEntry(BaseModel):
+    verdict: str  # passed | failed | in_progress | blocked
+    tester_id: str
+    tester_email: str
+    tested_at: datetime
+    test_notes: Optional[str] = ""
+    test_cases_run: Optional[int] = None
+    bugs_found: Optional[int] = None
+
+
+class QATestResultUpdate(BaseModel):
+    verdict: str = Field(min_length=1, max_length=50)  # passed | failed | in_progress | blocked
+    test_notes: Optional[str] = Field(default="", max_length=1000)
+    test_cases_run: Optional[int] = None
+    bugs_found: Optional[int] = None
 
 
 class DeploymentLogEntry(BaseModel):
@@ -66,7 +84,7 @@ class DeploymentLogEntry(BaseModel):
 class DeploymentApprovalEntry(BaseModel):
     user_id: str
     email: str
-    user_group: str  # devops | developer | product
+    user_group: str  # devops | developer | product | qa
     approved_at: datetime
     notes: Optional[str] = ""
 
@@ -89,6 +107,7 @@ class DeploymentRead(BaseModel):
     software_id: str
     software_name: str
     status: str  # pending_approval, pending, running, success, failed, cancelled, rejected
+    environment: str = "production"
     components_selected: List[str]
     branches: Dict[str, str]
     client_name: Optional[str] = None
@@ -102,6 +121,7 @@ class DeploymentRead(BaseModel):
     approvals: List[DeploymentApprovalEntry] = Field(default_factory=list)
     approval_required_groups: List[str] = Field(default_factory=lambda: ["devops", "developer", "product"])
     rejection: Optional[Dict[str, Any]] = None
+    qa_test_result: Optional[QATestResultEntry] = None
 
 
 class DeploymentLogStream(BaseModel):

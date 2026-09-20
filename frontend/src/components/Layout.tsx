@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bell,
   Crown,
+  FlaskConical,
   History,
   LayoutDashboard,
   LogOut,
@@ -30,6 +31,7 @@ const nav = [
   { to: "/", label: "Slaves", icon: LayoutDashboard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/alerts", label: "All slave logs", icon: Bell },
+  { to: "/qa-testing", label: "QA & Testing", icon: FlaskConical },
   { to: "/master-server", label: "Master Server", icon: Server },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
