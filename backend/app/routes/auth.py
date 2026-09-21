@@ -54,7 +54,7 @@ async def login(body: LoginRequest, request: Request) -> TokenResponse:
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
-async def refresh(body: RefreshTokenRequest) -> RefreshTokenResponse:
+async def refresh(body: RefreshTokenRequest, request: Request) -> RefreshTokenResponse:
     user_id = auth.decode_refresh_token(body.refresh_token)
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
@@ -64,8 +64,13 @@ async def refresh(body: RefreshTokenRequest) -> RefreshTokenResponse:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not rotate refresh token")
     user = db.users().find_one({"_id": user_id})
     if user:
-        record_audit_log(str(user_id), user.get("email", ""), "token_refresh", Request())
-    return RefreshTokenResponse(access_token=new_token, expires_at=expires_at)
+        record_audit_log(str(user_id), user.get("email", ""), "token_refresh", request)
+    return RefreshTokenResponse(
+        access_token=new_token,
+        token_type="bearer",
+        expires_at=expires_at,
+        refresh_token=new_refresh,
+    )
 
 
 @router.post("/logout")

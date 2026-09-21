@@ -31,6 +31,7 @@ services:
     environment:
       MONGO_URL: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGO_INITDB_DATABASE}
       JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       LOG_DIR: /logs
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

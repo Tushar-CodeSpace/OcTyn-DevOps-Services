@@ -9,37 +9,55 @@ export function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
-export function setTokens(accessToken: string | null, refreshToken: string | null) {
-  if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
-  else localStorage.removeItem(TOKEN_KEY);
-  if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
-  else localStorage.removeItem(REFRESH_KEY);
+export function setTokens(accessToken: string | null, refreshToken?: string | null) {
+  if (accessToken) {
+    localStorage.setItem(TOKEN_KEY, accessToken);
+  } else if (accessToken === null) {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+
+  if (refreshToken) {
+    localStorage.setItem(REFRESH_KEY, refreshToken);
+  } else if (refreshToken === null) {
+    localStorage.removeItem(REFRESH_KEY);
+  }
 }
 
 export function setToken(token: string | null) {
-  setTokens(token, null);
+  setTokens(token, undefined);
 }
 
 export function clearTokens() {
   setTokens(null, null);
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+let refreshPromise: Promise<boolean> | null = null;
+
+export async function refreshAccessToken(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+
   const refresh = getRefreshToken();
   if (!refresh) return false;
-  try {
-    const data = await fetch("/api/v1/auth/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (!data.ok) return false;
-    const result = await data.json();
-    setTokens(result.access_token, result.refresh_token);
-    return true;
-  } catch {
-    return false;
-  }
+
+  refreshPromise = (async () => {
+    try {
+      const data = await fetch("/api/v1/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!data.ok) return false;
+      const result = await data.json();
+      setTokens(result.access_token, result.refresh_token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 export async function apiFetch<T>(

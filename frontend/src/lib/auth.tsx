@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiFetch, getToken, getRefreshToken, setTokens, clearTokens } from "@/lib/api";
+import { apiFetch, getToken, refreshAccessToken, clearTokens } from "@/lib/api";
 import type { User } from "@/lib/types";
 
 interface AuthState {
@@ -39,33 +39,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const performRefresh = useCallback(async () => {
-    const refresh = getRefreshToken();
-    if (!refresh) {
+    const success = await refreshAccessToken();
+    if (!success) {
       clearTokens();
       setUser(null);
       return;
     }
-    try {
-      const resp = await fetch("/api/v1/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refresh }),
-      });
-      if (!resp.ok) throw new Error("Refresh failed");
-      const data: { access_token: string; refresh_token: string; expires_at: string } = await resp.json();
-      setTokens(data.access_token, data.refresh_token);
-      const exp = getTokenExpiry();
-      if (exp) {
-        const ttl = exp - Date.now();
-        if (ttl > 0) {
-          refreshTimerRef.current = setTimeout(() => {
-            void performRefresh();
-          }, Math.max(ttl - 2 * 60 * 1000, 1000));
-        }
+    const exp = getTokenExpiry();
+    if (exp) {
+      const ttl = exp - Date.now();
+      if (ttl > 0) {
+        refreshTimerRef.current = setTimeout(() => {
+          void performRefresh();
+        }, Math.max(ttl - 2 * 60 * 1000, 1000));
       }
-    } catch {
-      clearTokens();
-      setUser(null);
     }
   }, []);
 
