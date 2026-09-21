@@ -274,13 +274,25 @@ async def get_server_agent_logs(
     server_id: str,
     level: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    scope: Optional[str] = Query(default="server"),
     limit: int = Query(default=300, ge=1, le=1000),
 ) -> dict:
-    """Fetch stored agent logs for a specific server."""
+    """Fetch stored agent logs for a specific server or its entire site."""
     doc = find_server_or_404(server_id)
     sid = doc["_id"]
+    site_id = doc.get("site_id")
 
-    query: dict = {"$or": [{"server_id": sid}, {"server_id": str(sid)}]}
+    if scope == "site" and site_id:
+        st_id = parse_id(str(site_id))
+        site_servers = list(db.servers().find({"site_id": {"$in": [st_id, str(st_id)]}}, {"_id": 1}))
+        target_sids = []
+        for s in site_servers:
+            target_sids.extend([s["_id"], str(s["_id"])])
+        base_query: dict = {"server_id": {"$in": target_sids}}
+    else:
+        base_query = {"$or": [{"server_id": sid}, {"server_id": str(sid)}]}
+
+    query: dict = {**base_query}
     if level and level.lower() != "all":
         query["level"] = level.lower()
     if search and search.strip():
@@ -306,7 +318,7 @@ async def get_server_agent_logs(
         for l in logs
     ]
 
-    total_count = db.agent_logs().count_documents({"$or": [{"server_id": sid}, {"server_id": str(sid)}]})
+    total_count = db.agent_logs().count_documents(base_query)
 
     return {
         "server_id": str(sid),

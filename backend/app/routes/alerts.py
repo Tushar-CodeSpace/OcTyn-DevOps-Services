@@ -48,9 +48,10 @@ def find_alert_or_404(alert_id: str) -> dict:
 async def list_alerts(
     status_filter: Optional[str] = Query(default=None, alias="status"),
     server_id: Optional[str] = Query(default=None),
+    site_id: Optional[str] = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[AlertRead]:
-    """Dashboard endpoint: alert history, optionally filtered."""
+    """Dashboard endpoint: alert history, optionally filtered by server or site."""
     query: dict = {}
     if status_filter in ("active", "resolved"):
         query["status"] = status_filter
@@ -58,7 +59,19 @@ async def list_alerts(
         sid = parse_id(server_id)
         if sid is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
-        query["server_id"] = sid
+        query["server_id"] = {"$in": [sid, str(sid)]}
+    elif site_id:
+        st_id = parse_id(site_id)
+        if st_id is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site not found")
+        server_docs = list(db.servers().find({"site_id": {"$in": [st_id, str(st_id)]}}, {"_id": 1}))
+        sids = []
+        for s in server_docs:
+            sids.extend([s["_id"], str(s["_id"])])
+        query["$or"] = [
+            {"site_id": {"$in": [st_id, str(st_id)]}},
+            {"server_id": {"$in": sids}},
+        ]
     docs = list(db.alerts().find(query).sort("created_at", -1).limit(limit))
     return [alert_doc_to_read(d) for d in docs]
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Search, AlertTriangle, Info, ShieldAlert, CheckCircle2, Activity } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Search, AlertTriangle, Info, ShieldAlert, CheckCircle2, Activity, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import type { Alert, Server, Site } from "@/lib/types";
@@ -19,6 +20,7 @@ import { formatTime, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Alerts() {
+  const navigate = useNavigate();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [serverMap, setServerMap] = useState<Record<string, Server>>({});
   const [siteMap, setSiteMap] = useState<Record<string, Site>>({});
@@ -178,20 +180,21 @@ export default function Alerts() {
         <CardContent className="pt-4">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Severity</TableHead>
-                <TableHead>Server / Site</TableHead>
+              <TableRow className="border-b border-slate-800/80 bg-slate-950/80">
+                <TableHead className="w-28">Severity</TableHead>
+                <TableHead className="w-56">Server / Site</TableHead>
                 <TableHead>Message</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Resolution</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                <TableHead className="w-36">Created</TableHead>
+                <TableHead className="w-56">Resolution</TableHead>
+                <TableHead className="w-10 text-right"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 6 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-4 w-full max-w-[160px]" />
                       </TableCell>
@@ -201,10 +204,19 @@ export default function Alerts() {
               ) : (
                 <>
                   {filteredAlerts.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-slate-500">No logs match the criteria.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-slate-500">No logs match the criteria.</TableCell></TableRow>
                   )}
                   {filteredAlerts.map((a) => (
-                    <TableRow key={a.id} className="hover:bg-slate-800/40">
+                    <TableRow
+                      key={a.id}
+                      onClick={() => {
+                        if (a.server_id) {
+                          navigate(`/servers/${a.server_id}`);
+                        }
+                      }}
+                      className="cursor-pointer transition-colors hover:bg-slate-800/60 group"
+                      title="Click to view server details"
+                    >
                       <TableCell><SeverityBadge severity={a.severity} /></TableCell>
                       <TableCell>
                         {(() => {
@@ -212,7 +224,7 @@ export default function Alerts() {
                           const site = srv ? siteMap[srv.site_id] : undefined;
                           return (
                             <div className="flex flex-col leading-tight">
-                              <span className="font-medium text-slate-200">
+                              <span className="font-semibold text-slate-200 group-hover:text-sky-400 transition-colors">
                                 {srv ? srv.name : a.server_id.slice(0, 8)}
                               </span>
                               <span className="text-xs text-slate-500">
@@ -222,23 +234,26 @@ export default function Alerts() {
                           );
                         })()}
                       </TableCell>
-                      <TableCell className="font-medium text-slate-300">{a.message}</TableCell>
+                      <TableCell className="font-medium text-slate-300 group-hover:text-white transition-colors">{a.message}</TableCell>
                       <TableCell>
                         <Badge variant={a.status === "active" ? "red" : "green"}>{a.status}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-slate-400">{formatTime(a.created_at)}</TableCell>
+                      <TableCell className="text-xs text-slate-400 font-mono">{formatTime(a.created_at)}</TableCell>
                       <TableCell>
                         {a.status === "resolved" ? (
                           <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                             Auto-Resolved {a.resolved_at ? `(${formatTime(a.resolved_at)})` : ""}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-medium">
-                            <Activity className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
+                            <Activity className="h-3.5 w-3.5 text-amber-400 shrink-0 animate-pulse" />
                             Active (Auto-Monitoring)
                           </span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <ChevronRight className="h-4 w-4 text-slate-500 group-hover:text-sky-400 group-hover:translate-x-0.5 transition-all inline-block opacity-40 group-hover:opacity-100" />
                       </TableCell>
                     </TableRow>
                   ))}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, Info, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -20,7 +20,7 @@ import { getSocket } from "@/lib/socket";
 import type { AgentConfig, AgentLog, AgentRuntimeTemplate, Alert, ApiKey, ConfigSnapshotFull, ConfigSnapshotMeta, ConnectivityStatus, CustomWidgetSpec, Metric, Server, Service, Site, WidgetHistoryPoint, WidgetSample, WidgetTemplate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ServiceBadge, StatusBadge } from "@/components/StatusBadge";
+import { ServiceBadge, StatusBadge, SeverityBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -164,6 +164,7 @@ export default function ServerDetail() {
 
   // Server edit state
   const [allSites, setAllSites] = useState<Site[]>([]);
+  const [allServers, setAllServers] = useState<Server[]>([]);
   const [serverEditOpen, setServerEditOpen] = useState(false);
   const [editServerName, setEditServerName] = useState("");
   const [editServerHostname, setEditServerHostname] = useState("");
@@ -179,7 +180,17 @@ export default function ServerDetail() {
   const [backupQuery, setBackupQuery] = useState("");
   const [expandedDbs, setExpandedDbs] = useState<Record<string, boolean>>({});
 
-  // Agent Logs Tab State
+  // Logs Tab State (Site Slave Logs & Agent Runtime Logs)
+  const [logsSubTab, setLogsSubTab] = useState<"site_slave_logs" | "agent_runtime">("site_slave_logs");
+  const [siteAlerts, setSiteAlerts] = useState<Alert[]>([]);
+  const [siteAlertsLoading, setSiteAlertsLoading] = useState(false);
+  const [siteAlertsFilter, setSiteAlertsFilter] = useState<"active" | "resolved" | "all">("all");
+  const [siteAlertsSeverity, setSiteAlertsSeverity] = useState<"all" | "critical" | "warning" | "info">("all");
+  const [siteAlertsSearch, setSiteAlertsSearch] = useState("");
+  const [siteAlertsScope, setSiteAlertsScope] = useState<"site" | "server">("site");
+  const [agentLogsScope, setAgentLogsScope] = useState<"server" | "site">("server");
+
+  // Agent Runtime Logs Tab State
   const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
   const [agentLogTotal, setAgentLogTotal] = useState(0);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -298,14 +309,16 @@ export default function ServerDetail() {
 
   async function load() {
     if (!id) return;
-    const [s, svc, k, sites] = await Promise.all([
+    const [s, svc, k, sites, serverList] = await Promise.all([
       apiFetch<Server>(`/servers/${id}`),
       apiFetch<Service[]>(`/servers/${id}/services`),
       apiFetch<ApiKey[]>(`/servers/${id}/api-keys`),
       apiFetch<Site[]>("/sites"),
+      apiFetch<Server[]>("/servers").catch(() => []),
     ]);
     setSite(sites.find((x) => x.id === s.site_id) ?? null);
     setAllSites(sites);
+    setAllServers(serverList || []);
     setServer(s);
     setServices(svc);
     setKeys(k);
@@ -332,6 +345,33 @@ export default function ServerDetail() {
     if (res) setConnectivity(res);
   }
 
+  const serverMap = useMemo(() => {
+    return Object.fromEntries(allServers.map((srv) => [srv.id, srv]));
+  }, [allServers]);
+
+  const loadSiteAlerts = useCallback(async () => {
+    if (!id) return;
+    setSiteAlertsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (siteAlertsFilter !== "all") params.set("status", siteAlertsFilter);
+      if (siteAlertsScope === "server") {
+        params.set("server_id", id);
+      } else if (server?.site_id) {
+        params.set("site_id", server.site_id);
+      } else {
+        params.set("server_id", id);
+      }
+      params.set("limit", "500");
+      const data = await apiFetch<Alert[]>(`/alerts?${params.toString()}`);
+      setSiteAlerts(data || []);
+    } catch (err) {
+      console.error("Failed to load site slave logs:", err);
+    } finally {
+      setSiteAlertsLoading(false);
+    }
+  }, [id, server?.site_id, siteAlertsFilter, siteAlertsScope]);
+
   const loadAgentLogs = useCallback(async () => {
     if (!id) return;
     setLoadingLogs(true);
@@ -339,6 +379,7 @@ export default function ServerDetail() {
       const params = new URLSearchParams();
       if (logLevel !== "all") params.set("level", logLevel);
       if (logSearch.trim()) params.set("search", logSearch.trim());
+      if (agentLogsScope === "site") params.set("scope", "site");
       params.set("limit", "300");
       const res = await apiFetch<{ server_id: string; total: number; logs: AgentLog[] }>(
         `/servers/${id}/logs?${params.toString()}`
@@ -350,38 +391,73 @@ export default function ServerDetail() {
     } finally {
       setLoadingLogs(false);
     }
-  }, [id, logLevel, logSearch]);
+  }, [id, logLevel, logSearch, agentLogsScope]);
 
   useEffect(() => {
     if (activeTab === "logs") {
-      loadAgentLogs();
+      if (logsSubTab === "site_slave_logs") {
+        loadSiteAlerts();
+      } else {
+        loadAgentLogs();
+      }
     }
-  }, [activeTab, loadAgentLogs]);
+  }, [activeTab, logsSubTab, loadSiteAlerts, loadAgentLogs]);
 
   useEffect(() => {
-    if (!logAutoRefresh || activeTab !== "logs") return;
+    if (!logAutoRefresh || activeTab !== "logs" || logsSubTab !== "agent_runtime") return;
     const timer = setInterval(() => {
       loadAgentLogs();
     }, 5000);
     return () => clearInterval(timer);
-  }, [logAutoRefresh, activeTab, loadAgentLogs]);
+  }, [logAutoRefresh, activeTab, logsSubTab, loadAgentLogs]);
 
   useEffect(() => {
     const socket = getSocket();
     const onNewLogs = (data: any) => {
       if (data && String(data.server_id) === String(id)) {
-        if (activeTab === "logs") {
+        if (activeTab === "logs" && logsSubTab === "agent_runtime") {
           loadAgentLogs();
         } else {
           setAgentLogTotal((prev) => prev + (data.logs?.length || 1));
         }
       }
     };
+    const onAlertChange = () => {
+      if (activeTab === "logs" && logsSubTab === "site_slave_logs") {
+        loadSiteAlerts();
+      }
+    };
     socket.on("agent_logs", onNewLogs);
+    socket.on("alert_opened", onAlertChange);
+    socket.on("alert_resolved", onAlertChange);
     return () => {
       socket.off("agent_logs", onNewLogs);
+      socket.off("alert_opened", onAlertChange);
+      socket.off("alert_resolved", onAlertChange);
     };
-  }, [id, activeTab, loadAgentLogs]);
+  }, [id, activeTab, logsSubTab, loadAgentLogs, loadSiteAlerts]);
+
+  const siteCriticalCount = siteAlerts.filter((a) => a.severity === "critical").length;
+  const siteWarningCount = siteAlerts.filter((a) => a.severity === "warning").length;
+  const siteInfoCount = siteAlerts.filter((a) => a.severity === "info").length;
+  const siteActiveCount = siteAlerts.filter((a) => a.status === "active").length;
+  const siteResolvedCount = siteAlerts.filter((a) => a.status === "resolved").length;
+
+  const filteredSiteAlerts = useMemo(() => {
+    return siteAlerts.filter((a) => {
+      if (siteAlertsSeverity !== "all" && a.severity !== siteAlertsSeverity) return false;
+      if (siteAlertsSearch.trim()) {
+        const q = siteAlertsSearch.toLowerCase();
+        const srv = serverMap[a.server_id] || (server?.id === a.server_id ? server : undefined);
+        const match =
+          a.message.toLowerCase().includes(q) ||
+          a.type.toLowerCase().includes(q) ||
+          (srv && (srv.name.toLowerCase().includes(q) || srv.hostname.toLowerCase().includes(q)));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [siteAlerts, siteAlertsSeverity, siteAlertsSearch, serverMap, server]);
 
   const handleFetchJournal = async () => {
     if (!id) return;
@@ -1705,7 +1781,7 @@ export default function ServerDetail() {
             { id: "widgets", label: `Widgets (${(agentCfg?.custom_widgets ?? []).length})` },
             { id: "backups", label: `Backups (${backupCollCount})` },
             { id: "keys", label: `Keys (${keys.length})` },
-            { id: "logs", label: `Logs (${agentLogTotal})` },
+            { id: "logs", label: `Logs (${siteAlerts.length > 0 ? siteAlerts.length : agentLogTotal})` },
           ] as const
         ).map((t) => (
           <button
@@ -4156,259 +4232,612 @@ export default function ServerDetail() {
       </Card>
       )}
 
-      {/* Agent Runtime Logs Section */}
+      {/* Logs Section (Site Slave Logs & Agent Runtime Logs) */}
       {activeTab === "logs" && (
-        <Card className="border-slate-800/80 bg-slate-900/60 shadow-xl">
-          <CardHeader className="flex flex-col gap-4 border-b border-slate-800/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-sky-400" />
-                <CardTitle className="text-base font-bold text-slate-100">
-                  Agent Execution & Runtime Logs
-                </CardTitle>
-                <Badge variant="blue" className="ml-1 border-sky-500/30 bg-sky-500/10 text-sky-300 font-mono text-[11px]">
-                  {agentLogTotal} recorded
-                </Badge>
-              </div>
-              <p className="text-xs text-slate-400">
-                Real-time activity logs, telemetry dispatches, config backups, and service checks from this server agent.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setLogAutoRefresh(!logAutoRefresh)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all",
-                  logAutoRefresh
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-sm shadow-emerald-500/10"
-                    : "border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200"
-                )}
-                title={logAutoRefresh ? "Pause live stream" : "Enable live stream"}
-              >
-                <span className={cn("h-2 w-2 rounded-full", logAutoRefresh ? "bg-emerald-400 animate-pulse" : "bg-slate-500")} />
-                Live Stream {logAutoRefresh ? "(5s)" : "(Paused)"}
-              </button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleFetchJournal}
-                disabled={fetchingJournal}
-                className="gap-1.5 border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 text-xs"
-              >
-                {fetchingJournal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TerminalSquare className="h-3.5 w-3.5" />}
-                Fetch Host Journal
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  loadAgentLogs();
-                  showToast({ severity: "info", title: "Refreshed", message: "Agent logs refreshed" });
-                }}
-                disabled={loadingLogs}
-                className="gap-1 text-xs"
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5", loadingLogs && "animate-spin")} />
-                Refresh
-              </Button>
-
-              {isAdmin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClearLogs}
-                  className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Clear
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-4 pt-4">
-            {/* Filter bar & Quick Actions */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Level selector */}
-                <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
-                  {(["all", "info", "warning", "error"] as const).map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => setLogLevel(lvl)}
-                      className={cn(
-                        "rounded-md px-2.5 py-0.5 text-xs font-medium transition-all capitalize",
-                        logLevel === lvl
-                          ? "bg-sky-600 font-bold text-white shadow-sm"
-                          : "text-slate-400 hover:text-slate-200"
-                      )}
-                    >
-                      {lvl}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Search query */}
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search logs by keyword..."
-                    value={logSearch}
-                    onChange={(e) => setLogSearch(e.target.value)}
-                    className="h-8 rounded-lg border border-slate-700/60 bg-slate-900/90 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 w-56 sm:w-64 font-mono"
-                  />
-                  {logSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setLogSearch("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    const text = agentLogs
-                      .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.source || "agent"}] ${l.message}`)
-                      .join("\n");
-                    await navigator.clipboard.writeText(text);
-                    showToast({ severity: "info", title: "Copied", message: `Copied ${agentLogs.length} log lines to clipboard` });
-                  }}
-                  className="gap-1.5 text-xs text-slate-400 hover:text-slate-200"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy Visible
-                </Button>
-              </div>
-            </div>
-
-            {/* Optional Host Systemd Journal Collapsible */}
-            {journalOpen && journalOutput && (
-              <div className="rounded-xl border border-sky-500/30 bg-slate-950 p-3 shadow-lg">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+        <div className="flex flex-col gap-4">
+          {/* Main Logs Header & Sub-Tab Switcher */}
+          <Card className="border-slate-800/80 bg-slate-900/60 shadow-xl">
+            <CardHeader className="p-4 border-b border-slate-800/80">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-sky-400" />
-                    <span className="text-xs font-bold text-sky-300">
-                      Host Systemd Service Journal (journalctl)
+                    <ShieldAlert className="h-5 w-5 text-sky-400" />
+                    <CardTitle className="text-base font-bold text-slate-100">
+                      {logsSubTab === "site_slave_logs" ? "Site Slave Logs & Incident History" : "Agent Execution & Runtime Logs"}
+                    </CardTitle>
+                    <Badge variant="blue" className="ml-1 border-sky-500/30 bg-sky-500/10 text-sky-300 font-mono text-[11px]">
+                      {logsSubTab === "site_slave_logs" ? `${siteAlerts.length} site logs` : `${agentLogTotal} recorded`}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {logsSubTab === "site_slave_logs" ? (
+                      <>
+                        Real-time incident alerts, warnings, and auto-resolutions for{" "}
+                        <span className="font-semibold text-slate-200">{site?.client || "Site"}</span>
+                        {" · "}
+                        <span className="text-sky-300 font-medium">{site?.location || "Current Site"}</span>
+                        {site?.code && <span className="ml-1.5 font-mono text-slate-500">[{site.code}]</span>}
+                      </>
+                    ) : (
+                      "Real-time host activity logs, telemetry dispatches, config backups, and service checks from this server agent."
+                    )}
+                  </p>
+                </div>
+
+                {/* Sub-Tab Switcher */}
+                <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setLogsSubTab("site_slave_logs")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all",
+                      logsSubTab === "site_slave_logs"
+                        ? "bg-sky-600 font-bold text-white shadow-md shadow-sky-500/20"
+                        : "text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    Site Slave Logs
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.2 text-[10px] font-mono",
+                      logsSubTab === "site_slave_logs" ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"
+                    )}>
+                      {siteAlerts.length}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(journalOutput);
-                        showToast({ severity: "info", title: "Copied Journal" });
-                      }}
-                      className="rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                    >
-                      <Copy className="h-3 w-3 inline mr-1" /> Copy
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setJournalOpen(false)}
-                      className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogsSubTab("agent_runtime")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all",
+                      logsSubTab === "agent_runtime"
+                        ? "bg-sky-600 font-bold text-white shadow-md shadow-sky-500/20"
+                        : "text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    Agent Runtime Logs
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.2 text-[10px] font-mono",
+                      logsSubTab === "agent_runtime" ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"
+                    )}>
+                      {agentLogTotal}
+                    </span>
+                  </button>
                 </div>
-                <pre className="max-h-64 overflow-auto rounded bg-black/60 p-3 font-mono text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">
-                  {journalOutput}
-                </pre>
               </div>
-            )}
+            </CardHeader>
+          </Card>
 
-            {/* Main Log Console Stream */}
-            <div className="overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/95 shadow-2xl">
-              <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                <div className="flex items-center gap-4">
-                  <span className="w-32">Timestamp (UTC)</span>
-                  <span className="w-16">Level</span>
-                  <span className="w-20">Source</span>
-                  <span>Event Message</span>
-                </div>
-                <div>{agentLogs.length} entries shown</div>
-              </div>
-
-              <div className="max-h-[560px] overflow-y-auto p-2 font-mono text-xs divide-y divide-slate-900/80 space-y-1">
-                {loadingLogs && agentLogs.length === 0 ? (
-                  Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="flex items-center gap-4 py-2 px-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-4 w-16" />
-                      <Skeleton className="h-4 w-20" />
-                      <Skeleton className="h-4 flex-1" />
+          {/* VIEW 1: Site Slave Logs */}
+          {logsSubTab === "site_slave_logs" && (
+            <div className="space-y-4">
+              {/* Site Incident Metric Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Card className="border-red-500/30 bg-slate-900/90 shadow-sm">
+                  <CardContent className="p-3.5 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Critical</span>
+                      <div className="text-xl font-extrabold text-red-400 mt-0.5">{siteCriticalCount}</div>
                     </div>
-                  ))
-                ) : agentLogs.length === 0 ? (
-                  <div className="py-12 text-center text-slate-500">
-                    <FileText className="mx-auto h-8 w-8 text-slate-600 mb-2 opacity-50" />
-                    <p className="font-semibold text-slate-400">No agent logs recorded yet</p>
-                    <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
-                      Logs will stream automatically as the agent pushes metrics and performs background checks. You can also click &ldquo;Fetch Host Journal&rdquo; to pull the remote host systemd logs directly.
-                    </p>
-                  </div>
-                ) : (
-                  agentLogs.map((log) => {
-                    const lvl = (log.level || "info").toLowerCase();
-                    const isErr = lvl === "error";
-                    const isWarn = lvl === "warning" || lvl === "warn";
+                    <div className="p-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400">
+                      <ShieldAlert className="h-4 w-4" />
+                    </div>
+                  </CardContent>
+                </Card>
 
-                    return (
-                      <div
-                        key={log.id}
+                <Card className="border-amber-500/30 bg-slate-900/90 shadow-sm">
+                  <CardContent className="p-3.5 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Warnings</span>
+                      <div className="text-xl font-extrabold text-amber-400 mt-0.5">{siteWarningCount}</div>
+                    </div>
+                    <div className="p-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-sky-500/30 bg-slate-900/90 shadow-sm">
+                  <CardContent className="p-3.5 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Active Incidents</span>
+                      <div className="text-xl font-extrabold text-sky-400 mt-0.5">{siteActiveCount}</div>
+                    </div>
+                    <div className="p-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-400">
+                      <Activity className="h-4 w-4" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-emerald-500/30 bg-slate-900/90 shadow-sm">
+                  <CardContent className="p-3.5 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Auto-Resolved</span>
+                      <div className="text-xl font-extrabold text-emerald-400 mt-0.5">{siteResolvedCount}</div>
+                    </div>
+                    <div className="p-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Filter controls toolbar */}
+              <Card className="border-slate-800/80 bg-slate-900/60 shadow-md">
+                <CardContent className="p-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Scope toggle: Entire Site vs This Node */}
+                    <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setSiteAlertsScope("site")}
                         className={cn(
-                          "flex items-start gap-4 rounded px-2.5 py-1.5 transition-colors hover:bg-slate-900/70",
-                          isErr && "bg-red-950/20 text-red-200",
-                          isWarn && "bg-amber-950/20 text-amber-200"
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition-all flex items-center gap-1.5",
+                          siteAlertsScope === "site" ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
                         )}
                       >
-                        <span className="w-32 shrink-0 text-[11px] text-slate-500">
-                          {log.timestamp ? formatTime(log.timestamp) : "—"}
-                        </span>
+                        <Building2 className="h-3 w-3" />
+                        Entire Site ({site?.location || site?.code || "Site"})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSiteAlertsScope("server")}
+                        className={cn(
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition-all flex items-center gap-1.5",
+                          siteAlertsScope === "server" ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                        )}
+                      >
+                        <ServerIcon className="h-3 w-3" />
+                        This Node ({server.name})
+                      </button>
+                    </div>
 
-                        <span className="w-16 shrink-0">
-                          <span
-                            className={cn(
-                              "inline-block rounded px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider",
-                              isErr
-                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                : isWarn
-                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                                : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
-                            )}
-                          >
-                            {lvl}
-                          </span>
-                        </span>
+                    {/* Status filter: all / active / resolved */}
+                    <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                      {(["all", "active", "resolved"] as const).map((f) => (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setSiteAlertsFilter(f)}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-xs font-medium transition-all capitalize",
+                            siteAlertsFilter === f ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {f}
+                        </button>
+                      ))}
+                    </div>
 
-                        <span className="w-20 shrink-0 text-[11px] text-slate-400 truncate">
-                          {log.source || "agent"}
-                        </span>
+                    {/* Severity filter: all / critical / warning / info */}
+                    <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                      {(["all", "critical", "warning", "info"] as const).map((sev) => (
+                        <button
+                          key={sev}
+                          type="button"
+                          onClick={() => setSiteAlertsSeverity(sev)}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-xs font-medium transition-all capitalize",
+                            siteAlertsSeverity === sev ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {sev}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                        <span className="flex-1 break-words font-mono text-slate-200 leading-relaxed text-[11px]">
-                          {log.message}
+                  <div className="flex items-center gap-2">
+                    {/* Search input */}
+                    <div className="relative flex-1 sm:w-64">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search site logs..."
+                        value={siteAlertsSearch}
+                        onChange={(e) => setSiteAlertsSearch(e.target.value)}
+                        className="h-8 w-full rounded-lg border border-slate-700/60 bg-slate-950 pl-8 pr-7 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 font-mono"
+                      />
+                      {siteAlertsSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setSiteAlertsSearch("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        loadSiteAlerts();
+                        showToast({ severity: "info", title: "Refreshed", message: "Site slave logs refreshed" });
+                      }}
+                      disabled={siteAlertsLoading}
+                      className="h-8 gap-1 text-xs"
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", siteAlertsLoading && "animate-spin")} />
+                      Refresh
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Slave Logs Table */}
+              <Card className="border-slate-800/80 bg-slate-900/60 shadow-xl overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-b border-slate-800/80 bg-slate-950/80 hover:bg-slate-950/80">
+                      <TableHead className="w-24">Severity</TableHead>
+                      <TableHead className="w-48">Slave / Node</TableHead>
+                      <TableHead>Incident Log Message</TableHead>
+                      <TableHead className="w-24">Status</TableHead>
+                      <TableHead className="w-36">Triggered</TableHead>
+                      <TableHead className="w-56">Auto-Resolution State</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {siteAlertsLoading && siteAlerts.length === 0 ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 6 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full max-w-[160px]" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : filteredSiteAlerts.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="py-12 text-center text-slate-500">
+                          <ShieldAlert className="mx-auto h-8 w-8 text-slate-600 mb-2 opacity-50" />
+                          <p className="font-semibold text-slate-400">No slave logs for this site</p>
+                          <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+                            No incident logs match the criteria for this site ({site?.client} · {site?.location}).
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredSiteAlerts.map((a) => {
+                        const srv = serverMap[a.server_id] || (server.id === a.server_id ? server : undefined);
+                        const isCurrent = a.server_id === id;
+                        return (
+                          <TableRow key={a.id} className={cn("hover:bg-slate-800/40 transition-colors", isCurrent && "bg-sky-500/[0.02]")}>
+                            <TableCell>
+                              <SeverityBadge severity={a.severity} />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col leading-tight">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-slate-200 text-xs">
+                                    {srv ? srv.name : a.server_id.slice(0, 8)}
+                                  </span>
+                                  {isCurrent && (
+                                    <span className="rounded bg-sky-500/20 text-sky-300 px-1 py-0.1 text-[9px] font-mono border border-sky-500/30">
+                                      this node
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-slate-500 font-mono">
+                                  {srv?.hostname || "—"}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-slate-200">
+                              {a.message}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={a.status === "active" ? "red" : "green"}>{a.status}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-400 font-mono">
+                              {formatTime(a.created_at)}
+                            </TableCell>
+                            <TableCell>
+                              {a.status === "resolved" ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                                  Auto-Resolved {a.resolved_at ? `(${formatTime(a.resolved_at)})` : ""}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-medium">
+                                  <Activity className="h-3.5 w-3.5 text-amber-400 shrink-0 animate-pulse" />
+                                  Active (Auto-Monitoring)
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </Card>
+            </div>
+          )}
+
+          {/* VIEW 2: Agent Runtime Logs */}
+          {logsSubTab === "agent_runtime" && (
+            <Card className="border-slate-800/80 bg-slate-900/60 shadow-xl">
+              <CardHeader className="flex flex-col gap-4 border-b border-slate-800/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-sky-400" />
+                    <CardTitle className="text-base font-bold text-slate-100">
+                      Agent Execution & Runtime Logs
+                    </CardTitle>
+                    <Badge variant="blue" className="ml-1 border-sky-500/30 bg-sky-500/10 text-sky-300 font-mono text-[11px]">
+                      {agentLogTotal} recorded
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Real-time activity logs, telemetry dispatches, config backups, and service checks from this server agent.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Agent log scope selector */}
+                  <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setAgentLogsScope("server")}
+                      className={cn(
+                        "rounded px-2 py-0.5 text-xs font-medium transition-all",
+                        agentLogsScope === "server" ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      This Server
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAgentLogsScope("site")}
+                      className={cn(
+                        "rounded px-2 py-0.5 text-xs font-medium transition-all",
+                        agentLogsScope === "site" ? "bg-sky-600 font-bold text-white shadow-sm" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      Entire Site
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogAutoRefresh(!logAutoRefresh)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all",
+                      logAutoRefresh
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-sm shadow-emerald-500/10"
+                        : "border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200"
+                    )}
+                    title={logAutoRefresh ? "Pause live stream" : "Enable live stream"}
+                  >
+                    <span className={cn("h-2 w-2 rounded-full", logAutoRefresh ? "bg-emerald-400 animate-pulse" : "bg-slate-500")} />
+                    Live Stream {logAutoRefresh ? "(5s)" : "(Paused)"}
+                  </button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFetchJournal}
+                    disabled={fetchingJournal}
+                    className="gap-1.5 border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 hover:text-sky-200 text-xs"
+                  >
+                    {fetchingJournal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TerminalSquare className="h-3.5 w-3.5" />}
+                    Fetch Host Journal
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      loadAgentLogs();
+                      showToast({ severity: "info", title: "Refreshed", message: "Agent logs refreshed" });
+                    }}
+                    disabled={loadingLogs}
+                    className="gap-1 text-xs"
+                  >
+                    <RefreshCw className={cn("h-3.5 w-3.5", loadingLogs && "animate-spin")} />
+                    Refresh
+                  </Button>
+
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearLogs}
+                      className="gap-1 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4 pt-4">
+                {/* Filter bar & Quick Actions */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Level selector */}
+                    <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
+                      {(["all", "info", "warning", "error"] as const).map((lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => setLogLevel(lvl)}
+                          className={cn(
+                            "rounded-md px-2.5 py-0.5 text-xs font-medium transition-all capitalize",
+                            logLevel === lvl
+                              ? "bg-sky-600 font-bold text-white shadow-sm"
+                              : "text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {lvl}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search query */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search logs by keyword..."
+                        value={logSearch}
+                        onChange={(e) => setLogSearch(e.target.value)}
+                        className="h-8 rounded-lg border border-slate-700/60 bg-slate-900/90 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500/60 w-56 sm:w-64 font-mono"
+                      />
+                      {logSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setLogSearch("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-300"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        const text = agentLogs
+                          .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.source || "agent"}] ${l.message}`)
+                          .join("\n");
+                        await navigator.clipboard.writeText(text);
+                        showToast({ severity: "info", title: "Copied", message: `Copied ${agentLogs.length} log lines to clipboard` });
+                      }}
+                      className="gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy Visible
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Optional Host Systemd Journal Collapsible */}
+                {journalOpen && journalOutput && (
+                  <div className="rounded-xl border border-sky-500/30 bg-slate-950 p-3 shadow-lg">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Terminal className="h-4 w-4 text-sky-400" />
+                        <span className="text-xs font-bold text-sky-300">
+                          Host Systemd Service Journal (journalctl)
                         </span>
                       </div>
-                    );
-                  })
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(journalOutput);
+                            showToast({ severity: "info", title: "Copied Journal" });
+                          }}
+                          className="rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                        >
+                          <Copy className="h-3 w-3 inline mr-1" /> Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setJournalOpen(false)}
+                          className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <pre className="max-h-64 overflow-auto rounded bg-black/60 p-3 font-mono text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap">
+                      {journalOutput}
+                    </pre>
+                  </div>
                 )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+
+                {/* Main Log Console Stream */}
+                <div className="overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/95 shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    <div className="flex items-center gap-4">
+                      <span className="w-32">Timestamp (UTC)</span>
+                      <span className="w-16">Level</span>
+                      <span className="w-20">Source</span>
+                      <span>Event Message</span>
+                    </div>
+                    <div>{agentLogs.length} entries shown</div>
+                  </div>
+
+                  <div className="max-h-[560px] overflow-y-auto p-2 font-mono text-xs divide-y divide-slate-900/80 space-y-1">
+                    {loadingLogs && agentLogs.length === 0 ? (
+                      Array.from({ length: 8 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-4 py-2 px-2">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-4 w-16" />
+                          <Skeleton className="h-4 w-20" />
+                          <Skeleton className="h-4 flex-1" />
+                        </div>
+                      ))
+                    ) : agentLogs.length === 0 ? (
+                      <div className="py-12 text-center text-slate-500">
+                        <FileText className="mx-auto h-8 w-8 text-slate-600 mb-2 opacity-50" />
+                        <p className="font-semibold text-slate-400">No agent logs recorded yet</p>
+                        <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+                          Logs will stream automatically as the agent pushes metrics and performs background checks. You can also click &ldquo;Fetch Host Journal&rdquo; to pull the remote host systemd logs directly.
+                        </p>
+                      </div>
+                    ) : (
+                      agentLogs.map((log) => {
+                        const lvl = (log.level || "info").toLowerCase();
+                        const isErr = lvl === "error";
+                        const isWarn = lvl === "warning" || lvl === "warn";
+
+                        return (
+                          <div
+                            key={log.id}
+                            className={cn(
+                              "flex items-start gap-4 rounded px-2.5 py-1.5 transition-colors hover:bg-slate-900/70",
+                              isErr && "bg-red-950/20 text-red-200",
+                              isWarn && "bg-amber-950/20 text-amber-200"
+                            )}
+                          >
+                            <span className="w-32 shrink-0 text-[11px] text-slate-500">
+                              {log.timestamp ? formatTime(log.timestamp) : "—"}
+                            </span>
+
+                            <span className="w-16 shrink-0">
+                              <span
+                                className={cn(
+                                  "inline-block rounded px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider",
+                                  isErr
+                                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                    : isWarn
+                                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                    : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                                )}
+                              >
+                                {lvl}
+                              </span>
+                            </span>
+
+                            <span className="w-20 shrink-0 text-[11px] text-slate-400 truncate">
+                              {log.source || "agent"}
+                            </span>
+
+                            <span className="flex-1 break-words font-mono text-slate-200 leading-relaxed text-[11px]">
+                              {log.message}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
 
     </div>
