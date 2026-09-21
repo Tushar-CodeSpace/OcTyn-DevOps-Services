@@ -64,33 +64,7 @@ class AuditLogRead(BaseModel):
     id: str
     user_id: Optional[str] = None
     email: str
-    action: Literal[
-        "login",
-        "logout",
-        "password_change",
-        "connectivity_lost",
-        "connectivity_restored",
-        "terminal_command",
-        "config_update",
-        "data_prune",
-        "template_save",
-        "template_delete",
-        "service_add",
-        "service_update",
-        "service_remove",
-        "server_create",
-        "server_update",
-        "server_delete",
-        "site_create",
-        "site_update",
-        "site_delete",
-        "user_create",
-        "user_update",
-        "user_delete",
-        "api_key_create",
-        "api_key_revoke",
-        "api_key_delete",
-    ]
+    action: str
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     details: Optional[dict] = None

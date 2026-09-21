@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, Info, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -439,7 +439,6 @@ export default function ServerDetail() {
 
   const siteCriticalCount = siteAlerts.filter((a) => a.severity === "critical").length;
   const siteWarningCount = siteAlerts.filter((a) => a.severity === "warning").length;
-  const siteInfoCount = siteAlerts.filter((a) => a.severity === "info").length;
   const siteActiveCount = siteAlerts.filter((a) => a.status === "active").length;
   const siteResolvedCount = siteAlerts.filter((a) => a.status === "resolved").length;
 

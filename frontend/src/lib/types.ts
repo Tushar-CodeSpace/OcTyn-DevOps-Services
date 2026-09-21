@@ -12,6 +12,7 @@ export interface User {
 export type AuditAction =
   | "login"
   | "logout"
+  | "token_refresh"
   | "password_change"
   | "connectivity_lost"
   | "connectivity_restored"
@@ -34,7 +35,8 @@ export type AuditAction =
   | "user_delete"
   | "api_key_create"
   | "api_key_revoke"
-  | "api_key_delete";
+  | "api_key_delete"
+  | string;
 
 export interface AuditLog {
   id: string;

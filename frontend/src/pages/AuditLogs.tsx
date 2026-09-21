@@ -55,7 +55,7 @@ const FILTERS: { id: FilterKey; label: string }[] = [
 
 function actionFilter(log: AuditLog): FilterKey[] {
   const a = log.action;
-  if (a === "login" || a === "logout" || a === "password_change") return ["access"];
+  if (a === "login" || a === "logout" || a === "password_change" || a === "token_refresh") return ["access"];
   if (a === "terminal_command") return ["terminal"];
   if (a === "config_update" || a === "data_prune") return ["config"];
   if (a === "template_save" || a === "template_delete") return ["templates"];
@@ -64,6 +64,8 @@ function actionFilter(log: AuditLog): FilterKey[] {
   if (a === "site_create" || a === "site_update" || a === "site_delete") return ["sites"];
   if (a === "user_create" || a === "user_update" || a === "user_delete") return ["users"];
   if (a === "api_key_create" || a === "api_key_revoke" || a === "api_key_delete") return ["keys"];
+  if (a.startsWith("software_") || a.startsWith("deployment_")) return ["config"];
+  if (a.startsWith("qa_")) return ["templates"];
   return ["connectivity"];
 }
 
@@ -72,6 +74,8 @@ function auditSummary(log: AuditLog): string {
   const str = (v: unknown) =>
     typeof v === "string" ? v : v == null ? "" : String(v).slice(0, 200);
   switch (log.action) {
+    case "token_refresh":
+      return "Refreshed dashboard session token";
     case "terminal_command":
       return `${d.server ?? d.server_id ?? ""} $ ${d.command ?? ""}`.trim();
     case "config_update":
@@ -117,6 +121,7 @@ function ActionBadge({ action }: { action: AuditAction }) {
   const conf: Record<string, { cls: string; icon: React.ReactNode; label: string }> = {
     login: { cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400", icon: <LogIn className="h-3 w-3" />, label: "Login" },
     logout: { cls: "border-amber-500/30 bg-amber-500/10 text-amber-400", icon: <LogOut className="h-3 w-3" />, label: "Logout" },
+    token_refresh: { cls: "border-sky-500/30 bg-sky-500/10 text-sky-400", icon: <RefreshCw className="h-3 w-3" />, label: "Session Refresh" },
     password_change: { cls: "border-violet-500/30 bg-violet-500/10 text-violet-300", icon: <KeyRound className="h-3 w-3" />, label: "Password" },
     terminal_command: { cls: "border-purple-500/30 bg-purple-500/10 text-purple-300", icon: <Terminal className="h-3 w-3" />, label: "Terminal" },
     config_update: { cls: "border-sky-500/30 bg-sky-500/10 text-sky-300", icon: <Settings2 className="h-3 w-3" />, label: "Config" },
