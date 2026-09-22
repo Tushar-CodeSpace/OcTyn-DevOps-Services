@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, AlertTriangle, BarChart3, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -216,14 +216,8 @@ export default function ServerDetail() {
 
   // Custom data widgets (agent-pushed MongoDB tallies)
   const [widgets, setWidgets] = useState<WidgetSample[] | null>(null);
-  const [widgetCfgOpen, setWidgetCfgOpen] = useState(false);
-  const [widgetDraft, setWidgetDraft] = useState<CustomWidgetSpec[]>([]);
-  const [widgetIncludeRaw, setWidgetIncludeRaw] = useState<Record<number, string>>({});
-  const [widgetExcludeRaw, setWidgetExcludeRaw] = useState<Record<number, string>>({});
-  const [savingWidgets, setSavingWidgets] = useState(false);
   const [triggeringWidgets, setTriggeringWidgets] = useState(false);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
-  const [templatePick, setTemplatePick] = useState("");
 
   const [refreshingWidgets, setRefreshingWidgets] = useState(false);
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
@@ -241,7 +235,7 @@ export default function ServerDetail() {
   // Default overview chart for all data widgets (bar/pie/trend), user preference
   type WidgetChartMode = "bar" | "pie" | "trend";
   const WIDGET_CHART_KEY = "octyn:widget-default-chart";
-  const [defaultChart, setDefaultChart] = useState<WidgetChartMode>(() => {
+  const [defaultChart] = useState<WidgetChartMode>(() => {
     try {
       const v = localStorage.getItem(WIDGET_CHART_KEY);
       if (v === "bar" || v === "pie" || v === "trend") return v;
@@ -252,18 +246,6 @@ export default function ServerDetail() {
   });
   const [widgetHistory, setWidgetHistory] = useState<Record<string, WidgetHistoryPoint[]>>({});
   const [loadingHist, setLoadingHist] = useState<Record<string, boolean>>({});
-  // Ref so the socket handler (stable closure) sees the current default
-  const defaultChartRef = useRef(defaultChart);
-  defaultChartRef.current = defaultChart;
-
-  function chooseDefaultChart(mode: WidgetChartMode) {
-    setDefaultChart(mode);
-    try {
-      localStorage.setItem(WIDGET_CHART_KEY, mode);
-    } catch {
-      /* private mode etc. */
-    }
-  }
 
   // Prefetch trend histories whenever Trend is the default
   useEffect(() => {
@@ -875,9 +857,9 @@ export default function ServerDetail() {
     return BarChart3;
   }
 
-  // List of available data widgets for + set winget dropdown
+  // List of available data widgets for + set winget dropdown (strictly available widget templates)
   const availableWidgets = useMemo(() => {
-    const list: { name: string; template?: WidgetTemplate; spec?: CustomWidgetSpec }[] = [];
+    const list: { name: string; template: WidgetTemplate }[] = [];
     const seen = new Set<string>();
 
     for (const t of widgetTemplates ?? []) {
@@ -887,46 +869,8 @@ export default function ServerDetail() {
       }
     }
 
-    for (const w of agentCfg?.custom_widgets ?? []) {
-      if (w.name && !seen.has(w.name)) {
-        seen.add(w.name);
-        list.push({ name: w.name, spec: w });
-      }
-    }
-
-    const defaults = [
-      { name: "Rejection breakdown", database: "octyn_services", collection: "records", group_by_field: "rejection_reason" },
-      { name: "Status distribution", database: "octyn_services", collection: "records", group_by_field: "upload_status" },
-      { name: "Live throughput", database: "octyn_services", collection: "records", group_by_field: "service_name" },
-    ];
-    for (const d of defaults) {
-      if (!seen.has(d.name)) {
-        seen.add(d.name);
-        list.push({
-          name: d.name,
-          template: {
-            id: `default_${d.name.replace(/\s+/g, "_").toLowerCase()}`,
-            name: d.name,
-            description: "Default widget",
-            database: d.database,
-            collection: d.collection,
-            enabled: true,
-            poll_interval_seconds: 60,
-            window_minutes: 60,
-            group_by_field: d.group_by_field,
-            time_field: "created_at",
-            max_groups: 10,
-            alert_threshold_percent: 50,
-            alert_window_minutes: 15,
-            created_at: "",
-            updated_at: "",
-          },
-        });
-      }
-    }
-
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [widgetTemplates, agentCfg?.custom_widgets]);
+  }, [widgetTemplates]);
 
   const activeWidgetNames = useMemo(() => {
     return new Set(
@@ -937,7 +881,7 @@ export default function ServerDetail() {
   }, [agentCfg?.custom_widgets]);
 
   async function handleToggleWidget(
-    item: { name: string; template?: WidgetTemplate; spec?: CustomWidgetSpec },
+    item: { name: string; template: WidgetTemplate },
     checked: boolean
   ) {
     if (!id) return;
@@ -953,19 +897,19 @@ export default function ServerDetail() {
         const t = item.template;
         const spec: CustomWidgetSpec = {
           name: item.name,
-          database: t?.database || item.spec?.database || "octyn_services",
-          collection: t?.collection || item.spec?.collection || "records",
+          database: t.database || "octyn_services",
+          collection: t.collection || "records",
           enabled: true,
           poll_interval_seconds: 60,
-          window_minutes: t?.window_minutes || item.spec?.window_minutes || 60,
-          group_by_field: t?.group_by_field || item.spec?.group_by_field || "upload_status",
-          time_field: t?.time_field || item.spec?.time_field || "created_at",
-          max_groups: t?.max_groups || item.spec?.max_groups || 10,
+          window_minutes: t.window_minutes || 60,
+          group_by_field: t.group_by_field || "upload_status",
+          time_field: t.time_field || "created_at",
+          max_groups: t.max_groups || 10,
           alert_threshold_percent: 50,
           alert_window_minutes: 15,
-          include_values: t?.include_values || item.spec?.include_values || [],
-          exclude_values: t?.exclude_values || item.spec?.exclude_values || [],
-          template_id: t?.id || item.spec?.template_id || undefined,
+          include_values: t.include_values || [],
+          exclude_values: t.exclude_values || [],
+          template_id: t.id || undefined,
           template_name: item.name,
         };
         updatedWidgets = [...currentList, spec];
@@ -1055,152 +999,7 @@ export default function ServerDetail() {
     }
   }
 
-  function openWidgetCfg() {
-    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({
-      name: w.name || "",
-      database: w.database || "",
-      collection: w.collection || "",
-      enabled: w.enabled ?? true,
-      poll_interval_seconds: Number(w.poll_interval_seconds) || 60,
-      window_minutes: Number(w.window_minutes) || 60,
-      group_by_field: w.group_by_field || "upload_status",
-      time_field: w.time_field || "created_at",
-      max_groups: Number(w.max_groups) || 10,
-      alert_threshold_percent: Number(w.alert_threshold_percent ?? 50),
-      alert_window_minutes: Number(w.alert_window_minutes ?? 15),
-      include_values: Array.isArray(w.include_values) ? [...w.include_values] : [],
-      exclude_values: Array.isArray(w.exclude_values) ? [...w.exclude_values] : [],
-      template_id: w.template_id || null,
-      template_name: w.template_name || null,
-    }));
-    setWidgetDraft(list);
-    const incMap: Record<number, string> = {};
-    const excMap: Record<number, string> = {};
-    list.forEach((w, idx) => {
-      incMap[idx] = (w.include_values ?? []).join(", ");
-      excMap[idx] = (w.exclude_values ?? []).join(", ");
-    });
-    setWidgetIncludeRaw(incMap);
-    setWidgetExcludeRaw(excMap);
-    setTemplatePick("");
-    apiFetch<WidgetTemplate[]>("/widgets/templates")
-      .then(setWidgetTemplates)
-      .catch(() => setWidgetTemplates([]));
-    setWidgetCfgOpen(true);
-  }
 
-  function applyTemplate() {
-    const t = widgetTemplates?.find((x) => x.id === templatePick);
-    if (!t) return;
-    if (widgetDraft.some((w) => w.name.trim().toLowerCase() === t.name.trim().toLowerCase())) {
-      showToast({ severity: "info", title: "Already added", message: `"${t.name}" is already in this server's widgets.` });
-      return;
-    }
-    const cleanWidget: CustomWidgetSpec = {
-      name: t.name || "",
-      database: t.database || "",
-      collection: t.collection || "",
-      enabled: t.enabled ?? true,
-      poll_interval_seconds: Number(t.poll_interval_seconds) || 60,
-      window_minutes: Number(t.window_minutes) || 60,
-      group_by_field: t.group_by_field || "upload_status",
-      time_field: t.time_field || "created_at",
-      max_groups: Number(t.max_groups) || 10,
-      alert_threshold_percent: Number(t.alert_threshold_percent ?? 50),
-      alert_window_minutes: Number(t.alert_window_minutes ?? 15),
-      include_values: Array.isArray(t.include_values) ? [...t.include_values] : [],
-      exclude_values: Array.isArray(t.exclude_values) ? [...t.exclude_values] : [],
-      template_id: t.id,
-      template_name: t.name,
-    };
-    const newIdx = widgetDraft.length;
-    setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: (cleanWidget.include_values ?? []).join(", ") }));
-    setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: (cleanWidget.exclude_values ?? []).join(", ") }));
-    setWidgetDraft([...widgetDraft, cleanWidget]);
-    showToast({ severity: "info", title: "Template applied", message: `"${t.name}" added — press Save widgets to activate.` });
-  }
-
-  async function saveAsTemplate(w: CustomWidgetSpec) {
-    try {
-      const { template_id: _tid, template_name: _tname, ...rest } = w as any;
-      const saved = await apiFetch<WidgetTemplate>("/widgets/templates", {
-        method: "POST",
-        body: JSON.stringify({ ...rest, description: "" }),
-      });
-      setWidgetTemplates((prev) => {
-        const next = (prev ?? []).filter((x) => x.id !== saved.id);
-        return [...next, saved].sort((a, b) => a.name.localeCompare(b.name));
-      });
-      showToast({ severity: "info", title: "Template saved", message: `"${saved.name}" is now reusable on other servers.` });
-    } catch (err) {
-      showToast({
-        severity: "critical",
-        title: "Save failed",
-        message: err instanceof Error ? err.message : undefined,
-      });
-    }
-  }
-
-  async function deleteTemplate() {
-    const t = widgetTemplates?.find((x) => x.id === templatePick);
-    if (!t || !confirm(`Delete template "${t.name}"? Servers already using it are unaffected.`)) return;
-    try {
-      await apiFetch(`/widgets/templates/${t.id}`, { method: "DELETE" });
-      setWidgetTemplates((prev) => (prev ?? []).filter((x) => x.id !== t.id));
-      setTemplatePick("");
-      showToast({ severity: "info", title: "Template deleted", message: `"${t.name}" removed from the library.` });
-    } catch (err) {
-      showToast({
-        severity: "critical",
-        title: "Delete failed",
-        message: err instanceof Error ? err.message : undefined,
-      });
-    }
-  }
-
-  async function saveWidgetCfg() {
-    if (!id) return;
-    setSavingWidgets(true);
-    try {
-      const cleanWidgets: CustomWidgetSpec[] = widgetDraft.map((w) => ({
-        name: (w.name || "").trim(),
-        database: (w.database || "").trim(),
-        collection: (w.collection || "").trim(),
-        enabled: w.enabled ?? true,
-        poll_interval_seconds: Number(w.poll_interval_seconds) || 60,
-        window_minutes: Number(w.window_minutes) || 60,
-        group_by_field: (w.group_by_field || "upload_status").trim(),
-        time_field: (w.time_field || "created_at").trim(),
-        max_groups: Number(w.max_groups) || 10,
-        alert_threshold_percent: Number(w.alert_threshold_percent ?? 50),
-        alert_window_minutes: Number(w.alert_window_minutes ?? 15),
-        include_values: Array.isArray(w.include_values) ? w.include_values.map((s) => String(s).trim()).filter(Boolean) : [],
-        exclude_values: Array.isArray(w.exclude_values) ? w.exclude_values.map((s) => String(s).trim()).filter(Boolean) : [],
-        template_id: w.template_id || null,
-        template_name: w.template_name || null,
-      }));
-      const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ custom_widgets: cleanWidgets }),
-      });
-      setAgentCfg(saved);
-      await loadWidgets();
-      setWidgetCfgOpen(false);
-      showToast({
-        severity: "info",
-        title: "Widgets saved",
-        message: "Widgets saved successfully. Click 'Send summary request' to ask the agent for summary data.",
-      });
-    } catch (err) {
-      showToast({
-        severity: "critical",
-        title: "Save failed",
-        message: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setSavingWidgets(false);
-    }
-  }
 
   function widgetIntervalSeconds(name: string): number {
     const def = agentCfg?.custom_widgets?.find((w) => w.name === name);
@@ -2010,19 +1809,6 @@ export default function ServerDetail() {
             </Button>
           )}
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={triggeringWidgets || refreshingWidgets}
-            onClick={() => void handleRefreshWidgets()}
-            title="Refresh data widgets"
-            className="gap-1.5 text-slate-300 hover:text-white"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
-            Refresh
-          </Button>
-
-          {renderSetWidgetDropdown("end")}
 
           <Button variant="outline" size="sm" onClick={exportMetricsCsv} title="Export server metrics CSV">
             <FileSpreadsheet className="mr-1.5 h-4 w-4 text-emerald-400" />
@@ -2432,17 +2218,6 @@ export default function ServerDetail() {
                       Refresh
                     </Button>
                     {renderSetWidgetDropdown("end")}
-                    {isAdmin && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
-                        className="gap-1 text-xs text-slate-400 hover:text-slate-200"
-                      >
-                        <Settings2 className="h-3.5 w-3.5" />
-                        Manage
-                      </Button>
-                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -2501,17 +2276,6 @@ export default function ServerDetail() {
                     Refresh
                   </Button>
                   {renderSetWidgetDropdown("end")}
-                  {isAdmin && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
-                      className="gap-1 text-xs text-slate-400 hover:text-slate-200"
-                    >
-                      <Settings2 className="h-3.5 w-3.5" />
-                      Manage
-                    </Button>
-                  )}
                 </div>
               </div>
             </CardHeader>
@@ -3820,332 +3584,7 @@ export default function ServerDetail() {
         </div>
       )}
 
-      {/* Custom widget configuration popup */}
-      {widgetCfgOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <LayoutGrid className="h-4 w-4 text-emerald-400" />
-                Custom data widgets
-              </CardTitle>
-              <button
-                onClick={() => setWidgetCfgOpen(false)}
-                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="-mt-1 text-xs text-slate-500">
-              The site agent counts documents in the given database + collection over a
-              rolling window and pushes SUCCESS / FAILED style tallies every interval.
-              Needs site MongoDB access (same URI as config backup) + pymongo on the host.
-            </p>
-            <div className="flex flex-col gap-3 overflow-y-auto">
-              {!agentCfg ? (
-                <Skeleton className="h-28 w-full" />
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
-                    <span className="text-xs text-slate-400">From template:</span>
-                    <select
-                      value={templatePick}
-                      onChange={(e) => setTemplatePick(e.target.value)}
-                      className="h-8 min-w-40 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500"
-                    >
-                      <option value="">
-                        {widgetTemplates === null
-                          ? "Loading templates…"
-                          : widgetTemplates.length === 0
-                            ? "No templates yet — save one below"
-                            : "Choose a template…"}
-                      </option>
-                      {(widgetTemplates ?? []).map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} · {t.database}.{t.collection}
-                        </option>
-                      ))}
-                    </select>
-                    <Button size="sm" variant="ghost" disabled={!templatePick} onClick={applyTemplate}>
-                      Apply
-                    </Button>
-                    {isAdmin && templatePick && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
-                        onClick={() => void deleteTemplate()}
-                        title="Delete this template from the library"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                  {(() => {
-                    const picked = widgetTemplates?.find((x) => x.id === templatePick);
-                    if (!picked) return null;
-                    return (
-                      <p className="-mt-1 font-mono text-[11px] text-slate-500">
-                        {picked.database}.{picked.collection} · by {picked.group_by_field} · single-time on-demand · last {picked.window_minutes}m
-                      </p>
-                    );
-                  })()}
-                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-2.5">
-                    <span className="text-xs text-slate-400">Default chart for overview cards:</span>
-                    <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
-                      {(["bar", "pie", "trend"] as const).map((m) => (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => chooseDefaultChart(m)}
-                          className={cn(
-                            "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-                            defaultChart === m
-                              ? "bg-emerald-500/20 text-emerald-300"
-                              : "text-slate-400 hover:text-slate-200"
-                          )}
-                        >
-                          {m === "trend" ? "Trend" : m === "pie" ? "Pie" : "Bars"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {widgetDraft.length === 0 && (
-                    <p className="rounded-lg border border-dashed border-slate-700/80 p-4 text-xs text-slate-500">
-                      No widgets configured. Add one below — e.g. name{" "}
-                      <span className="font-mono text-slate-300">Inscan uploads</span>, database{" "}
-                      <span className="font-mono text-slate-300">data_uploader_service</span>, collection{" "}
-                      <span className="font-mono text-slate-300">integration_logs</span>, group by{" "}
-                      <span className="font-mono text-slate-300">upload_status</span>.
-                    </p>
-                  )}
-                  {widgetDraft.map((w, i) => (
-                    <div key={i} className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Name</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={w.name}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, name: e.target.value };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="Inscan uploads"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Database</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={w.database}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, database: e.target.value };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="data_uploader_service"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Collection</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={w.collection}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, collection: e.target.value };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="integration_logs"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Window (min)</Label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={10080}
-                            disabled={!isAdmin}
-                            value={w.window_minutes}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, window_minutes: Number(e.target.value) };
-                              setWidgetDraft(next);
-                            }}
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Group by field</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={w.group_by_field}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, group_by_field: e.target.value };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="upload_status"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Time field</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={w.time_field}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, time_field: e.target.value };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="created_at"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-300 font-medium">Include Key Values (optional)</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={widgetIncludeRaw[i] ?? (w.include_values ?? []).join(", ")}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setWidgetIncludeRaw((prev) => ({ ...prev, [i]: val }));
-                              const arr = val.split(",").map((s) => s.trim()).filter(Boolean);
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, include_values: arr };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="e.g. SUCCESS, barcode_data.type: 2D (leave blank for all)"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                          <span className="text-[10px] text-slate-400">
-                            Only count matching values. Supports plain values (for group-by) or field: value (e.g. status: SUCCESS). Comma-separated.
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-300 font-medium">Exclude Key Values (optional)</Label>
-                          <input
-                            type="text"
-                            disabled={!isAdmin}
-                            value={widgetExcludeRaw[i] ?? (w.exclude_values ?? []).join(", ")}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setWidgetExcludeRaw((prev) => ({ ...prev, [i]: val }));
-                              const arr = val.split(",").map((s) => s.trim()).filter(Boolean);
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, exclude_values: arr };
-                              setWidgetDraft(next);
-                            }}
-                            placeholder="e.g. SKIPPED, rejection_data.display_rejection: PSTR"
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                          <span className="text-[10px] text-slate-400">
-                            Omit matching values from count and breakdown. Supports plain values or field: value (e.g. rejection_data.display_rejection: PSTR). Comma-separated.
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <label className="flex cursor-pointer select-none items-center gap-2">
-                          <input
-                            type="checkbox"
-                            disabled={!isAdmin}
-                            checked={w.enabled}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, enabled: e.target.checked };
-                              setWidgetDraft(next);
-                            }}
-                            className="h-4 w-4 accent-emerald-500 disabled:opacity-50"
-                          />
-                          <span className="text-xs text-slate-300">Enabled</span>
-                        </label>
-                        <span className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={!isAdmin || !w.name.trim() || !w.database.trim() || !w.collection.trim()}
-                            onClick={() => void saveAsTemplate(w)}
-                            className="text-xs text-emerald-400 hover:text-emerald-300"
-                            title="Save as reusable widget template"
-                          >
-                            Save as template
-                          </Button>
-                          {isAdmin && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setWidgetDraft(widgetDraft.filter((_, j) => j !== i))}
-                              className="text-xs text-red-400 hover:text-red-300"
-                            >
-                              <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              Remove
-                            </Button>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  {isAdmin && (
-                    <div className="flex flex-wrap items-center gap-3 pt-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const newIdx = widgetDraft.length;
-                          setWidgetIncludeRaw((prev) => ({ ...prev, [newIdx]: "" }));
-                          setWidgetExcludeRaw((prev) => ({ ...prev, [newIdx]: "" }));
-                          setWidgetDraft([
-                            ...widgetDraft,
-                            {
-                              name: "",
-                              database: "",
-                              collection: "",
-                              enabled: true,
-                              poll_interval_seconds: 60,
-                              window_minutes: 60,
-                              group_by_field: "upload_status",
-                              time_field: "created_at",
-                              max_groups: 10,
-                              alert_threshold_percent: 50,
-                              alert_window_minutes: 15,
-                              include_values: [],
-                              exclude_values: [],
-                            },
-                          ]);
-                        }}
-                      >
-                        <Plus className="mr-1 h-3.5 w-3.5" />
-                        Add widget
-                      </Button>
-                      <Button onClick={() => void saveWidgetCfg()} disabled={savingWidgets} size="sm">
-                        <Save className="mr-1.5 h-3.5 w-3.5" />
-                        {savingWidgets ? "Saving…" : "Save widgets"}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Site config backups (snapshots) — grouped by database */}
       {activeTab === "backups" && (
