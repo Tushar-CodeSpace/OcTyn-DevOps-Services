@@ -223,6 +223,7 @@ export default function ServerDetail() {
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [summaryWindowMinutes, setSummaryWindowMinutes] = useState(60);
   const [sendingSummary, setSendingSummary] = useState(false);
+  const [refreshingWidgets, setRefreshingWidgets] = useState(false);
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
   const [runtimePick, setRuntimePick] = useState("");
   const [runtimeTplName, setRuntimeTplName] = useState("");
@@ -814,6 +815,29 @@ export default function ServerDetail() {
       });
     } finally {
       setTriggeringWidgets(false);
+    }
+  }
+
+  async function handleRefreshWidgets() {
+    if ((widgets ?? []).length > 0 || (agentCfg?.custom_widgets ?? []).length > 0) {
+      await triggerWidgetsNow();
+    } else {
+      setRefreshingWidgets(true);
+      try {
+        await Promise.all([
+          loadWidgets(),
+          loadAgentConfig().catch(() => {}),
+        ]);
+        showToast({ severity: "info", title: "Refreshed", message: "Data widgets refreshed." });
+      } catch (err) {
+        showToast({
+          severity: "warning",
+          title: "Refresh failed",
+          message: err instanceof Error ? err.message : "Failed to refresh widgets",
+        });
+      } finally {
+        setRefreshingWidgets(false);
+      }
     }
   }
 
@@ -1860,6 +1884,18 @@ export default function ServerDetail() {
           <Button
             variant="outline"
             size="sm"
+            disabled={triggeringWidgets || refreshingWidgets}
+            onClick={() => void handleRefreshWidgets()}
+            title="Refresh data widgets"
+            className="gap-1.5 text-slate-300 hover:text-white"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
+            Refresh
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
             disabled={triggeringWidgets}
             onClick={() => void openSummaryModal()}
             title="Select a widget template and send summary request to the site agent"
@@ -2273,16 +2309,41 @@ export default function ServerDetail() {
                       On-demand tallies queried from site MongoDB (zero background DB load).
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={triggeringWidgets}
-                    onClick={() => void openSummaryModal()}
-                    className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-xs"
-                  >
-                    <Send className="h-3.5 w-3.5 text-emerald-400" />
-                    Send summary request
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={triggeringWidgets || refreshingWidgets}
+                      onClick={() => void handleRefreshWidgets()}
+                      title="Refresh data widgets"
+                      className="gap-1.5 text-xs text-slate-300 hover:text-white"
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
+                      Refresh
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={triggeringWidgets}
+                      onClick={() => void openSummaryModal()}
+                      title="Select a widget template and send summary request to the site agent"
+                      className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-xs"
+                    >
+                      <Send className="h-3.5 w-3.5 text-emerald-400" />
+                      Send summary request
+                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
+                        className="gap-1 text-xs text-slate-400 hover:text-slate-200"
+                      >
+                        <Settings2 className="h-3.5 w-3.5" />
+                        Manage
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -2298,15 +2359,27 @@ export default function ServerDetail() {
                       Click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> to select a data widget template and ask the site agent to query and return summary tallies.
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    disabled={triggeringWidgets}
-                    onClick={() => void openSummaryModal()}
-                    className="mt-2 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
-                  >
-                    <Send className="h-4 w-4" />
-                    Send summary request
-                  </Button>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={triggeringWidgets || refreshingWidgets}
+                      onClick={() => void handleRefreshWidgets()}
+                      className="gap-1.5 border-slate-700 text-slate-300 hover:text-white"
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
+                      Refresh
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={triggeringWidgets}
+                      onClick={() => void openSummaryModal()}
+                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
+                    >
+                      <Send className="h-4 w-4" />
+                      Send summary request
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2324,6 +2397,17 @@ export default function ServerDetail() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={triggeringWidgets || refreshingWidgets}
+                    onClick={() => void handleRefreshWidgets()}
+                    title="Refresh data widgets"
+                    className="gap-1.5 text-xs text-slate-300 hover:text-white"
+                  >
+                    <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
+                    Refresh
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
