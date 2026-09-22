@@ -896,8 +896,8 @@ export default function TemplatesPage() {
                       <span className="font-mono text-slate-300 truncate block">{w.time_field}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-500 block uppercase font-mono">Poll Interval</span>
-                      <span className="font-semibold text-slate-200">{w.poll_interval_seconds}s</span>
+                      <span className="text-[10px] text-slate-500 block uppercase font-mono">Execution</span>
+                      <span className="font-semibold text-emerald-400">Single-time on-demand</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-500 block uppercase font-mono">Window</span>
@@ -1582,21 +1582,8 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
-              {/* Intervals & Window */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-xs text-slate-300">Poll Interval (seconds)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={3600}
-                    value={widgetForm.poll_interval_seconds}
-                    onChange={(e) =>
-                      setWidgetForm({ ...widgetForm, poll_interval_seconds: Number(e.target.value) })
-                    }
-                    className="bg-slate-950 border-slate-800 text-xs"
-                  />
-                </div>
+              {/* Window & Groups */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-slate-300">Time Window (minutes)</Label>
                   <Input
@@ -1609,6 +1596,7 @@ export default function TemplatesPage() {
                     }
                     className="bg-slate-950 border-slate-800 text-xs"
                   />
+                  <span className="text-[10px] text-slate-500">Query lookback range in minutes</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-xs text-slate-300">Max Groups</Label>

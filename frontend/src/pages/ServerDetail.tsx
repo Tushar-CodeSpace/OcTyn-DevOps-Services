@@ -2317,7 +2317,7 @@ export default function ServerDetail() {
                           <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">
                             {sample
                               ? `${sample.database}.${sample.collection} · last ${sample.window_minutes}m`
-                              : `${def?.database}.${def?.collection} · every ${def?.poll_interval_seconds ?? 60}s`}
+                              : `${def?.database}.${def?.collection} · single-time on-demand`}
                           </p>
                         </div>
                         {sample && (
@@ -3152,7 +3152,7 @@ export default function ServerDetail() {
                       <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
                         <span className="truncate">collected {formatTime(w.collected_at)}</span>
                         <span className="shrink-0">{widgetRangeLabel(w)}</span>
-                        <span className="shrink-0">every {widgetIntervalSeconds(w.widget_name)}s</span>
+                        <span className="shrink-0 text-emerald-400 font-medium">on-demand</span>
                       </div>
                     </div>
                   );
@@ -3887,8 +3887,7 @@ export default function ServerDetail() {
                     if (!picked) return null;
                     return (
                       <p className="-mt-1 font-mono text-[11px] text-slate-500">
-                        {picked.database}.{picked.collection} · by {picked.group_by_field} · every{" "}
-                        {picked.poll_interval_seconds}s · last {picked.window_minutes}m
+                        {picked.database}.{picked.collection} · by {picked.group_by_field} · single-time on-demand · last {picked.window_minutes}m
                       </p>
                     );
                   })()}
@@ -3970,23 +3969,7 @@ export default function ServerDetail() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-400">Every (s)</Label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={3600}
-                            disabled={!isAdmin}
-                            value={w.poll_interval_seconds}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, poll_interval_seconds: Number(e.target.value) };
-                              setWidgetDraft(next);
-                            }}
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                        </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <div className="flex flex-col gap-1">
                           <Label className="text-xs text-slate-400">Window (min)</Label>
                           <input
