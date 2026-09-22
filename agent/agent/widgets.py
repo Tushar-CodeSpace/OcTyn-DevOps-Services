@@ -390,11 +390,14 @@ def _payload(
     }
 
 
-def push_widgets(force: bool = False) -> None:
+def push_widgets(force: bool = False, target_widget: Optional[str] = None) -> None:
     """Collect and push enabled widgets. Only executes when explicitly requested from UI (force=True)."""
     if not force:
         return
     widgets = [w for w in custom_widgets() if w.get("enabled", True)]
+    if target_widget and target_widget.strip():
+        target_clean = target_widget.strip()
+        widgets = [w for w in widgets if w.get("name") == target_clean]
     if not widgets:
         return
     if not mongo_config_enabled():

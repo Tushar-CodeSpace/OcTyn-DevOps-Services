@@ -217,6 +217,7 @@ export default function ServerDetail() {
   // Custom data widgets (agent-pushed MongoDB tallies)
   const [widgets, setWidgets] = useState<WidgetSample[] | null>(null);
   const [triggeringWidgets, setTriggeringWidgets] = useState(false);
+  const [refreshingWidgetMap, setRefreshingWidgetMap] = useState<Record<string, boolean>>({});
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
 
   const [refreshingWidgets, setRefreshingWidgets] = useState(false);
@@ -802,6 +803,64 @@ export default function ServerDetail() {
     }
   }
 
+  async function handleRefreshSingleWidget(widgetName: string) {
+    if (!id || refreshingWidgetMap[widgetName]) return;
+    setRefreshingWidgetMap((prev) => ({ ...prev, [widgetName]: true }));
+    const beforeTime = Date.now();
+    try {
+      showToast({
+        severity: "info",
+        title: `Refreshing ${widgetName}...`,
+        message: `Query requested for "${widgetName}". Awaiting response...`,
+      });
+      await apiFetch(`/widgets/servers/${id}/trigger?widget_name=${encodeURIComponent(widgetName)}`, {
+        method: "POST",
+      });
+      const pollStart = Date.now();
+      let arrived = false;
+      while (Date.now() - pollStart < 20000) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const items = await apiFetch<WidgetSample[]>(`/widgets/servers/${id}`);
+          if (items && items.length > 0) {
+            const fresh = items.find(
+              (item) => item.widget_name === widgetName && new Date(item.received_at).getTime() >= beforeTime - 2000
+            );
+            if (fresh) {
+              setWidgets(items);
+              arrived = true;
+              break;
+            }
+          }
+        } catch {
+          // ignore transient errors while polling
+        }
+      }
+      await loadWidgets();
+      if (arrived) {
+        showToast({
+          severity: "info",
+          title: `Refreshed ${widgetName}`,
+          message: `Site agent successfully updated "${widgetName}".`,
+        });
+      } else {
+        showToast({
+          severity: "info",
+          title: `Request dispatched`,
+          message: `Agent executing query for "${widgetName}". Check back shortly.`,
+        });
+      }
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: `Failed to refresh ${widgetName}`,
+        message: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setRefreshingWidgetMap((prev) => ({ ...prev, [widgetName]: false }));
+    }
+  }
+
   async function handleRefreshWidgets() {
     if ((widgets ?? []).length > 0 || (agentCfg?.custom_widgets ?? []).length > 0) {
       await triggerWidgetsNow();
@@ -1077,17 +1136,19 @@ export default function ServerDetail() {
 
   function widgetRangeLabel(w: { received_at: string; window_minutes: number }): string {
     const endMs = new Date(w.received_at).getTime();
-    if (!isFinite(endMs)) return `last ${w.window_minutes}m → now`;
+    if (!isFinite(endMs)) return `last ${w.window_minutes}m`;
     const end = new Date(endMs);
     const from = new Date(endMs - w.window_minutes * 60000);
-    const time = from.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const fromTime = from.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const endTime = end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const sameDay =
       from.getFullYear() === end.getFullYear() &&
       from.getMonth() === end.getMonth() &&
       from.getDate() === end.getDate();
-    if (sameDay) return `${time} → now`;
-    const date = from.toLocaleDateString([], { day: "numeric", month: "numeric" });
-    return `${date}, ${time} → now`;
+    if (sameDay) return `${fromTime} → ${endTime}`;
+    const fromDate = from.toLocaleDateString([], { day: "numeric", month: "numeric" });
+    const endDate = end.toLocaleDateString([], { day: "numeric", month: "numeric" });
+    return `${fromDate}, ${fromTime} → ${endDate}, ${endTime}`;
   }
 
   function trendTimeLabel(iso: string): string {
@@ -2318,30 +2379,46 @@ export default function ServerDetail() {
                               : `${def?.database}.${def?.collection} · single-time on-demand`}
                           </p>
                         </div>
-                        {sample && (
-                          <span
-                            className={cn(
-                              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                              state === "error"
-                                ? "bg-red-500/10 text-red-300"
-                                : state === "stale"
-                                  ? "bg-amber-500/10 text-amber-300"
-                                  : "bg-emerald-500/10 text-emerald-300"
-                            )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={Boolean(refreshingWidgetMap[name] || triggeringWidgets)}
+                            onClick={() => void handleRefreshSingleWidget(name)}
+                            title={`Refresh ${name}`}
+                            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
                           >
-                            <span
+                            <RefreshCw
                               className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                state === "error"
-                                  ? "bg-red-400"
-                                  : state === "stale"
-                                    ? "bg-amber-400"
-                                    : "bg-emerald-400"
+                                "h-3.5 w-3.5",
+                                refreshingWidgetMap[name] && "animate-spin text-emerald-400"
                               )}
                             />
-                            {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
-                          </span>
-                        )}
+                          </button>
+                          {sample && (
+                            <span
+                              className={cn(
+                                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                state === "error"
+                                  ? "bg-red-500/10 text-red-300"
+                                  : state === "stale"
+                                    ? "bg-amber-500/10 text-amber-300"
+                                    : "bg-emerald-500/10 text-emerald-300"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  state === "error"
+                                    ? "bg-red-400"
+                                    : state === "stale"
+                                      ? "bg-amber-400"
+                                      : "bg-emerald-400"
+                                )}
+                              />
+                              {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {!sample ? (
@@ -2352,11 +2429,11 @@ export default function ServerDetail() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={triggeringWidgets || refreshingWidgets}
-                            onClick={() => void handleRefreshWidgets()}
+                            disabled={Boolean(refreshingWidgetMap[name] || triggeringWidgets || refreshingWidgets)}
+                            onClick={() => void handleRefreshSingleWidget(name)}
                             className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-7 gap-1.5"
                           >
-                            <RefreshCw className={cn("h-3 w-3", (triggeringWidgets || refreshingWidgets) && "animate-spin")} />
+                            <RefreshCw className={cn("h-3 w-3", refreshingWidgetMap[name] && "animate-spin text-emerald-400")} />
                             Refresh to get data
                           </Button>
                         </div>

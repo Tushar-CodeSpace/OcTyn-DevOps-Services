@@ -152,10 +152,12 @@ def apply_agent_config(body):
         threading.Thread(target=sync_configs, daemon=True).start()
 
     trigger_w_id = body.get("trigger_widgets_id")
+    trigger_w_name = body.get("trigger_widget_name") or ""
     if trigger_w_id and str(trigger_w_id).strip() and trigger_w_id != _LAST_TRIGGER_WIDGETS_ID:
         _LAST_TRIGGER_WIDGETS_ID = trigger_w_id
-        log("[TRIGGER] Hub requested on-demand widget query (trigger_id=%s)" % trigger_w_id)
-        threading.Thread(target=push_widgets, args=(True,), daemon=True).start()
+        target_info = f"widget='{trigger_w_name}'" if trigger_w_name else "all widgets"
+        log("[TRIGGER] Hub requested on-demand widget query (trigger_id=%s, target=%s)" % (trigger_w_id, target_info))
+        threading.Thread(target=push_widgets, args=(True, trigger_w_name or None), daemon=True).start()
 
 
 _RUNTIME_FIELDS = (
@@ -668,11 +670,14 @@ def collect_widget(client, widget):
         return _widget_payload(widget, collected_at, window, 0, {}, error=str(exc)[:300])
 
 
-def push_widgets(force=False):
+def push_widgets(force=False, target_widget=None):
     """Collect and push enabled widgets. Only executes when explicitly requested from UI (force=True)."""
     if not force:
         return
     widgets = [w for w in custom_widgets() if w.get("enabled", True)]
+    if target_widget and str(target_widget).strip():
+        target_clean = str(target_widget).strip()
+        widgets = [w for w in widgets if w.get("name") == target_clean]
     if not widgets:
         return
     if not mongo_config_enabled():

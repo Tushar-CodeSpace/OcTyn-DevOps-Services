@@ -154,13 +154,15 @@ def apply_agent_config(body: Dict[str, Any]) -> None:
             pass
 
     trigger_w_id = body.get("trigger_widgets_id")
+    trigger_w_name = body.get("trigger_widget_name") or ""
     if trigger_w_id and str(trigger_w_id).strip() and trigger_w_id != _LAST_TRIGGER_WIDGETS_ID:
         _LAST_TRIGGER_WIDGETS_ID = trigger_w_id
-        log(f"[TRIGGER] Hub requested on-demand widget query (trigger_id={trigger_w_id})")
+        target_info = f"widget='{trigger_w_name}'" if trigger_w_name else "all widgets"
+        log(f"[TRIGGER] Hub requested on-demand widget query (trigger_id={trigger_w_id}, target={target_info})")
         import threading
         try:
             from agent.widgets import push_widgets
-            threading.Thread(target=push_widgets, args=(True,), daemon=True).start()
+            threading.Thread(target=push_widgets, args=(True, trigger_w_name or None), daemon=True).start()
         except ImportError:
             pass
 
