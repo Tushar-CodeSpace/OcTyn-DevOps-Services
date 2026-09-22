@@ -1816,6 +1816,34 @@ export default function ServerDetail() {
             </Button>
           )}
 
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={triggeringWidgets}
+            onClick={() => {
+              if ((agentCfg?.custom_widgets ?? []).length === 0) {
+                setActiveTab("widgets");
+                openAddWidget();
+              } else {
+                void triggerWidgetsNow();
+              }
+            }}
+            title={(agentCfg?.custom_widgets ?? []).length === 0 ? "Configure widgets under the Widgets tab first" : "Send summary request to site agent to query and return widget data"}
+            className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            {triggeringWidgets ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                Sending summary request...
+              </>
+            ) : (
+              <>
+                <Send className="h-3.5 w-3.5 text-emerald-400" />
+                Send summary request
+              </>
+            )}
+          </Button>
+
           <Button variant="outline" size="sm" onClick={exportMetricsCsv} title="Export server metrics CSV">
             <FileSpreadsheet className="mr-1.5 h-4 w-4 text-emerald-400" />
             Export Metrics CSV
@@ -2209,12 +2237,34 @@ export default function ServerDetail() {
                 <div>
                   <CardTitle className="text-sm">Data widgets ({entries.length})</CardTitle>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Live tallies from the site agent — default chart set in Configure widgets.
+                    On-demand tallies from the site agent — queried via Send summary request.
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setActiveTab("widgets")}>
-                  Manage widgets
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={triggeringWidgets || defs.length === 0}
+                    onClick={() => void triggerWidgetsNow()}
+                    title="Send summary request to site agent to query and return widget data"
+                    className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 text-xs"
+                  >
+                    {triggeringWidgets ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                        Sending summary request...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-3.5 w-3.5 text-emerald-400" />
+                        Send summary request
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setActiveTab("widgets")}>
+                    Manage widgets
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -2297,9 +2347,21 @@ export default function ServerDetail() {
                       </div>
 
                       {!sample ? (
-                        <p className="py-6 text-center text-xs text-slate-500">
-                          Waiting for the agent's first tally…
-                        </p>
+                        <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
+                          <p className="text-xs text-slate-500">
+                            Awaiting summary request...
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={triggeringWidgets}
+                            onClick={() => void triggerWidgetsNow()}
+                            className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-7 gap-1"
+                          >
+                            <Send className="h-3 w-3" />
+                            Send summary request
+                          </Button>
+                        </div>
                       ) : sample.error ? (
                         <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
                           Agent reported: {sample.error}
