@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Send, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -757,41 +757,93 @@ export default function ServerDetail() {
   async function triggerWidgetsNow() {
     if (!id || triggeringWidgets) return;
     setTriggeringWidgets(true);
+    const beforeTime = Date.now();
     try {
       showToast({
         severity: "info",
-        title: "Querying site MongoDB...",
-        message: "Sent on-demand query trigger to site agent.",
+        title: "Sending summary request...",
+        message: "Summary request sent to site agent. Awaiting data...",
       });
       await apiFetch(`/widgets/servers/${id}/trigger`, { method: "POST" });
       const pollStart = Date.now();
-      while (Date.now() - pollStart < 15000) {
+      let arrived = false;
+      while (Date.now() - pollStart < 20000) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
           const items = await apiFetch<WidgetSample[]>(`/widgets/servers/${id}`);
           if (items && items.length > 0) {
-            setWidgets(items);
-            break;
+            const hasFresh = items.some(
+              (item) => new Date(item.received_at).getTime() >= beforeTime - 2000
+            );
+            if (hasFresh) {
+              setWidgets(items);
+              arrived = true;
+              break;
+            }
           }
         } catch {
           // ignore transient errors while polling
         }
       }
       await loadWidgets();
-      showToast({
-        severity: "info",
-        title: "Widget data refreshed",
-        message: "Latest tallies received from site MongoDB.",
-      });
+      if (arrived) {
+        showToast({
+          severity: "info",
+          title: "Summary data received",
+          message: "Site agent successfully executed the query and returned the asked data.",
+        });
+      } else {
+        showToast({
+          severity: "info",
+          title: "Summary request sent",
+          message: "Request dispatched to site agent. Check back in a few seconds.",
+        });
+      }
     } catch (err) {
       showToast({
         severity: "critical",
-        title: "Query failed",
-        message: err instanceof Error ? err.message : "Failed to trigger widget query",
+        title: "Request failed",
+        message: err instanceof Error ? err.message : "Failed to send summary request",
       });
     } finally {
       setTriggeringWidgets(false);
     }
+  }
+
+  function openAddWidget() {
+    void loadAgentConfig();
+    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }));
+    list.push({
+      name: "",
+      database: "",
+      collection: "",
+      enabled: true,
+      poll_interval_seconds: 60,
+      window_minutes: 60,
+      group_by_field: "upload_status",
+      time_field: "created_at",
+      max_groups: 10,
+      alert_threshold_percent: 50,
+      alert_window_minutes: 15,
+      include_values: [],
+      exclude_values: [],
+      template_id: null,
+      template_name: null,
+    });
+    setWidgetDraft(list);
+    const incMap: Record<number, string> = {};
+    const excMap: Record<number, string> = {};
+    list.forEach((w, idx) => {
+      incMap[idx] = (w.include_values ?? []).join(", ");
+      excMap[idx] = (w.exclude_values ?? []).join(", ");
+    });
+    setWidgetIncludeRaw(incMap);
+    setWidgetExcludeRaw(excMap);
+    setTemplatePick("");
+    apiFetch<WidgetTemplate[]>("/widgets/templates")
+      .then(setWidgetTemplates)
+      .catch(() => setWidgetTemplates([]));
+    setWidgetCfgOpen(true);
   }
 
   async function loadWidgetHistory(name: string, force = false) {
@@ -940,10 +992,11 @@ export default function ServerDetail() {
       });
       setAgentCfg(saved);
       await loadWidgets();
+      setWidgetCfgOpen(false);
       showToast({
         severity: "info",
         title: "Widgets saved",
-        message: "The site agent will pick up widget changes within a few seconds.",
+        message: "Widgets saved successfully. Click 'Send summary request' to ask the agent for summary data.",
       });
     } catch (err) {
       showToast({
@@ -2810,21 +2863,50 @@ export default function ServerDetail() {
                 On-demand tallies queried from site MongoDB (runs only when requested, zero background DB load).
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
-                <LayoutGrid className="mr-1 h-4 w-4 text-emerald-400" />
-                Configure widgets
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openAddWidget()}
+                  title="Add a new custom data widget"
+                  className="gap-1 border-slate-700 hover:border-slate-600 hover:bg-slate-800"
+                >
+                  <Plus className="h-3.5 w-3.5 text-sky-400" />
+                  Add widget
+                </Button>
+              )}
+              {(agentCfg?.custom_widgets ?? []).length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
+                  title="Manage existing widget configurations"
+                  className="gap-1 text-xs"
+                >
+                  <Settings2 className="h-3.5 w-3.5 text-slate-400" />
+                  Manage
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                disabled={triggeringWidgets}
+                disabled={triggeringWidgets || (agentCfg?.custom_widgets ?? []).length === 0}
                 onClick={() => void triggerWidgetsNow()}
-                title="Trigger immediate on-demand MongoDB query on the site agent"
-                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                title={(agentCfg?.custom_widgets ?? []).length === 0 ? "Add at least one widget first" : "Send summary request to site agent to query and return widget data"}
+                className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
               >
-                <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", triggeringWidgets && "animate-spin text-emerald-400")} />
-                {triggeringWidgets ? "Querying site DB..." : "Query site DB now"}
+                {triggeringWidgets ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                    Sending summary request...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5 text-emerald-400" />
+                    Send summary request
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -2842,17 +2924,21 @@ export default function ServerDetail() {
             const displayedWidgets = (widgets ?? []).filter((w) => activeNames.has(w.widget_name));
             if (defs.length === 0) {
               return (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
-                  <p className="text-sm text-slate-400">
-                    No custom widgets configured for this server.
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Click <span className="font-semibold text-slate-300">Configure widgets</span> to
-                    add one, or apply a widget template from the library.
-                  </p>
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-12 px-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 border border-slate-800 text-slate-400">
+                    <Plus className="h-6 w-6 text-slate-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">
+                      No custom widgets configured
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400 max-w-md">
+                      Data widgets are blank for all sites. Click the <span className="font-semibold text-sky-400">+ Add widget</span> button to add a widget and save it, then click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> to ask the site agent for data.
+                    </p>
+                  </div>
                   {isAdmin && (
-                    <Button size="sm" variant="outline" onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}>
-                      <Plus className="mr-1 h-3.5 w-3.5" />
+                    <Button size="sm" onClick={() => openAddWidget()} className="mt-2 gap-1.5 bg-sky-600 hover:bg-sky-500 text-white font-medium shadow-sm">
+                      <Plus className="h-4 w-4" />
                       Add widget
                     </Button>
                   )}
@@ -2861,13 +2947,36 @@ export default function ServerDetail() {
             }
             if (displayedWidgets.length === 0) {
               return (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 p-6">
-                  <p className="text-sm text-slate-400">
-                    Waiting for agent report...
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    The server has {defs.length} widget(s) configured. Awaiting initial reporting from the edge agent.
-                  </p>
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-12 px-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-400">
+                    <Send className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">
+                      {defs.length} widget{defs.length > 1 ? "s" : ""} configured (Awaiting summary request)
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400 max-w-md">
+                      The site agent does not query MongoDB automatically. Click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> below so the agent executes the query and returns the asked data.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={triggeringWidgets}
+                    onClick={() => void triggerWidgetsNow()}
+                    className="mt-2 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
+                  >
+                    {triggeringWidgets ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Sending summary request...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Send summary request
+                      </>
+                    )}
+                  </Button>
                 </div>
               );
             }
