@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Activity, AlertTriangle, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Send, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bell, Building2, CheckCircle2, ChevronDown, ChevronRight, Clock, Copy, Database, Download, FileSpreadsheet, FileText, LayoutGrid, Loader2, MapPin, MinusCircle, Pencil, Play, Plus, RefreshCw, Save, Search, Server as ServerIcon, ShieldAlert, ShieldCheck, ListChecks, Settings2, Terminal, TerminalSquare, Trash2, X, XCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -33,7 +33,14 @@ import {
 import { formatTime, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { showToast } from "@/components/ToastHost";
 
 const RANGES = [
@@ -218,11 +225,6 @@ export default function ServerDetail() {
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
   const [templatePick, setTemplatePick] = useState("");
 
-  // Summary Request Modal state
-  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [summaryWindowMinutes, setSummaryWindowMinutes] = useState(60);
-  const [sendingSummary, setSendingSummary] = useState(false);
   const [refreshingWidgets, setRefreshingWidgets] = useState(false);
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
   const [runtimePick, setRuntimePick] = useState("");
@@ -841,73 +843,199 @@ export default function ServerDetail() {
     }
   }
 
-  async function openSummaryModal() {
-    setSummaryModalOpen(true);
-    try {
-      const tpls = await apiFetch<WidgetTemplate[]>("/widgets/templates");
-      setWidgetTemplates(tpls);
-      if (tpls && tpls.length > 0) {
-        if (!selectedTemplateId || !tpls.some((t) => t.id === selectedTemplateId)) {
-          setSelectedTemplateId(tpls[0].id);
-          setSummaryWindowMinutes(tpls[0].window_minutes || 60);
-        }
+  // Determine an appropriate Lucide icon for a widget name
+  function getWidgetIcon(name: string) {
+    const lower = name.toLowerCase();
+    if (
+      lower.includes("pie") ||
+      lower.includes("breakdown") ||
+      lower.includes("rejection") ||
+      lower.includes("distribution") ||
+      lower.includes("ratio")
+    ) {
+      return PieChart;
+    }
+    if (
+      lower.includes("activity") ||
+      lower.includes("live") ||
+      lower.includes("speed") ||
+      lower.includes("throughput") ||
+      lower.includes("rate")
+    ) {
+      return Activity;
+    }
+    if (
+      lower.includes("db") ||
+      lower.includes("database") ||
+      lower.includes("mongo") ||
+      lower.includes("table")
+    ) {
+      return Database;
+    }
+    return BarChart3;
+  }
+
+  // List of available data widgets for + set winget dropdown
+  const availableWidgets = useMemo(() => {
+    const list: { name: string; template?: WidgetTemplate; spec?: CustomWidgetSpec }[] = [];
+    const seen = new Set<string>();
+
+    for (const t of widgetTemplates ?? []) {
+      if (t.name && !seen.has(t.name)) {
+        seen.add(t.name);
+        list.push({ name: t.name, template: t });
       }
-    } catch {
-      setWidgetTemplates([]);
     }
-  }
 
-  function handleTemplateSelect(tplId: string) {
-    setSelectedTemplateId(tplId);
-    const t = widgetTemplates?.find((x) => x.id === tplId);
-    if (t) {
-      setSummaryWindowMinutes(t.window_minutes || 60);
+    for (const w of agentCfg?.custom_widgets ?? []) {
+      if (w.name && !seen.has(w.name)) {
+        seen.add(w.name);
+        list.push({ name: w.name, spec: w });
+      }
     }
-  }
 
-  async function handleSendSummary() {
-    if (!id || !selectedTemplateId) return;
-    const t = widgetTemplates?.find((x) => x.id === selectedTemplateId);
-    if (!t) return;
-    setSendingSummary(true);
+    const defaults = [
+      { name: "Rejection breakdown", database: "octyn_services", collection: "records", group_by_field: "rejection_reason" },
+      { name: "Status distribution", database: "octyn_services", collection: "records", group_by_field: "upload_status" },
+      { name: "Live throughput", database: "octyn_services", collection: "records", group_by_field: "service_name" },
+    ];
+    for (const d of defaults) {
+      if (!seen.has(d.name)) {
+        seen.add(d.name);
+        list.push({
+          name: d.name,
+          template: {
+            id: `default_${d.name.replace(/\s+/g, "_").toLowerCase()}`,
+            name: d.name,
+            description: "Default widget",
+            database: d.database,
+            collection: d.collection,
+            enabled: true,
+            poll_interval_seconds: 60,
+            window_minutes: 60,
+            group_by_field: d.group_by_field,
+            time_field: "created_at",
+            max_groups: 10,
+            alert_threshold_percent: 50,
+            alert_window_minutes: 15,
+            created_at: "",
+            updated_at: "",
+          },
+        });
+      }
+    }
+
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [widgetTemplates, agentCfg?.custom_widgets]);
+
+  const activeWidgetNames = useMemo(() => {
+    return new Set(
+      (agentCfg?.custom_widgets ?? [])
+        .filter((w) => w.enabled !== false)
+        .map((w) => w.name)
+    );
+  }, [agentCfg?.custom_widgets]);
+
+  async function handleToggleWidget(
+    item: { name: string; template?: WidgetTemplate; spec?: CustomWidgetSpec },
+    checked: boolean
+  ) {
+    if (!id) return;
+    const currentList = [...(agentCfg?.custom_widgets ?? [])];
+    let updatedWidgets: CustomWidgetSpec[];
+
+    if (checked) {
+      const existingIdx = currentList.findIndex((w) => w.name === item.name);
+      if (existingIdx >= 0) {
+        currentList[existingIdx] = { ...currentList[existingIdx], enabled: true };
+        updatedWidgets = currentList;
+      } else {
+        const t = item.template;
+        const spec: CustomWidgetSpec = {
+          name: item.name,
+          database: t?.database || item.spec?.database || "octyn_services",
+          collection: t?.collection || item.spec?.collection || "records",
+          enabled: true,
+          poll_interval_seconds: 60,
+          window_minutes: t?.window_minutes || item.spec?.window_minutes || 60,
+          group_by_field: t?.group_by_field || item.spec?.group_by_field || "upload_status",
+          time_field: t?.time_field || item.spec?.time_field || "created_at",
+          max_groups: t?.max_groups || item.spec?.max_groups || 10,
+          alert_threshold_percent: 50,
+          alert_window_minutes: 15,
+          include_values: t?.include_values || item.spec?.include_values || [],
+          exclude_values: t?.exclude_values || item.spec?.exclude_values || [],
+          template_id: t?.id || item.spec?.template_id || undefined,
+          template_name: item.name,
+        };
+        updatedWidgets = [...currentList, spec];
+      }
+    } else {
+      updatedWidgets = currentList.filter((w) => w.name !== item.name);
+    }
+
     try {
-      const existingWidgets = (agentCfg?.custom_widgets ?? []).filter((w) => w.name !== t.name);
-      const widgetSpec: CustomWidgetSpec = {
-        name: t.name,
-        database: t.database,
-        collection: t.collection,
-        enabled: true,
-        poll_interval_seconds: 60,
-        window_minutes: summaryWindowMinutes || t.window_minutes || 60,
-        group_by_field: t.group_by_field || "upload_status",
-        time_field: t.time_field || "created_at",
-        max_groups: t.max_groups || 10,
-        alert_threshold_percent: 50,
-        alert_window_minutes: 15,
-        include_values: t.include_values || [],
-        exclude_values: t.exclude_values || [],
-        template_id: t.id,
-        template_name: t.name,
-      };
-      const updatedWidgets = [...existingWidgets, widgetSpec];
-
       const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ custom_widgets: updatedWidgets }),
       });
       setAgentCfg(saved);
-      setSummaryModalOpen(false);
-
-      await triggerWidgetsNow();
+      showToast({
+        severity: "info",
+        title: checked ? `Set widget: ${item.name}` : `Unset widget: ${item.name}`,
+        message: checked ? 'Click "Refresh" to query and get data from site server.' : undefined,
+      });
     } catch (err) {
       showToast({
         severity: "critical",
-        title: "Failed to send summary request",
+        title: "Failed to update widget",
         message: err instanceof Error ? err.message : undefined,
       });
-    } finally {
-      setSendingSummary(false);
     }
+  }
+
+  function renderSetWidgetDropdown(align: "start" | "end" | "center" = "end", extraClass?: string) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Set data widgets"
+            className={cn(
+              "gap-1 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-xs font-medium shadow-none",
+              extraClass
+            )}
+          >
+            + set winget
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align={align} className="w-64">
+          <DropdownMenuLabel>Data Widgets</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {availableWidgets.length === 0 ? (
+            <div className="px-3 py-2 text-center text-xs text-slate-500">
+              No data widgets available
+            </div>
+          ) : (
+            availableWidgets.map((item) => {
+              const isChecked = activeWidgetNames.has(item.name);
+              const Icon = getWidgetIcon(item.name);
+              return (
+                <DropdownMenuCheckboxItem
+                  key={item.name}
+                  checked={isChecked}
+                  onCheckedChange={(checked) => void handleToggleWidget(item, checked)}
+                >
+                  <Icon className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span className="truncate">{item.name}</span>
+                </DropdownMenuCheckboxItem>
+              );
+            })
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   }
 
 
@@ -1314,6 +1442,7 @@ export default function ServerDetail() {
     loadAgentConfig().catch(() => { });
     loadConnectivity().catch(() => { });
     loadWidgets().catch(() => setWidgets([]));
+    apiFetch<WidgetTemplate[]>("/widgets/templates").then(setWidgetTemplates).catch(() => setWidgetTemplates([]));
     const t = setInterval(() => {
       load().catch(() => { });
     }, 30000); // fallback; socket keeps it live
@@ -1893,26 +2022,7 @@ export default function ServerDetail() {
             Refresh
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={triggeringWidgets}
-            onClick={() => void openSummaryModal()}
-            title="Select a widget template and send summary request to the site agent"
-            className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-          >
-            {triggeringWidgets ? (
-              <>
-                <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                Sending summary request...
-              </>
-            ) : (
-              <>
-                <Send className="h-3.5 w-3.5 text-emerald-400" />
-                Send summary request
-              </>
-            )}
-          </Button>
+          {renderSetWidgetDropdown("end")}
 
           <Button variant="outline" size="sm" onClick={exportMetricsCsv} title="Export server metrics CSV">
             <FileSpreadsheet className="mr-1.5 h-4 w-4 text-emerald-400" />
@@ -2321,17 +2431,7 @@ export default function ServerDetail() {
                       <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
                       Refresh
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={triggeringWidgets}
-                      onClick={() => void openSummaryModal()}
-                      title="Select a widget template and send summary request to the site agent"
-                      className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-xs"
-                    >
-                      <Send className="h-3.5 w-3.5 text-emerald-400" />
-                      Send summary request
-                    </Button>
+                    {renderSetWidgetDropdown("end")}
                     {isAdmin && (
                       <Button
                         variant="ghost"
@@ -2349,14 +2449,14 @@ export default function ServerDetail() {
               <CardContent>
                 <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-10 px-6 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-400">
-                    <Send className="h-6 w-6 text-emerald-400" />
+                    <BarChart3 className="h-6 w-6 text-emerald-400" />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-200">
-                      No summary data requested yet
+                      No data widgets active yet
                     </p>
                     <p className="mt-1 text-xs text-slate-400 max-w-md">
-                      Click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> to select a data widget template and ask the site agent to query and return summary tallies.
+                      Click <span className="font-semibold text-emerald-400">&ldquo;+ set winget&rdquo;</span> to select data widgets, then click <span className="font-semibold text-slate-200">&ldquo;Refresh&rdquo;</span> to get data.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 mt-2">
@@ -2370,15 +2470,7 @@ export default function ServerDetail() {
                       <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
                       Refresh
                     </Button>
-                    <Button
-                      size="sm"
-                      disabled={triggeringWidgets}
-                      onClick={() => void openSummaryModal()}
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
-                    >
-                      <Send className="h-4 w-4" />
-                      Send summary request
-                    </Button>
+                    {renderSetWidgetDropdown("center", "bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm border-transparent")}
                   </div>
                 </div>
               </CardContent>
@@ -2393,7 +2485,7 @@ export default function ServerDetail() {
                 <div>
                   <CardTitle className="text-sm">Data widgets ({entries.length})</CardTitle>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    On-demand tallies from the site agent — queried via Send summary request.
+                    On-demand tallies from the site agent — select via + set winget and click Refresh.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2408,26 +2500,7 @@ export default function ServerDetail() {
                     <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
                     Refresh
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={triggeringWidgets}
-                    onClick={() => void openSummaryModal()}
-                    title="Select a widget template and send summary request to the site agent"
-                    className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 text-xs"
-                  >
-                    {triggeringWidgets ? (
-                      <>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                        Sending summary request...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-3.5 w-3.5 text-emerald-400" />
-                        Send summary request
-                      </>
-                    )}
-                  </Button>
+                  {renderSetWidgetDropdown("end")}
                   {isAdmin && (
                     <Button
                       variant="ghost"
@@ -2524,17 +2597,17 @@ export default function ServerDetail() {
                       {!sample ? (
                         <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
                           <p className="text-xs text-slate-500">
-                            Awaiting summary request...
+                            Widget set. Click Refresh to get data from site agent.
                           </p>
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={triggeringWidgets}
-                            onClick={() => void openSummaryModal()}
-                            className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-7 gap-1"
+                            disabled={triggeringWidgets || refreshingWidgets}
+                            onClick={() => void handleRefreshWidgets()}
+                            className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-7 gap-1.5"
                           >
-                            <Send className="h-3 w-3" />
-                            Send summary request
+                            <RefreshCw className={cn("h-3 w-3", (triggeringWidgets || refreshingWidgets) && "animate-spin")} />
+                            Refresh to get data
                           </Button>
                         </div>
                       ) : sample.error ? (
@@ -3943,46 +4016,7 @@ export default function ServerDetail() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-300 font-medium">Integration Failure Alert Threshold (%)</Label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            disabled={!isAdmin}
-                            value={w.alert_threshold_percent ?? 50}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, alert_threshold_percent: Number(e.target.value) };
-                              setWidgetDraft(next);
-                            }}
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                          <span className="text-[10px] text-slate-400">
-                            Raise a warning when more than this percentage of integration log calls fail within the window.
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <Label className="text-xs text-slate-300 font-medium">Integration Failure Window (minutes)</Label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={10080}
-                            disabled={!isAdmin}
-                            value={w.alert_window_minutes ?? 15}
-                            onChange={(e) => {
-                              const next = [...widgetDraft];
-                              next[i] = { ...w, alert_window_minutes: Number(e.target.value) };
-                              setWidgetDraft(next);
-                            }}
-                            className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 text-xs text-slate-200 outline-none focus:border-emerald-500 disabled:opacity-50"
-                          />
-                          <span className="text-[10px] text-slate-400">
-                            Look back this many minutes of integration logs to calculate the failure rate for the alert.
-                          </span>
-                        </div>
-                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div className="flex flex-col gap-1">
                           <Label className="text-xs text-slate-300 font-medium">Include Key Values (optional)</Label>
@@ -4948,145 +4982,7 @@ export default function ServerDetail() {
         </div>
       )}
 
-      {/* Send Summary Request Modal with shadcn Select */}
-      {summaryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="flex w-full max-w-md flex-col rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Send className="h-4 w-4 text-emerald-400" />
-                Send Summary Request
-              </CardTitle>
-              <button
-                type="button"
-                onClick={() => setSummaryModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-slate-400">
-              Select a data widget template. The site agent will execute the query once and display the summary tallies on this overview screen.
-            </p>
 
-            <div className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs text-slate-300 font-medium">Select Data Widget Template</Label>
-                {widgetTemplates === null ? (
-                  <Skeleton className="h-9 w-full" />
-                ) : widgetTemplates.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-700 p-3 text-center text-xs text-slate-400">
-                    No widget templates found in the library. Create templates under{" "}
-                    <Link to="/templates" className="text-emerald-400 underline hover:text-emerald-300">
-                      Templates
-                    </Link>{" "}
-                    first.
-                  </div>
-                ) : (
-                  <Select value={selectedTemplateId} onValueChange={handleTemplateSelect}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a data widget template..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {widgetTemplates.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name} · {t.database}.{t.collection}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Selected template details */}
-              {(() => {
-                const t = widgetTemplates?.find((x) => x.id === selectedTemplateId);
-                if (!t) return null;
-                return (
-                  <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-200">{t.name}</span>
-                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
-                        {t.database}.{t.collection}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 font-mono text-[11px] text-slate-400 pt-1">
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-sans">Group By Field</span>
-                        <span className="text-slate-300 truncate block">{t.group_by_field}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[10px] uppercase font-sans">Time Field</span>
-                        <span className="text-slate-300 truncate block">{t.time_field}</span>
-                      </div>
-                    </div>
-
-                    {((t.include_values && t.include_values.length > 0) || (t.exclude_values && t.exclude_values.length > 0)) && (
-                      <div className="flex flex-col gap-1 border-t border-slate-800/80 pt-1.5 font-mono text-[10px]">
-                        {t.include_values && t.include_values.length > 0 && (
-                          <div className="text-sky-400 truncate">
-                            <span className="text-slate-500 uppercase font-sans">Inc:</span> {t.include_values.join(", ")}
-                          </div>
-                        )}
-                        {t.exclude_values && t.exclude_values.length > 0 && (
-                          <div className="text-rose-400 truncate">
-                            <span className="text-slate-500 uppercase font-sans">Exc:</span> {t.exclude_values.join(", ")}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-1 border-t border-slate-800/80 pt-2">
-                      <Label className="text-[11px] text-slate-300">Lookback Time Window (minutes)</Label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10080}
-                        value={summaryWindowMinutes}
-                        onChange={(e) => setSummaryWindowMinutes(Number(e.target.value) || 60)}
-                        className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500"
-                      />
-                      <span className="text-[10px] text-slate-500">
-                        Agent queries documents from the last {summaryWindowMinutes} minutes
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSummaryModalOpen(false)}
-                  disabled={sendingSummary}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!selectedTemplateId || sendingSummary}
-                  onClick={() => void handleSendSummary()}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 font-medium shadow-sm"
-                >
-                  {sendingSummary ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="h-3.5 w-3.5" />
-                      Send
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

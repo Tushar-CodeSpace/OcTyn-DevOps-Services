@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   Building2,
   Check,
   Copy,
@@ -927,19 +926,7 @@ export default function TemplatesPage() {
                     </div>
                   )}
 
-                  {/* Failure Alert settings */}
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 text-slate-300 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-amber-400 font-medium">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Failure Threshold:
-                    </span>
-                    <span className="font-semibold text-amber-300">
-                      {w.alert_threshold_percent ?? 50}%{" "}
-                      <span className="text-[10px] text-slate-400 font-normal">
-                        ({w.alert_window_minutes ?? 15}m window)
-                      </span>
-                    </span>
-                  </div>
+
 
                   {/* Used by Sites Section */}
                   <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800/80">
@@ -1611,41 +1598,7 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
-              {/* Failure Alert settings */}
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex flex-col gap-2.5">
-                <span className="font-semibold text-amber-300 flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4" />
-                  Integration Failure Alert Configuration
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <Label className="text-[11px] text-slate-300">Failure Threshold (%)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={widgetForm.alert_threshold_percent}
-                      onChange={(e) =>
-                        setWidgetForm({ ...widgetForm, alert_threshold_percent: Number(e.target.value) })
-                      }
-                      className="bg-slate-950 border-slate-800 text-xs"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label className="text-[11px] text-slate-300">Failure Window (minutes)</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={10080}
-                      value={widgetForm.alert_window_minutes}
-                      onChange={(e) =>
-                        setWidgetForm({ ...widgetForm, alert_window_minutes: Number(e.target.value) })
-                      }
-                      className="bg-slate-950 border-slate-800 text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
+
 
               {/* Target Sites Selection inside Modal */}
               <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
