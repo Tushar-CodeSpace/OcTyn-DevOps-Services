@@ -52,7 +52,7 @@ async def list_alerts(
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[AlertRead]:
     """Dashboard endpoint: alert history, optionally filtered by server or site."""
-    query: dict = {}
+    query: dict = {"type": {"$not": {"$regex": "^integration_error_spike"}}}
     if status_filter in ("active", "resolved"):
         query["status"] = status_filter
     if server_id:

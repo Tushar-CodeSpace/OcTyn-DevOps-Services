@@ -28,7 +28,12 @@ def find_server_or_404(server_id: str) -> dict:
 @router.get("/agent/config", response_model=AgentConfig)
 async def get_agent_config(agent: dict = Depends(authenticate_agent)) -> AgentConfig:
     """Agent endpoint: return the effective runtime config for this agent's server."""
-    return AgentConfig(**app_settings.get_agent_config(str(agent["server"]["_id"])))
+    sid = str(agent["server"]["_id"])
+    cfg = app_settings.get_agent_config(sid)
+    if cfg.get("trigger_widgets_id"):
+        # One-time request: clear immediately upon delivery so it never repeats
+        app_settings.update_agent_config(sid, {"trigger_widgets_id": ""})
+    return AgentConfig(**cfg)
 
 
 @router.get("/agent-config/{server_id}", response_model=AgentConfig)

@@ -199,7 +199,8 @@ async def ingest_metric(
             {"server_id": server_id, "status": server_payload["status"]},
         )
     agent_cfg = app_settings.get_agent_config(server_id)
-    return MetricIngestResponse(
+    trig_w_id = str(agent_cfg.get("trigger_widgets_id", ""))
+    resp = MetricIngestResponse(
         success=True,
         config_sync_enabled=bool(agent_cfg["config_sync_enabled"]),
         config_sync_hour=int(agent_cfg["config_sync_hour"]),
@@ -210,7 +211,11 @@ async def ingest_metric(
             agent_cfg["connectivity_poll_interval_seconds"]
         ),
         trigger_sync_id=str(agent_cfg.get("trigger_sync_id", "")),
+        trigger_widgets_id=trig_w_id,
     )
+    if trig_w_id:
+        app_settings.update_agent_config(server_id, {"trigger_widgets_id": ""})
+    return resp
 
 
 @router.get("/servers/{server_id}", response_model=list[MetricRead])

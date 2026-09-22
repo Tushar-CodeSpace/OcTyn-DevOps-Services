@@ -390,8 +390,10 @@ def _payload(
     }
 
 
-def push_widgets() -> None:
-    """Collect and push every due (interval-elapsed) enabled widget."""
+def push_widgets(force: bool = False) -> None:
+    """Collect and push enabled widgets. Only executes when explicitly requested from UI (force=True)."""
+    if not force:
+        return
     widgets = [w for w in custom_widgets() if w.get("enabled", True)]
     if not widgets:
         return
@@ -400,15 +402,6 @@ def push_widgets() -> None:
         return
     if not HAS_PYMONGO:
         log("[WIDGETS] Skipped: pymongo not installed")
-        return
-
-    now_mono = time.monotonic()
-    due = []
-    for w in widgets:
-        last = _LAST_RUN.get(w["name"], 0.0)
-        if now_mono - last >= w["poll_interval_seconds"]:
-            due.append(w)
-    if not due:
         return
 
     try:
@@ -420,7 +413,7 @@ def push_widgets() -> None:
         log(f"[WIDGETS] FAILED: cannot reach site MongoDB at {_sanitize_uri(mongo_uri())}")
         return
     try:
-        for w in due:
+        for w in widgets:
             try:
                 payload = collect_widget(client, w)
                 if push("/widgets", payload):
@@ -433,7 +426,7 @@ def push_widgets() -> None:
                             % (w["name"], payload["total"], payload["groups"])
                         )
                 else:
-                    log(f"[WIDGETS] '{w['name']}': push failed, will retry next tick")
+                    log(f"[WIDGETS] '{w['name']}': push failed")
             except Exception as exc:
                 log(f"[WIDGETS] '{w.get('name', '?')}' error: {exc!r}")
     finally:
@@ -444,14 +437,5 @@ def push_widgets() -> None:
 
 
 def start_widget_poller() -> None:
-    """Start background thread ticking due custom-widget collections."""
-
-    def _poll() -> None:
-        while True:
-            try:
-                push_widgets()
-            except Exception as exc:
-                log(f"[WIDGETS] poll error: {exc!r}")
-            time.sleep(10)
-
-    threading.Thread(target=_poll, name="widget-poller", daemon=True).start()
+    """Disabled: MongoDB queries are only executed on-demand when requested from the UI."""
+    pass

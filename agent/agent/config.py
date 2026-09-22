@@ -116,11 +116,12 @@ def log(msg: str) -> None:
 
 
 _LAST_TRIGGER_SYNC_ID = None
+_LAST_TRIGGER_WIDGETS_ID = None
 
 
 def apply_agent_config(body: Dict[str, Any]) -> None:
     """Merge dynamic configuration payload from hub into agent's live settings."""
-    global _RUNTIME_CONFIG, _LAST_TRIGGER_SYNC_ID
+    global _RUNTIME_CONFIG, _LAST_TRIGGER_SYNC_ID, _LAST_TRIGGER_WIDGETS_ID
     if not isinstance(body, dict):
         return
     merged = dict(_RUNTIME_CONFIG)
@@ -149,6 +150,17 @@ def apply_agent_config(body: Dict[str, Any]) -> None:
         try:
             from agent.mongo_backup import sync_configs
             threading.Thread(target=sync_configs, daemon=True).start()
+        except ImportError:
+            pass
+
+    trigger_w_id = body.get("trigger_widgets_id")
+    if trigger_w_id and str(trigger_w_id).strip() and trigger_w_id != _LAST_TRIGGER_WIDGETS_ID:
+        _LAST_TRIGGER_WIDGETS_ID = trigger_w_id
+        log(f"[TRIGGER] Hub requested on-demand widget query (trigger_id={trigger_w_id})")
+        import threading
+        try:
+            from agent.widgets import push_widgets
+            threading.Thread(target=push_widgets, args=(True,), daemon=True).start()
         except ImportError:
             pass
 

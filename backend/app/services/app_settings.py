@@ -311,6 +311,7 @@ def get_agent_config(server_id: str) -> dict:
         ],
         "custom_widgets": [w for w in (_sanitize_widget(t) for t in widgets) if w],
         "trigger_sync_id": str(override.get("trigger_sync_id", "")),
+        "trigger_widgets_id": str(override.get("trigger_widgets_id", "")),
         **scalars,
     }
 
@@ -407,7 +408,7 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
         "connectivity_poll_interval_seconds": (1, 3600),
     }
     list_keys = {"monitored_services", "config_collections", "connectivity_targets", "custom_widgets"}
-    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id", "runtime_template_id", "runtime_template_name"}
+    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id", "trigger_widgets_id", "runtime_template_id", "runtime_template_name"}
     allowed = bool_keys | set(int_keys) | list_keys | str_keys
 
     for key, raw in patch.items():

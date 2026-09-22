@@ -213,6 +213,7 @@ export default function ServerDetail() {
   const [widgetIncludeRaw, setWidgetIncludeRaw] = useState<Record<number, string>>({});
   const [widgetExcludeRaw, setWidgetExcludeRaw] = useState<Record<number, string>>({});
   const [savingWidgets, setSavingWidgets] = useState(false);
+  const [triggeringWidgets, setTriggeringWidgets] = useState(false);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
   const [templatePick, setTemplatePick] = useState("");
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
@@ -753,6 +754,46 @@ export default function ServerDetail() {
     setWidgets(items);
   }
 
+  async function triggerWidgetsNow() {
+    if (!id || triggeringWidgets) return;
+    setTriggeringWidgets(true);
+    try {
+      showToast({
+        severity: "info",
+        title: "Querying site MongoDB...",
+        message: "Sent on-demand query trigger to site agent.",
+      });
+      await apiFetch(`/widgets/servers/${id}/trigger`, { method: "POST" });
+      const pollStart = Date.now();
+      while (Date.now() - pollStart < 15000) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const items = await apiFetch<WidgetSample[]>(`/widgets/servers/${id}`);
+          if (items && items.length > 0) {
+            setWidgets(items);
+            break;
+          }
+        } catch {
+          // ignore transient errors while polling
+        }
+      }
+      await loadWidgets();
+      showToast({
+        severity: "info",
+        title: "Widget data refreshed",
+        message: "Latest tallies received from site MongoDB.",
+      });
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Query failed",
+        message: err instanceof Error ? err.message : "Failed to trigger widget query",
+      });
+    } finally {
+      setTriggeringWidgets(false);
+    }
+  }
+
   async function loadWidgetHistory(name: string, force = false) {
     if (!id) return;
     if (!force && (loadingHist[name] || widgetHistory[name])) return;
@@ -1201,29 +1242,12 @@ export default function ServerDetail() {
         loadSnapshots().catch(() => { });
       }
     };
-    const onWidgetUpdate = (d: WidgetSample & { server_id: string }) => {
-      if (d.server_id !== id) return;
-      setWidgets((prev) => {
-        const next = (prev ?? []).filter((w) => w.widget_name !== d.widget_name);
-        return [d, ...next];
-      });
-      // Drop cached trend so it refetches fresh on next view; refetch now if visible
-      setWidgetHistory((prev) => {
-        if (!(d.widget_name in prev)) return prev;
-        const next = { ...prev };
-        delete next[d.widget_name];
-        return next;
-      });
-      if (defaultChartRef.current === "trend") void loadWidgetHistory(d.widget_name, true);
-    };
-
     socket.on("metric", onMetric);
     socket.on("service_update", onServiceUpdate);
     socket.on("server_status", onStatus);
     socket.on("server_updated", onServerUpdated);
     socket.on("connectivity", onConnectivity);
     socket.on("config_snapshot", onConfigSnapshot);
-    socket.on("widget_update", onWidgetUpdate);
     socket.on("connect", joinServerRoom);
     return () => {
       clearInterval(t);
@@ -1235,7 +1259,6 @@ export default function ServerDetail() {
       socket.off("server_updated", onServerUpdated);
       socket.off("connectivity", onConnectivity);
       socket.off("config_snapshot", onConfigSnapshot);
-      socket.off("widget_update", onWidgetUpdate);
       socket.off("connect", joinServerRoom);
     };
   }, [id, range]);
@@ -2784,8 +2807,7 @@ export default function ServerDetail() {
                 Custom data widgets ({(agentCfg?.custom_widgets ?? []).length})
               </CardTitle>
               <p className="mt-0.5 text-xs text-slate-500">
-                Periodic tallies collected by the site agent from site MongoDB
-                (e.g. upload SUCCESS vs FAILED per minute).
+                On-demand tallies queried from site MongoDB (runs only when requested, zero background DB load).
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2793,9 +2815,16 @@ export default function ServerDetail() {
                 <LayoutGrid className="mr-1 h-4 w-4 text-emerald-400" />
                 Configure widgets
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => void loadWidgets()}>
-                <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                Refresh
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={triggeringWidgets}
+                onClick={() => void triggerWidgetsNow()}
+                title="Trigger immediate on-demand MongoDB query on the site agent"
+                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              >
+                <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", triggeringWidgets && "animate-spin text-emerald-400")} />
+                {triggeringWidgets ? "Querying site DB..." : "Query site DB now"}
               </Button>
             </div>
           </div>

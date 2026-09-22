@@ -75,6 +75,7 @@ class AgentConfig(BaseModel):
     mongo_uri: str = ""
     mongo_auth_source: str = "admin"
     trigger_sync_id: Optional[str] = ""
+    trigger_widgets_id: Optional[str] = ""
 
     # linked runtime template
     runtime_template_id: Optional[str] = ""
@@ -99,6 +100,7 @@ class AgentConfigOverrideUpdate(BaseModel):
     mongo_uri: Optional[str] = None
     mongo_auth_source: Optional[str] = None
     trigger_sync_id: Optional[str] = None
+    trigger_widgets_id: Optional[str] = None
     runtime_template_id: Optional[str] = None
     runtime_template_name: Optional[str] = None
 

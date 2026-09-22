@@ -517,79 +517,15 @@ def _check_integration_failure_rate(
     machine: Optional[str],
     site_id: Optional[str],
 ) -> None:
-    """Check if integration failure rate exceeds widget-specific thresholds."""
+    """Disabled: data widgets do not generate alerts. Clean up and purge any existing ones."""
     from app.database.connection import parse_id
 
-    agent_cfg = app_settings.get_agent_config(str(server_id))
-    widgets = agent_cfg.get("custom_widgets", [])
-    if not widgets:
-        sid_filter = {"$in": [server_id, parse_id(server_id)]} if parse_id(server_id) else server_id
-        for active in db.alerts().find(
-            {"server_id": sid_filter, "type": {"$regex": "^integration_error_spike:"}, "status": "active"}
-        ):
-            _resolve_alert(active["type"], server_id, hostname=hostname, machine=machine, site_id=site_id)
-        return
-
-    for w in widgets:
-        w_name = w.get("name")
-        if not w_name:
-            continue
-        alert_key = f"integration_error_spike:{w_name}"
-        if not w.get("enabled", True):
-            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
-            continue
-
-        threshold = float(w.get("alert_threshold_percent", 50.0))
-        window_min = int(w.get("alert_window_minutes", 15))
-
-        sid_val = parse_id(server_id) or server_id
-        sample = db.widget_data().find_one(
-            {"$or": [{"server_id": sid_val}, {"server_id": str(server_id)}], "widget_name": w_name},
-            sort=[("received_at", -1)],
-        )
-        if not sample:
-            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
-            continue
-
-        sample_time = sample.get("received_at") or sample.get("collected_at")
-        if sample_time and (now() - sample_time).total_seconds() > window_min * 60 * 2:
-            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
-            continue
-
-        total = int(sample.get("total", 0))
-        groups = sample.get("groups", {})
-        if total == 0:
-            _resolve_alert(alert_key, server_id, hostname=hostname, machine=machine, site_id=site_id)
-            continue
-
-        failed = sum(
-            int(count) for k, count in groups.items()
-            if any(term in str(k).upper() for term in ("FAIL", "ERR", "EXPIRE", "INVALID", "REJECT"))
-        )
-
-        failure_rate = (failed / total) * 100.0 if total > 0 else 0.0
-
-        if failure_rate >= threshold:
-            _open_alert(
-                alert_key,
-                server_id,
-                "warning",
-                f"Integration '{w_name}' failure rate at {failure_rate:.1f}% ({failed}/{total} failed in {window_min}min)",
-                value=failure_rate,
-                threshold=threshold,
-                hostname=hostname,
-                machine=machine,
-                site_id=site_id,
-            )
-        else:
-            _resolve_alert(
-                alert_key,
-                server_id,
-                hostname=hostname,
-                machine=machine,
-                site_id=site_id,
-                current_value=failure_rate,
-            )
+    sid_val = parse_id(server_id)
+    sid_filter = {"$in": [server_id, str(server_id), sid_val]} if sid_val else {"$in": [server_id, str(server_id)]}
+    db.alerts().delete_many({
+        "server_id": sid_filter,
+        "type": {"$regex": "^integration_error_spike"},
+    })
 
 
 def _check_device_connectivity(

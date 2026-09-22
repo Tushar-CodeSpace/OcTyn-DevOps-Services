@@ -1,5 +1,6 @@
 """Custom data-widget routes: agent ingestion + dashboard queries."""
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -99,25 +100,12 @@ async def ingest_widget_sample(
     }
     db.widget_data().insert_one(doc)
 
-    emit(
-        "widget_update",
-        {
-            "id": str(doc["_id"]),
-            "server_id": str(server["_id"]),
-            "widget_name": doc["widget_name"],
-            "database": doc["database"],
-            "collection": doc["collection"],
-            "window_minutes": doc["window_minutes"],
-            "total": doc["total"],
-            "groups": doc["groups"],
-            "alert_threshold_percent": doc["alert_threshold_percent"],
-            "alert_window_minutes": doc["alert_window_minutes"],
-            "collected_at": doc["collected_at"].isoformat(),
-            "received_at": doc["received_at"].isoformat(),
-            "error": doc["error"],
-        },
-        room=f"server:{server['_id']}",
-    )
+    # One-time request: ensure trigger_widgets_id is cleared
+    try:
+        app_settings.update_agent_config(server["_id"], {"trigger_widgets_id": ""})
+    except Exception:
+        pass
+
     return {"success": True}
 
 
@@ -525,3 +513,18 @@ async def widget_history(
             )
         )
     return out
+
+
+@router.post("/servers/{server_id}/trigger")
+async def trigger_widget_query(
+    server_id: str,
+    _: dict = Depends(auth.get_current_user),
+) -> dict:
+    """Trigger an immediate on-demand MongoDB widget query on the site agent."""
+    sid = parse_id(server_id)
+    if sid is None or db.servers().find_one({"_id": sid}) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    trigger_id = f"trig_w_{int(time.time())}_{new_id()[:8]}"
+    app_settings.update_agent_config(server_id, {"trigger_widgets_id": trigger_id})
+    emit("agent_config_updated", {"server_id": str(server_id)}, room=f"server:{server_id}")
+    return {"success": True, "trigger_id": trigger_id}

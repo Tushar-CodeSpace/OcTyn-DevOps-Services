@@ -115,6 +115,7 @@ _CONFIG = {
 
 
 _LAST_TRIGGER_SYNC_ID = None
+_LAST_TRIGGER_WIDGETS_ID = None
 
 
 def apply_agent_config(body):
@@ -123,7 +124,7 @@ def apply_agent_config(body):
     Reassigns a fresh dict (copy-on-write) so a background config poller can
     update config while the main metrics loop reads it without locking.
     """
-    global _CONFIG, _LAST_TRIGGER_SYNC_ID
+    global _CONFIG, _LAST_TRIGGER_SYNC_ID, _LAST_TRIGGER_WIDGETS_ID
     if not isinstance(body, dict):
         return
     merged = dict(_CONFIG)
@@ -149,6 +150,12 @@ def apply_agent_config(body):
         _LAST_TRIGGER_SYNC_ID = trigger_id
         log("[TRIGGER] Hub requested immediate config backup (trigger_id=%s)" % trigger_id)
         threading.Thread(target=sync_configs, daemon=True).start()
+
+    trigger_w_id = body.get("trigger_widgets_id")
+    if trigger_w_id and str(trigger_w_id).strip() and trigger_w_id != _LAST_TRIGGER_WIDGETS_ID:
+        _LAST_TRIGGER_WIDGETS_ID = trigger_w_id
+        log("[TRIGGER] Hub requested on-demand widget query (trigger_id=%s)" % trigger_w_id)
+        threading.Thread(target=push_widgets, args=(True,), daemon=True).start()
 
 
 _RUNTIME_FIELDS = (
@@ -661,8 +668,10 @@ def collect_widget(client, widget):
         return _widget_payload(widget, collected_at, window, 0, {}, error=str(exc)[:300])
 
 
-def push_widgets():
-    """Collect and push every due (interval-elapsed) enabled widget."""
+def push_widgets(force=False):
+    """Collect and push enabled widgets. Only executes when explicitly requested from UI (force=True)."""
+    if not force:
+        return
     widgets = [w for w in custom_widgets() if w.get("enabled", True)]
     if not widgets:
         return
@@ -673,10 +682,6 @@ def push_widgets():
         if not _ensure_pymongo():
             log("[WIDGETS] Skipped: pymongo not installed (run: sudo apt install -y python3-pymongo)")
             return
-    now_mono = time.monotonic()
-    due = [w for w in widgets if now_mono - _WIDGET_LAST_RUN.get(w["name"], 0.0) >= w["poll_interval_seconds"]]
-    if not due:
-        return
     try:
         client = _widget_connect()
     except Exception as exc:
@@ -686,7 +691,7 @@ def push_widgets():
         log("[WIDGETS] FAILED: cannot reach site MongoDB at %s" % _sanitize_uri(mongo_uri()))
         return
     try:
-        for w in due:
+        for w in widgets:
             try:
                 payload = collect_widget(client, w)
                 if push("/widgets", payload):
@@ -696,7 +701,7 @@ def push_widgets():
                     else:
                         log("[WIDGETS] '%s': total=%d groups=%s" % (w["name"], payload["total"], payload["groups"]))
                 else:
-                    log("[WIDGETS] '%s': push failed, will retry next tick" % w["name"])
+                    log("[WIDGETS] '%s': push failed" % w["name"])
             except Exception as exc:
                 log("[WIDGETS] '%s' error: %r" % (w.get("name", "?"), exc))
     finally:
@@ -707,17 +712,8 @@ def push_widgets():
 
 
 def start_widget_poller():
-    """Tick due custom-widget collections in the background."""
-
-    def _poll():
-        while True:
-            try:
-                push_widgets()
-            except Exception as exc:
-                log("[WIDGETS] poll error: %r" % (exc,))
-            time.sleep(10)
-
-    threading.Thread(target=_poll, name="widget-poller", daemon=True).start()
+    """Disabled: MongoDB queries are only executed on-demand when requested from the UI."""
+    pass
 
 
 def _kill_process_group(process):
