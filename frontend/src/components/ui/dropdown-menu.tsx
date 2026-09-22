@@ -189,18 +189,25 @@ export function DropdownMenuCheckboxItem({
       aria-checked={checked}
       onClick={handleClick}
       className={cn(
-        "relative flex cursor-pointer select-none items-center justify-between rounded-md px-2.5 py-2 text-xs font-medium text-slate-200 outline-none transition-colors hover:bg-slate-800 hover:text-white",
+        "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2.5 py-2 text-xs font-medium text-slate-200 outline-none transition-colors hover:bg-slate-800 hover:text-white",
         checked && "bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15",
         disabled && "pointer-events-none opacity-50",
         className
       )}
       {...props}
     >
-      <div className="flex items-center gap-2 flex-1 min-w-0 pr-3">
-        {children}
+      <div
+        className={cn(
+          "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+          checked
+            ? "border-emerald-500 bg-emerald-500 text-slate-950"
+            : "border-slate-600 bg-slate-800/80 hover:border-slate-500"
+        )}
+      >
+        {checked && <Check className="h-3 w-3 stroke-[3]" />}
       </div>
-      <div className="flex h-4 w-4 shrink-0 items-center justify-center">
-        {checked && <Check className="h-4 w-4 text-emerald-400 stroke-[2.5]" />}
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        {children}
       </div>
     </div>
   );

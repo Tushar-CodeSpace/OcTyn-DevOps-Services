@@ -2200,24 +2200,10 @@ export default function ServerDetail() {
               <CardHeader className="flex-col gap-1">
                 <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
                   <div>
-                    <CardTitle className="text-sm">Data widgets (0)</CardTitle>
+                    <CardTitle className="text-sm">Data widgets</CardTitle>
                     <p className="mt-0.5 text-xs text-slate-500">
                       On-demand tallies queried from site MongoDB (zero background DB load).
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={triggeringWidgets || refreshingWidgets}
-                      onClick={() => void handleRefreshWidgets()}
-                      title="Refresh data widgets"
-                      className="gap-1.5 text-xs text-slate-300 hover:text-white"
-                    >
-                      <RefreshCw className={cn("h-3.5 w-3.5", (triggeringWidgets || refreshingWidgets) && "animate-spin text-emerald-400")} />
-                      Refresh
-                    </Button>
-                    {renderSetWidgetDropdown("end")}
                   </div>
                 </div>
               </CardHeader>
