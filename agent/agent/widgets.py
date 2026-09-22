@@ -61,10 +61,19 @@ def _connect():
 
 def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Optional[Dict[str, str]]):
     """Yield a connected client (single yield) or nothing."""
+    safe_opts = {
+        "serverSelectionTimeoutMS": 3000,
+        "connectTimeoutMS": 3000,
+        "socketTimeoutMS": 10000,
+        "maxPoolSize": 1,
+        "minPoolSize": 0,
+        "maxIdleTimeMS": 5000,
+        "readPreference": "secondaryPreferred",
+    }
     for dc in (True, False):
         temp_client = None
         try:
-            temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc)
+            temp_client = MongoClient(target_uri, directConnection=dc, **safe_opts)
             temp_client.admin.command("ping")
             yield temp_client
             return
@@ -79,7 +88,7 @@ def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Option
             temp_client = None
             try:
                 temp_client = MongoClient(
-                    target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc
+                    target_uri, authSource=src, directConnection=dc, **safe_opts
                 )
                 temp_client.admin.command("ping")
                 yield temp_client
@@ -112,8 +121,8 @@ def _connect_attempts(target_uri: str, auth_candidates: List[str], creds: Option
                                 username=creds["username"],
                                 password=p_val,
                                 authSource=src,
-                                serverSelectionTimeoutMS=4000,
                                 directConnection=dc,
+                                **safe_opts,
                             )
                             temp_client.admin.command("ping")
                             yield temp_client
@@ -304,7 +313,7 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
                     match[f] = f_filter
 
         try:
-            total = coll.count_documents(match, maxTimeMS=20000)
+            total = coll.count_documents(match, maxTimeMS=5000)
         except Exception as exc:
             return _error(f"count failed: {exc}")
         groups: Dict[str, int] = {}
@@ -315,7 +324,7 @@ def collect_widget(client, widget: Dict[str, Any]) -> Dict[str, Any]:
                 {"$sort": {"count": -1}},
                 {"$limit": max(1, max_groups)},
             ]
-            for row in coll.aggregate(pipeline, maxTimeMS=20000):
+            for row in coll.aggregate(pipeline, maxTimeMS=5000, comment="octyn_agent_widget_query"):
                 key = row.get("_id")
                 label = "UNKNOWN" if key is None else str(key)[:100]
                 try:

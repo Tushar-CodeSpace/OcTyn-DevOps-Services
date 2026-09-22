@@ -233,6 +233,16 @@ def sync_configs() -> None:
     connected = False
     last_err = None
 
+    safe_opts = {
+        "serverSelectionTimeoutMS": 3000,
+        "connectTimeoutMS": 3000,
+        "socketTimeoutMS": 10000,
+        "maxPoolSize": 1,
+        "minPoolSize": 0,
+        "maxIdleTimeMS": 5000,
+        "readPreference": "secondaryPreferred",
+    }
+
     for target_uri in uri_candidates:
         if connected:
             break
@@ -243,7 +253,7 @@ def sync_configs() -> None:
         for dc in (True, False):
             temp_client = None
             try:
-                temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc)
+                temp_client = MongoClient(target_uri, directConnection=dc, **safe_opts)
                 temp_client.admin.command("ping")
                 client = temp_client
                 connected = True
@@ -264,7 +274,7 @@ def sync_configs() -> None:
             for dc in (True, False):
                 temp_client = None
                 try:
-                    temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc)
+                    temp_client = MongoClient(target_uri, authSource=src, directConnection=dc, **safe_opts)
                     temp_client.admin.command("ping")
                     client = temp_client
                     connected = True
@@ -309,8 +319,8 @@ def sync_configs() -> None:
                                     username=creds["username"],
                                     password=p_val,
                                     authSource=src,
-                                    serverSelectionTimeoutMS=4000,
                                     directConnection=dc,
+                                    **safe_opts,
                                 )
                                 temp_client.admin.command("ping")
                                 client = temp_client
@@ -386,7 +396,7 @@ def sync_configs() -> None:
             continue
 
         for name in matching_cols:
-            docs = [_jsonable(d) for d in client[database][name].find({}).limit(MAX_DOCS_PER_SNAPSHOT + 1)]
+            docs = [_jsonable(d) for d in client[database][name].find({}, max_time_ms=10000).limit(MAX_DOCS_PER_SNAPSHOT + 1)]
             truncated = len(docs) > MAX_DOCS_PER_SNAPSHOT
             docs = docs[:MAX_DOCS_PER_SNAPSHOT]
             payload_hash = hashlib.sha256(repr(sorted(docs, key=repr)).encode()).hexdigest()[:32]

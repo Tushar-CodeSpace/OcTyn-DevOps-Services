@@ -9,6 +9,13 @@ services:
     image: mongo:7.0
     container_name: central-mongodb
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
+      nproc:
+        soft: 64000
+        hard: 64000
     env_file: .env
     ports:
       # Local dev only. Nginx never exposes this port publicly.

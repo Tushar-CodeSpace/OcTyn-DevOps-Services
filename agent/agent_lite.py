@@ -375,22 +375,39 @@ def _widget_connect():
     auth_candidates = _extract_auth_sources(raw_uri, mongo_auth_source())
     creds = _parse_mongo_credentials(raw_uri)
 
+    # Safe low-impact client options: exactly 1 connection, fast timeouts, read replicas preferred
+    safe_opts = {
+        "serverSelectionTimeoutMS": 3000,
+        "connectTimeoutMS": 3000,
+        "socketTimeoutMS": 10000,
+        "maxPoolSize": 1,
+        "minPoolSize": 0,
+        "maxIdleTimeMS": 5000,
+        "readPreference": "secondaryPreferred",
+    }
+
     def _try(client_factory):
+        c = None
         try:
             c = client_factory()
             c.admin.command("ping")
             return c
         except Exception:
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
             return None
 
     for target_uri in uri_candidates:
         for dc in (True, False):
-            client = _try(lambda: MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc))
+            client = _try(lambda: MongoClient(target_uri, directConnection=dc, **safe_opts))
             if client is not None:
                 return client
         for src in auth_candidates:
             for dc in (True, False):
-                client = _try(lambda: MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc))
+                client = _try(lambda: MongoClient(target_uri, authSource=src, directConnection=dc, **safe_opts))
                 if client is not None:
                     return client
         if creds:
@@ -412,7 +429,7 @@ def _widget_connect():
                 for p_val in pass_candidates:
                     for src in auth_candidates:
                         for dc in (True, False):
-                            client = _try(lambda: MongoClient(h_uri, username=creds["username"], password=p_val, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc))
+                            client = _try(lambda: MongoClient(h_uri, username=creds["username"], password=p_val, authSource=src, directConnection=dc, **safe_opts))
                             if client is not None:
                                 return client
     return None
@@ -588,7 +605,7 @@ def collect_widget(client, widget):
                     match[f] = f_filter
 
         try:
-            total = coll.count_documents(match, maxTimeMS=20000)
+            total = coll.count_documents(match, maxTimeMS=5000)
         except Exception as exc:
             return _widget_payload(widget, collected_at, window, 0, {}, error="count failed: %s" % exc)
         groups = {}
@@ -599,7 +616,7 @@ def collect_widget(client, widget):
                 {"$sort": {"count": -1}},
                 {"$limit": max(1, max_groups)},
             ]
-            for row in coll.aggregate(pipeline, maxTimeMS=20000):
+            for row in coll.aggregate(pipeline, maxTimeMS=5000, comment="octyn_agent_widget_query"):
                 key = row.get("_id")
                 label = "UNKNOWN" if key is None else str(key)[:100]
                 try:
@@ -1813,6 +1830,16 @@ def sync_configs():
     connected = False
     last_err = None
 
+    safe_opts = {
+        "serverSelectionTimeoutMS": 3000,
+        "connectTimeoutMS": 3000,
+        "socketTimeoutMS": 10000,
+        "maxPoolSize": 1,
+        "minPoolSize": 0,
+        "maxIdleTimeMS": 5000,
+        "readPreference": "secondaryPreferred",
+    }
+
     for target_uri in uri_candidates:
         if connected:
             break
@@ -1823,7 +1850,7 @@ def sync_configs():
         for dc_val in (True, False):
             temp_client = None
             try:
-                temp_client = MongoClient(target_uri, serverSelectionTimeoutMS=4000, directConnection=dc_val)
+                temp_client = MongoClient(target_uri, directConnection=dc_val, **safe_opts)
                 temp_client.admin.command("ping")
                 client = temp_client
                 connected = True
@@ -1847,7 +1874,7 @@ def sync_configs():
             for dc_val in (True, False):
                 temp_client = None
                 try:
-                    temp_client = MongoClient(target_uri, authSource=src, serverSelectionTimeoutMS=4000, directConnection=dc_val)
+                    temp_client = MongoClient(target_uri, authSource=src, directConnection=dc_val, **safe_opts)
                     temp_client.admin.command("ping")
                     client = temp_client
                     connected = True
@@ -1894,8 +1921,8 @@ def sync_configs():
                                     username=creds["username"],
                                     password=p_val,
                                     authSource=src,
-                                    serverSelectionTimeoutMS=4000,
                                     directConnection=dc_val,
+                                    **safe_opts,
                                 )
                                 temp_client.admin.command("ping")
                                 client = temp_client
@@ -1967,7 +1994,7 @@ def sync_configs():
             continue
 
         for name in matching_cols:
-            docs = [_jsonable(d) for d in client[database][name].find({}).limit(MAX_DOCS_PER_SNAPSHOT + 1)]
+            docs = [_jsonable(d) for d in client[database][name].find({}, max_time_ms=10000).limit(MAX_DOCS_PER_SNAPSHOT + 1)]
             truncated = len(docs) > MAX_DOCS_PER_SNAPSHOT
             docs = docs[:MAX_DOCS_PER_SNAPSHOT]
             payload_hash = hashlib.sha256(repr(sorted(docs, key=repr)).encode()).hexdigest()[:32]
