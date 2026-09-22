@@ -33,6 +33,7 @@ import {
 import { formatTime, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { showToast } from "@/components/ToastHost";
 
 const RANGES = [
@@ -173,7 +174,7 @@ export default function ServerDetail() {
   const [savingServer, setSavingServer] = useState(false);
 
   // Tabbed layout + compact filter state (handy with many ports / backups / logs)
-  const [activeTab, setActiveTab] = useState<"overview" | "services" | "widgets" | "backups" | "keys" | "logs">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "services" | "backups" | "keys" | "logs">("overview");
   const [svcQuery, setSvcQuery] = useState("");
   const [svcStatus, setSvcStatus] = useState<"all" | "running" | "stopped" | "disabled">("all");
   const [svcPage, setSvcPage] = useState(0);
@@ -216,6 +217,12 @@ export default function ServerDetail() {
   const [triggeringWidgets, setTriggeringWidgets] = useState(false);
   const [widgetTemplates, setWidgetTemplates] = useState<WidgetTemplate[] | null>(null);
   const [templatePick, setTemplatePick] = useState("");
+
+  // Summary Request Modal state
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [summaryWindowMinutes, setSummaryWindowMinutes] = useState(60);
+  const [sendingSummary, setSendingSummary] = useState(false);
   const [runtimeTemplates, setRuntimeTemplates] = useState<AgentRuntimeTemplate[] | null>(null);
   const [runtimePick, setRuntimePick] = useState("");
   const [runtimeTplName, setRuntimeTplName] = useState("");
@@ -810,41 +817,75 @@ export default function ServerDetail() {
     }
   }
 
-  function openAddWidget() {
-    void loadAgentConfig();
-    const list = (agentCfg?.custom_widgets ?? []).map((w) => ({ ...w }));
-    list.push({
-      name: "",
-      database: "",
-      collection: "",
-      enabled: true,
-      poll_interval_seconds: 60,
-      window_minutes: 60,
-      group_by_field: "upload_status",
-      time_field: "created_at",
-      max_groups: 10,
-      alert_threshold_percent: 50,
-      alert_window_minutes: 15,
-      include_values: [],
-      exclude_values: [],
-      template_id: null,
-      template_name: null,
-    });
-    setWidgetDraft(list);
-    const incMap: Record<number, string> = {};
-    const excMap: Record<number, string> = {};
-    list.forEach((w, idx) => {
-      incMap[idx] = (w.include_values ?? []).join(", ");
-      excMap[idx] = (w.exclude_values ?? []).join(", ");
-    });
-    setWidgetIncludeRaw(incMap);
-    setWidgetExcludeRaw(excMap);
-    setTemplatePick("");
-    apiFetch<WidgetTemplate[]>("/widgets/templates")
-      .then(setWidgetTemplates)
-      .catch(() => setWidgetTemplates([]));
-    setWidgetCfgOpen(true);
+  async function openSummaryModal() {
+    setSummaryModalOpen(true);
+    try {
+      const tpls = await apiFetch<WidgetTemplate[]>("/widgets/templates");
+      setWidgetTemplates(tpls);
+      if (tpls && tpls.length > 0) {
+        if (!selectedTemplateId || !tpls.some((t) => t.id === selectedTemplateId)) {
+          setSelectedTemplateId(tpls[0].id);
+          setSummaryWindowMinutes(tpls[0].window_minutes || 60);
+        }
+      }
+    } catch {
+      setWidgetTemplates([]);
+    }
   }
+
+  function handleTemplateSelect(tplId: string) {
+    setSelectedTemplateId(tplId);
+    const t = widgetTemplates?.find((x) => x.id === tplId);
+    if (t) {
+      setSummaryWindowMinutes(t.window_minutes || 60);
+    }
+  }
+
+  async function handleSendSummary() {
+    if (!id || !selectedTemplateId) return;
+    const t = widgetTemplates?.find((x) => x.id === selectedTemplateId);
+    if (!t) return;
+    setSendingSummary(true);
+    try {
+      const existingWidgets = (agentCfg?.custom_widgets ?? []).filter((w) => w.name !== t.name);
+      const widgetSpec: CustomWidgetSpec = {
+        name: t.name,
+        database: t.database,
+        collection: t.collection,
+        enabled: true,
+        poll_interval_seconds: 60,
+        window_minutes: summaryWindowMinutes || t.window_minutes || 60,
+        group_by_field: t.group_by_field || "upload_status",
+        time_field: t.time_field || "created_at",
+        max_groups: t.max_groups || 10,
+        alert_threshold_percent: 50,
+        alert_window_minutes: 15,
+        include_values: t.include_values || [],
+        exclude_values: t.exclude_values || [],
+        template_id: t.id,
+        template_name: t.name,
+      };
+      const updatedWidgets = [...existingWidgets, widgetSpec];
+
+      const saved = await apiFetch<AgentConfig>(`/agent-config/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ custom_widgets: updatedWidgets }),
+      });
+      setAgentCfg(saved);
+      setSummaryModalOpen(false);
+
+      await triggerWidgetsNow();
+    } catch (err) {
+      showToast({
+        severity: "critical",
+        title: "Failed to send summary request",
+        message: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setSendingSummary(false);
+    }
+  }
+
 
   async function loadWidgetHistory(name: string, force = false) {
     if (!id) return;
@@ -1820,15 +1861,8 @@ export default function ServerDetail() {
             variant="outline"
             size="sm"
             disabled={triggeringWidgets}
-            onClick={() => {
-              if ((agentCfg?.custom_widgets ?? []).length === 0) {
-                setActiveTab("widgets");
-                openAddWidget();
-              } else {
-                void triggerWidgetsNow();
-              }
-            }}
-            title={(agentCfg?.custom_widgets ?? []).length === 0 ? "Configure widgets under the Widgets tab first" : "Send summary request to site agent to query and return widget data"}
+            onClick={() => void openSummaryModal()}
+            title="Select a widget template and send summary request to the site agent"
             className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
           >
             {triggeringWidgets ? (
@@ -1881,7 +1915,6 @@ export default function ServerDetail() {
           [
             { id: "overview", label: "Overview" },
             { id: "services", label: `Services (${svcCounts.total})` },
-            { id: "widgets", label: `Widgets (${(agentCfg?.custom_widgets ?? []).length})` },
             { id: "backups", label: `Backups (${backupCollCount})` },
             { id: "keys", label: `Keys (${keys.length})` },
             { id: "logs", label: `Logs (${siteAlerts.length > 0 ? siteAlerts.length : agentLogTotal})` },
@@ -2216,7 +2249,6 @@ export default function ServerDetail() {
       {/* Data widgets on overview — Bar / Pie / Trend per widget */}
       {(() => {
          const defs = agentCfg?.custom_widgets ?? [];
-         if (defs.length === 0) return null;
          const defByName = new Map(defs.map((d) => [d.name, d]));
          const activeNames = new Set(defs.map((d) => d.name));
          const activeSamples = (widgets ?? []).filter((s) => activeNames.has(s.widget_name));
@@ -2229,7 +2261,58 @@ export default function ServerDetail() {
             const bn = (b as { def?: CustomWidgetSpec; sample?: WidgetSample }).def?.name ?? ((b as { sample?: WidgetSample }).sample?.widget_name ?? "");
             return an.localeCompare(bn);
           });
-         if (entries.length === 0) return null;
+
+        if (entries.length === 0) {
+          return (
+            <Card>
+              <CardHeader className="flex-col gap-1">
+                <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-sm">Data widgets (0)</CardTitle>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      On-demand tallies queried from site MongoDB (zero background DB load).
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={triggeringWidgets}
+                    onClick={() => void openSummaryModal()}
+                    className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-xs"
+                  >
+                    <Send className="h-3.5 w-3.5 text-emerald-400" />
+                    Send summary request
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-10 px-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-400">
+                    <Send className="h-6 w-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-200">
+                      No summary data requested yet
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400 max-w-md">
+                      Click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> to select a data widget template and ask the site agent to query and return summary tallies.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={triggeringWidgets}
+                    onClick={() => void openSummaryModal()}
+                    className="mt-2 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
+                  >
+                    <Send className="h-4 w-4" />
+                    Send summary request
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        }
+
         return (
           <Card>
             <CardHeader className="flex-col gap-1">
@@ -2244,9 +2327,9 @@ export default function ServerDetail() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={triggeringWidgets || defs.length === 0}
-                    onClick={() => void triggerWidgetsNow()}
-                    title="Send summary request to site agent to query and return widget data"
+                    disabled={triggeringWidgets}
+                    onClick={() => void openSummaryModal()}
+                    title="Select a widget template and send summary request to the site agent"
                     className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 text-xs"
                   >
                     {triggeringWidgets ? (
@@ -2261,9 +2344,17 @@ export default function ServerDetail() {
                       </>
                     )}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setActiveTab("widgets")}>
-                    Manage widgets
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
+                      className="gap-1 text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Manage
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -2355,7 +2446,7 @@ export default function ServerDetail() {
                             size="sm"
                             variant="ghost"
                             disabled={triggeringWidgets}
-                            onClick={() => void triggerWidgetsNow()}
+                            onClick={() => void openSummaryModal()}
                             className="text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-7 gap-1"
                           >
                             <Send className="h-3 w-3" />
@@ -2913,256 +3004,7 @@ export default function ServerDetail() {
       </Card>
       )}
 
-      {activeTab === "widgets" && (
-      <Card>
-        <CardHeader className="flex-col gap-2">
-          <div className="flex w-full flex-row flex-wrap items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-sm">
-                Custom data widgets ({(agentCfg?.custom_widgets ?? []).length})
-              </CardTitle>
-              <p className="mt-0.5 text-xs text-slate-500">
-                On-demand tallies queried from site MongoDB (runs only when requested, zero background DB load).
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {isAdmin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openAddWidget()}
-                  title="Add a new custom data widget"
-                  className="gap-1 border-slate-700 hover:border-slate-600 hover:bg-slate-800"
-                >
-                  <Plus className="h-3.5 w-3.5 text-sky-400" />
-                  Add widget
-                </Button>
-              )}
-              {(agentCfg?.custom_widgets ?? []).length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { void loadAgentConfig(); openWidgetCfg(); }}
-                  title="Manage existing widget configurations"
-                  className="gap-1 text-xs"
-                >
-                  <Settings2 className="h-3.5 w-3.5 text-slate-400" />
-                  Manage
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={triggeringWidgets || (agentCfg?.custom_widgets ?? []).length === 0}
-                onClick={() => void triggerWidgetsNow()}
-                title={(agentCfg?.custom_widgets ?? []).length === 0 ? "Add at least one widget first" : "Send summary request to site agent to query and return widget data"}
-                className="gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-              >
-                {triggeringWidgets ? (
-                  <>
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                    Sending summary request...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-3.5 w-3.5 text-emerald-400" />
-                    Send summary request
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!widgets ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-44 w-full rounded-xl" />
-              ))}
-            </div>
-          ) : (() => {
-            const defs = agentCfg?.custom_widgets ?? [];
-            const activeNames = new Set(defs.map((d) => d.name));
-            const displayedWidgets = (widgets ?? []).filter((w) => activeNames.has(w.widget_name));
-            if (defs.length === 0) {
-              return (
-                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-12 px-6 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 border border-slate-800 text-slate-400">
-                    <Plus className="h-6 w-6 text-slate-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-200">
-                      No custom widgets configured
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400 max-w-md">
-                      Data widgets are blank for all sites. Click the <span className="font-semibold text-sky-400">+ Add widget</span> button to add a widget and save it, then click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> to ask the site agent for data.
-                    </p>
-                  </div>
-                  {isAdmin && (
-                    <Button size="sm" onClick={() => openAddWidget()} className="mt-2 gap-1.5 bg-sky-600 hover:bg-sky-500 text-white font-medium shadow-sm">
-                      <Plus className="h-4 w-4" />
-                      Add widget
-                    </Button>
-                  )}
-                </div>
-              );
-            }
-            if (displayedWidgets.length === 0) {
-              return (
-                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/40 py-12 px-6 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-400">
-                    <Send className="h-6 w-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-200">
-                      {defs.length} widget{defs.length > 1 ? "s" : ""} configured (Awaiting summary request)
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400 max-w-md">
-                      The site agent does not query MongoDB automatically. Click <span className="font-semibold text-emerald-400">&ldquo;Send summary request&rdquo;</span> below so the agent executes the query and returns the asked data.
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    disabled={triggeringWidgets}
-                    onClick={() => void triggerWidgetsNow()}
-                    className="mt-2 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm"
-                  >
-                    {triggeringWidgets ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Sending summary request...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        Send summary request
-                      </>
-                    )}
-                  </Button>
-                </div>
-              );
-            }
-            return (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[...displayedWidgets].sort((a, b) => a.widget_name.localeCompare(b.widget_name)).map((w) => {
-                  const state = widgetState(w);
-                  const def = agentCfg?.custom_widgets?.find((x) => x.name === w.widget_name);
-                  const entries = Object.entries(w.groups ?? {}).sort((a, b) => b[1] - a[1]);
-                  return (
-                    <div
-                      key={w.widget_name}
-                      className={cn(
-                        "flex flex-col gap-3 rounded-xl border bg-slate-950/40 p-4",
-                        state === "error"
-                          ? "border-red-500/40"
-                          : state === "stale"
-                            ? "border-amber-500/30"
-                            : "border-slate-800/70"
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-100" title={w.widget_name}>
-                            {w.widget_name}
-                          </p>
-                          <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={`${w.database}.${w.collection}`}>
-                            {w.database}.{w.collection} · last {w.window_minutes}m
-                          </p>
-                          {(def?.include_values?.length || def?.exclude_values?.length) ? (
-                            <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px]">
-                              {def.include_values && def.include_values.length > 0 && (
-                                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-sky-400 border border-sky-500/20" title={`Include: ${def.include_values.join(", ")}`}>
-                                  inc: {def.include_values.join(", ")}
-                                </span>
-                              )}
-                              {def.exclude_values && def.exclude_values.length > 0 && (
-                                <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-rose-400 border border-rose-500/20" title={`Exclude: ${def.exclude_values.join(", ")}`}>
-                                  exc: {def.exclude_values.join(", ")}
-                                </span>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                        <span
-                          className={cn(
-                            "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                            state === "error"
-                              ? "bg-red-500/10 text-red-300"
-                              : state === "stale"
-                                ? "bg-amber-500/10 text-amber-300"
-                                : "bg-emerald-500/10 text-emerald-300"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full",
-                              state === "error"
-                                ? "bg-red-400"
-                                : state === "stale"
-                                  ? "bg-amber-400"
-                                  : "bg-emerald-400"
-                            )}
-                          />
-                          {state === "error" ? "Error" : state === "stale" ? "Stale" : "Live"}
-                        </span>
-                      </div>
 
-                      {w.error ? (
-                        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
-                          Agent reported: {w.error}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-extrabold tracking-tight text-slate-50">
-                              {w.total.toLocaleString()}
-                            </span>
-                            <span className="text-xs text-slate-500">events</span>
-                          </div>
-                          {entries.length === 0 ? (
-                            <p className="text-xs text-slate-500">No events in this window.</p>
-                          ) : (
-                            <div className="flex flex-col gap-1.5">
-                              {entries.map(([label, count], i) => {
-                                const pct = w.total > 0 ? Math.min(100, Math.round((count / w.total) * 100)) : 0;
-                                return (
-                                  <div key={label} className="flex flex-col gap-1">
-                                    <div className="flex items-center justify-between text-xs">
-                                      <span className="truncate font-mono text-slate-300" title={label}>
-                                        {label || "(blank)"}
-                                      </span>
-                                      <span className="ml-2 shrink-0 font-mono text-slate-400">
-                                        {count.toLocaleString()} · {pct}%
-                                      </span>
-                                    </div>
-                                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                                      <div
-                                        className={cn("h-full rounded-full transition-all duration-500", groupColor(label, i))}
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 font-mono text-[10px] text-slate-500">
-                        <span className="truncate">collected {formatTime(w.collected_at)}</span>
-                        <span className="shrink-0">{widgetRangeLabel(w)}</span>
-                        <span className="shrink-0 text-emerald-400 font-medium">on-demand</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
-      )}
 
       {activeTab === "keys" && (
       <Card>
@@ -5019,6 +4861,146 @@ export default function ServerDetail() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Send Summary Request Modal with shadcn Select */}
+      {summaryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="flex w-full max-w-md flex-col rounded-xl border border-slate-700/80 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Send className="h-4 w-4 text-emerald-400" />
+                Send Summary Request
+              </CardTitle>
+              <button
+                type="button"
+                onClick={() => setSummaryModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              Select a data widget template. The site agent will execute the query once and display the summary tallies on this overview screen.
+            </p>
+
+            <div className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs text-slate-300 font-medium">Select Data Widget Template</Label>
+                {widgetTemplates === null ? (
+                  <Skeleton className="h-9 w-full" />
+                ) : widgetTemplates.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-700 p-3 text-center text-xs text-slate-400">
+                    No widget templates found in the library. Create templates under{" "}
+                    <Link to="/templates" className="text-emerald-400 underline hover:text-emerald-300">
+                      Templates
+                    </Link>{" "}
+                    first.
+                  </div>
+                ) : (
+                  <Select value={selectedTemplateId} onValueChange={handleTemplateSelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a data widget template..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {widgetTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name} · {t.database}.{t.collection}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Selected template details */}
+              {(() => {
+                const t = widgetTemplates?.find((x) => x.id === selectedTemplateId);
+                if (!t) return null;
+                return (
+                  <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-200">{t.name}</span>
+                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
+                        {t.database}.{t.collection}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 font-mono text-[11px] text-slate-400 pt-1">
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase font-sans">Group By Field</span>
+                        <span className="text-slate-300 truncate block">{t.group_by_field}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px] uppercase font-sans">Time Field</span>
+                        <span className="text-slate-300 truncate block">{t.time_field}</span>
+                      </div>
+                    </div>
+
+                    {((t.include_values && t.include_values.length > 0) || (t.exclude_values && t.exclude_values.length > 0)) && (
+                      <div className="flex flex-col gap-1 border-t border-slate-800/80 pt-1.5 font-mono text-[10px]">
+                        {t.include_values && t.include_values.length > 0 && (
+                          <div className="text-sky-400 truncate">
+                            <span className="text-slate-500 uppercase font-sans">Inc:</span> {t.include_values.join(", ")}
+                          </div>
+                        )}
+                        {t.exclude_values && t.exclude_values.length > 0 && (
+                          <div className="text-rose-400 truncate">
+                            <span className="text-slate-500 uppercase font-sans">Exc:</span> {t.exclude_values.join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1 border-t border-slate-800/80 pt-2">
+                      <Label className="text-[11px] text-slate-300">Lookback Time Window (minutes)</Label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10080}
+                        value={summaryWindowMinutes}
+                        onChange={(e) => setSummaryWindowMinutes(Number(e.target.value) || 60)}
+                        className="h-8 w-full rounded-md border border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500"
+                      />
+                      <span className="text-[10px] text-slate-500">
+                        Agent queries documents from the last {summaryWindowMinutes} minutes
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSummaryModalOpen(false)}
+                  disabled={sendingSummary}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!selectedTemplateId || sendingSummary}
+                  onClick={() => void handleSendSummary()}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 font-medium shadow-sm"
+                >
+                  {sendingSummary ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      Send
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
