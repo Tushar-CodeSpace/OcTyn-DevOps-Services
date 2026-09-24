@@ -200,6 +200,7 @@ async def ingest_metric(
         )
     agent_cfg = app_settings.get_agent_config(server_id)
     trig_w_id = str(agent_cfg.get("trigger_widgets_id", ""))
+    trig_w_name = str(agent_cfg.get("trigger_widget_name", ""))
     resp = MetricIngestResponse(
         success=True,
         config_sync_enabled=bool(agent_cfg["config_sync_enabled"]),
@@ -211,10 +212,13 @@ async def ingest_metric(
             agent_cfg["connectivity_poll_interval_seconds"]
         ),
         trigger_sync_id=str(agent_cfg.get("trigger_sync_id", "")),
-        trigger_widgets_id=trig_w_id,
+        trigger_widgets_id=trig_w_id or None,
+        trigger_widget_name=trig_w_name or None,
     )
-    if trig_w_id:
-        app_settings.update_agent_config(server_id, {"trigger_widgets_id": ""})
+    if trig_w_id or trig_w_name:
+        app_settings.update_agent_config(
+            server_id, {"trigger_widgets_id": "", "trigger_widget_name": ""}
+        )
     return resp
 
 

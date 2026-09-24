@@ -58,3 +58,4 @@ class MetricIngestResponse(BaseModel):
     connectivity_poll_interval_seconds: Optional[int] = None
     trigger_sync_id: Optional[str] = None
     trigger_widgets_id: Optional[str] = None
+    trigger_widget_name: Optional[str] = None

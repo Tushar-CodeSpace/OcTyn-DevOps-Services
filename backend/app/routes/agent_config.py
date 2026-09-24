@@ -30,9 +30,11 @@ async def get_agent_config(agent: dict = Depends(authenticate_agent)) -> AgentCo
     """Agent endpoint: return the effective runtime config for this agent's server."""
     sid = str(agent["server"]["_id"])
     cfg = app_settings.get_agent_config(sid)
-    if cfg.get("trigger_widgets_id"):
+    if cfg.get("trigger_widgets_id") or cfg.get("trigger_widget_name"):
         # One-time request: clear immediately upon delivery so it never repeats
-        app_settings.update_agent_config(sid, {"trigger_widgets_id": ""})
+        app_settings.update_agent_config(
+            sid, {"trigger_widgets_id": "", "trigger_widget_name": ""}
+        )
     return AgentConfig(**cfg)
 
 

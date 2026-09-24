@@ -312,6 +312,7 @@ def get_agent_config(server_id: str) -> dict:
         "custom_widgets": [w for w in (_sanitize_widget(t) for t in widgets) if w],
         "trigger_sync_id": str(override.get("trigger_sync_id", "")),
         "trigger_widgets_id": str(override.get("trigger_widgets_id", "")),
+        "trigger_widget_name": str(override.get("trigger_widget_name", "")),
         **scalars,
     }
 
@@ -408,7 +409,15 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
         "connectivity_poll_interval_seconds": (1, 3600),
     }
     list_keys = {"monitored_services", "config_collections", "connectivity_targets", "custom_widgets"}
-    str_keys = {"mongo_uri", "mongo_auth_source", "trigger_sync_id", "trigger_widgets_id", "runtime_template_id", "runtime_template_name"}
+    str_keys = {
+        "mongo_uri",
+        "mongo_auth_source",
+        "trigger_sync_id",
+        "trigger_widgets_id",
+        "trigger_widget_name",
+        "runtime_template_id",
+        "runtime_template_name",
+    }
     allowed = bool_keys | set(int_keys) | list_keys | str_keys
 
     for key, raw in patch.items():
@@ -437,12 +446,21 @@ def update_agent_config(server_id: str, patch: dict) -> dict:
             if len(raw) > 20:
                 raise ValueError("custom_widgets: at most 20 widgets per server")
             clean[key] = _normalize_widgets(raw)
-        else:  # mongo_uri / mongo_auth_source
+        else:  # mongo_uri / mongo_auth_source / str_keys
             clean[key] = str(raw).strip()
 
     if clean:
+        from app.database.connection import parse_id
+        sid = parse_id(server_id)
+        filter_query = (
+            {"$or": [{"server_id": sid}, {"server_id": str(server_id)}]}
+            if sid
+            else {"server_id": str(server_id)}
+        )
+        existing = db.server_configs().find_one(filter_query)
+        target_id = existing["server_id"] if existing else str(server_id)
         db.server_configs().update_one(
-            {"server_id": server_id},
+            {"server_id": target_id},
             {"$set": {**clean, "updated_at": datetime.now(timezone.utc)}},
             upsert=True,
         )

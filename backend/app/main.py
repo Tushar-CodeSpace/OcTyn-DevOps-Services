@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import socketio
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.settings import settings
@@ -76,6 +77,12 @@ async def normalize_duplicate_api_prefix(request: Request, call_next):
     if request.url.path.startswith("/api/v1/api/v1/"):
         request.scope["path"] = "/api/v1/" + request.url.path[len("/api/v1/api/v1/"):]
     return await call_next(request)
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
